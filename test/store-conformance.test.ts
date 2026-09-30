@@ -345,6 +345,28 @@ for (const driver of DRIVERS) {
     await store.close();
   });
 
+  t("edge soft-delete covers tracker edges like any other intra-source edge", async () => {
+    // A program tracker reports `parent` (it is the `from` endpoint) and `blocks`
+    // (it is NEITHER endpoint, so the provenance is `neither`). To the store both
+    // are plain intra-source rows: the per-source sweep tombstones whichever was
+    // not re-seen, whatever its type or provenance.
+    const store = await fresh();
+    const issue = (externalId: string) => ({ sourceId: SOURCE, externalId });
+    const parent = fixtureEdge({ type: "parent", from: issue("TRACKER"), to: issue("ISSUE_1"), fromState: "open", toState: "closed", lifecycle: null });
+    const blocks = fixtureEdge({
+      type: "blocks", from: issue("ISSUE_1"), to: issue("ISSUE_2"), fromState: "closed", toState: "open", lifecycle: null, discoveredFrom: "neither",
+    });
+    await store.upsertEdge(parent, "2026-01-01T00:00:00Z");
+    await store.upsertEdge(blocks, "2026-01-01T00:00:00Z");
+    assert.deepEqual((await store.listLiveEdges()).map((e) => [e.type, e.lifecycle]).sort(), [["blocks", null], ["parent", null]]);
+
+    // The next full sweep re-sees the parent edge only: the ISSUE_2 row left the tracker.
+    await store.upsertEdge(parent, "2026-06-01T00:00:00Z");
+    assert.equal(await store.softDeleteUnseenEdges(SOURCE, "2026-06-01T00:00:00Z", "2026-06-01T00:10:00Z"), 1);
+    assert.deepEqual((await store.listLiveEdges()).map((e) => e.type), ["parent"]);
+    await store.close();
+  });
+
   t("review-thread detail rows upsert, list, tombstone, and revive", async () => {
     const store = await fresh();
     await store.upsertReviewThread(fixtureReviewThread(), "2026-06-01T00:00:00Z");

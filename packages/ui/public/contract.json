@@ -641,6 +641,46 @@
       "from_state": "open",
       "to_state": "open",
       "lifecycle": "declared"
+    },
+    {
+      "type": "parent",
+      "from": "github:github.com|ISSUE_c",
+      "to": "github:github.com|ISSUE_a",
+      "from_state": "open",
+      "to_state": "closed",
+      "lifecycle": null
+    },
+    {
+      "type": "parent",
+      "from": "github:github.com|ISSUE_c",
+      "to": "github:github.com|ISSUE_e",
+      "from_state": "open",
+      "to_state": "open",
+      "lifecycle": null
+    },
+    {
+      "type": "parent",
+      "from": "github:github.com|ISSUE_c",
+      "to": "github:github.com|ISSUE_UNTRACKED_99",
+      "from_state": "open",
+      "to_state": null,
+      "lifecycle": null
+    },
+    {
+      "type": "blocks",
+      "from": "github:github.com|ISSUE_a",
+      "to": "github:github.com|ISSUE_e",
+      "from_state": "closed",
+      "to_state": "open",
+      "lifecycle": null
+    },
+    {
+      "type": "blocks",
+      "from": "github:github.com|ISSUE_e",
+      "to": "github:github.com|ISSUE_UNTRACKED_99",
+      "from_state": "open",
+      "to_state": null,
+      "lifecycle": null
     }
   ],
   "activities": [
@@ -7865,7 +7905,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     },
@@ -7892,7 +7933,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     },
@@ -7921,7 +7963,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     },
@@ -7947,7 +7990,8 @@
         },
         "by_lifecycle": {
           "fulfilled": 1,
-          "declared": 3
+          "declared": 3,
+          "other": 4
         }
       }
     },
@@ -7961,21 +8005,22 @@
         "edge_filter": "no_mentions"
       },
       "stats": {
-        "items": 7,
+        "items": 8,
         "by_state": {
           "merged": 1,
           "closed": 1,
-          "open": 4,
+          "open": 5,
           "unknown": 1
         },
         "by_kind": {
           "change_request": 3,
-          "issue": 3,
+          "issue": 4,
           "unknown": 1
         },
         "by_lifecycle": {
           "fulfilled": 1,
-          "declared": 3
+          "declared": 3,
+          "other": 4
         }
       }
     },
@@ -8001,7 +8046,8 @@
         },
         "by_lifecycle": {
           "fulfilled": 1,
-          "declared": 3
+          "declared": 3,
+          "other": 4
         }
       }
     },
@@ -8015,21 +8061,22 @@
         "edge_filter": "no_mentions"
       },
       "stats": {
-        "items": 7,
+        "items": 8,
         "by_state": {
           "merged": 1,
           "closed": 1,
-          "open": 4,
+          "open": 5,
           "unknown": 1
         },
         "by_kind": {
           "change_request": 3,
-          "issue": 3,
+          "issue": 4,
           "unknown": 1
         },
         "by_lifecycle": {
           "fulfilled": 1,
-          "declared": 3
+          "declared": 3,
+          "other": 4
         }
       }
     },
@@ -8056,7 +8103,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     },
@@ -8085,7 +8133,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     },
@@ -8112,7 +8161,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     },
@@ -8141,7 +8191,8 @@
         "by_lifecycle": {
           "fulfilled": 1,
           "declared": 3,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         }
       }
     }
@@ -8241,12 +8292,15 @@
           "approved": 1
         },
         "by_edge_type": {
-          "closes": 4
+          "closes": 4,
+          "parent": 3,
+          "blocks": 2
         },
         "by_edge_lifecycle": {
           "declared": 2,
           "fulfilled": 1,
-          "broken": 1
+          "broken": 1,
+          "other": 5
         },
         "by_review_state": {
           "approved": 1,
@@ -8305,10 +8359,12 @@
               "pushed": 1
             },
             "by_edge_type": {
-              "closes": 1
+              "closes": 1,
+              "blocks": 1
             },
             "by_edge_lifecycle": {
-              "declared": 1
+              "declared": 1,
+              "other": 1
             },
             "by_review_state": {},
             "by_ci_state": {},
@@ -8362,12 +8418,15 @@
               "approved": 1
             },
             "by_edge_type": {
-              "closes": 3
+              "closes": 3,
+              "parent": 3,
+              "blocks": 1
             },
             "by_edge_lifecycle": {
               "declared": 1,
               "fulfilled": 1,
-              "broken": 1
+              "broken": 1,
+              "other": 4
             },
             "by_review_state": {
               "approved": 1,

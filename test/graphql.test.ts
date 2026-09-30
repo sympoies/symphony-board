@@ -1,6 +1,6 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { makeGqlClient } from "../src/sources/graphql.ts";
+import { GqlResponseError, makeGqlClient } from "../src/sources/graphql.ts";
 import { resetAuthTokenSelectionStateForTests } from "../src/sources/http.ts";
 
 // Every GraphQL request both providers make funnels through makeGqlClient, so
@@ -155,7 +155,7 @@ test("GitHub GraphQL stops after the bounded transient retry budget", async () =
 
 test("GraphQL-level errors fail the call even when partial data is present", async () => {
   // The GraphQL spec allows { data, errors } simultaneously. We deliberately
-  // DISCARD the partial data and throw: a half-seen sweep must read as a failed
+  // never RETURN the partial data, and throw: a half-seen sweep must read as a failed
   // source (which never tombstones), not as a complete-but-smaller result.
   mockFetch(() =>
     new Response(
@@ -165,6 +165,26 @@ test("GraphQL-level errors fail the call even when partial data is present", asy
   );
   const gql = makeGqlClient("https://api.github.com/graphql", "tok");
   await assert.rejects(() => gql("query { x }"), /GraphQL errors: boom; denied/);
+});
+
+test("a GraphQL-level error carries the provider's structured errors and partial data", async () => {
+  // Still a failed call (see above): nothing is unwrapped implicitly. A caller
+  // that EXPECTS unresolvable fields — the GitHub tracker-ref lookup — reads
+  // these to tell "that target does not exist" from a real failure.
+  const data = { t0: { issueOrPullRequest: { id: "I_1", state: "OPEN" } }, t1: { issueOrPullRequest: null } };
+  const errors = [{ type: "NOT_FOUND", path: ["t1", "issueOrPullRequest"], message: "Could not resolve to an issue or pull request with the number of 9." }];
+  mockFetch(() => new Response(JSON.stringify({ data, errors }), { status: 200 }));
+  const gql = makeGqlClient("https://api.github.com/graphql", "tok");
+  await assert.rejects(
+    () => gql("query { x }"),
+    (err: unknown) => {
+      assert.ok(err instanceof GqlResponseError, "a GraphQL-level failure is a GqlResponseError");
+      assert.match(err.message, /GraphQL errors: Could not resolve to an issue or pull request/);
+      assert.deepEqual(err.errors, errors);
+      assert.deepEqual(err.data, data);
+      return true;
+    },
+  );
 });
 
 test("an empty errors array is not an error", async () => {

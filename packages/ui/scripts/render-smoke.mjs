@@ -1891,8 +1891,10 @@ try {
 
   // Focus an item whose last activity predates the one-day overview. Canonical
   // history still loads it, and the useful range mismatch must remain visible
-  // after the low-value `not drawn` cue is removed.
-  const offWindowFocusRef = MENTION_ONLY_FOCUS_REF;
+  // after the low-value `not drawn` cue is removed. PR_f qualifies: its only
+  // relation is to ISSUE_e, which the tracker's `parent` edge from the freshly
+  // updated ISSUE_c now draws into that overview as an endpoint.
+  const offWindowFocusRef = "github:github.com|PR_f";
   await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(offWindowFocusRef)}'` });
   await waitHtml("document.querySelector('.graph-list-card.active .glc-offwindow') && [...document.querySelectorAll('.glc-note')].some((note) => note.textContent?.includes('outside the current'))");
   const graphOffWindowState = (await send("Runtime.evaluate", {
@@ -1907,13 +1909,17 @@ try {
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-03-01");
   await waitHtml("document.querySelector('.react-flow__node') && !document.body.innerText.includes('Loading range')");
 
-  // The sample contract contains four disconnected structural islands. Measure
-  // their rendered bounds in both algorithms and require the packer's 72-unit
-  // gap after accounting for React Flow's fitView scale.
+  // The sample contract contains two disconnected structural islands: the
+  // ISSUE_c tracker's `parent` / `blocks` edges join every GitHub item into one,
+  // and the GitLab pair is the other. Measure their rendered bounds in both
+  // algorithms and require the packer's 72-unit gap after accounting for React
+  // Flow's fitView scale.
   const expectedGraphComponents = [
-    ["github:github.com|PR_b", "github:github.com|ISSUE_a", "github:github.com|ISSUE_UNTRACKED_99"],
-    ["github:github.com|PR_d", "github:github.com|ISSUE_c"],
-    ["github:github.com|PR_f", "github:github.com|ISSUE_e"],
+    [
+      "github:github.com|PR_b", "github:github.com|ISSUE_a", "github:github.com|ISSUE_UNTRACKED_99",
+      "github:github.com|PR_d", "github:github.com|ISSUE_c",
+      "github:github.com|PR_f", "github:github.com|ISSUE_e",
+    ],
     ["gitlab:gitlab.com|gid://gitlab/MergeRequest/201", "gitlab:gitlab.com|gid://gitlab/Issue/101"],
   ];
   const measureGraphComponentPacking = async (layout) =>

@@ -48,7 +48,8 @@ Toolchain:
 schema/sqlite/                SQLite canonical DB DDL
 schema/postgres/              Postgres canonical DB DDL
 src/config.ts                 config loading and token env-var resolution
-src/model/                    pure canonical helpers: refs, labels, edges, types
+src/model/                    pure canonical helpers: refs, labels, edges,
+                              tracker rows, types
 src/sources/                  provider fetchers and pure normalizers
 src/db/                       Store interface + SQLite/Postgres drivers
 src/sync-engine.ts            fetch -> raw -> normalize -> reconcile -> upsert
@@ -200,6 +201,11 @@ full list lives in the
 intentionally excludes React `.tsx` from the percentage because bundled browser
 coverage is not a useful source-level measurement for the component layer. The
 component layer is gated by render-smoke instead.
+
+`test/fixtures/tracker-row-grammar/` is copied unchanged from `agent-runtime-kit`
+`tests/fixtures/tracker-row-grammar/` (the program tracker row grammar's
+conformance corpus) and must not be edited here: some files depend on exact
+bytes, so refresh it by copying the directory again, never by re-saving a file.
 
 Provider API tests should prefer fixtures or dedicated throwaway projects over
 production repos. Live provider calls are useful for smoke validation but should

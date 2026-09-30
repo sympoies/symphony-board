@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.7.2`.
+Current contract version emitted by the backend: `4.7.3`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.7.2`. Important compatibility milestones:
+The current emitted contract is `4.7.3`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -129,6 +129,9 @@ The current emitted contract is `4.7.2`. Important compatibility milestones:
   merge commits, whose counts are measured against the first parent.
 - 4.7.2 documents optional `details.actor_avatar_url` on activity rows where
   the provider identifies the matching actor account; older rows omit it.
+- 4.7.3 documents the `parent` and `blocks` edge types the producer now emits
+  from a program tracker's phase table — each in one direction only, with
+  `lifecycle: null`. Edge `type` was already an open string.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

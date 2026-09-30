@@ -24,9 +24,35 @@ import {
   selectAvailableToken,
   traceAuthSelection,
   type AuthTokenInput,
+  type GitHubRateLimitInfo,
 } from "./http.ts";
 
 export type GqlClient = <T = any>(query: string, variables?: Record<string, unknown>) => Promise<T>;
+
+// One entry of a GraphQL response's `errors`. GitHub adds a machine-readable
+// `type` (NOT_FOUND, FORBIDDEN, RATE_LIMITED, ...) and the `path` of the field.
+export interface GqlErrorEntry {
+  message?: string;
+  type?: string;
+  path?: ReadonlyArray<string | number>;
+}
+
+// A response that carried GraphQL-level `errors`. The call still FAILS — the
+// client never returns a half-seen result on its own (see makeGqlClient) — but
+// the error keeps the provider's structured entries and whatever `data` came
+// with them, so a caller that expects some fields to be unresolvable (a lookup
+// of targets that may not exist) can tell that apart from a real failure.
+export class GqlResponseError extends ProviderHttpError {
+  readonly errors: readonly GqlErrorEntry[];
+  readonly data: unknown;
+
+  constructor(message: string, status: number, rateLimit: GitHubRateLimitInfo | null, errors: readonly GqlErrorEntry[], data: unknown) {
+    super(message, status, rateLimit);
+    this.name = "GqlResponseError";
+    this.errors = errors;
+    this.data = data;
+  }
+}
 
 export interface GqlClientOptions {
   timeoutMs?: number;
@@ -142,7 +168,13 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
         if (json.errors?.length) {
           const rawMessage = `GraphQL errors: ${json.errors.map((e: { message: string }) => e.message).join("; ")}`;
           const message = fallbackRepoAccessMessage(rawMessage, token, res.status, provider, tried.size > 1);
-          const err = new ProviderHttpError(message, res.status, provider === "github" ? githubRateLimitInfo(res.headers, message) : null);
+          const err = new GqlResponseError(
+            message,
+            res.status,
+            provider === "github" ? githubRateLimitInfo(res.headers, message) : null,
+            json.errors,
+            json.data ?? null,
+          );
           if (isGithubPrimaryRateLimit(provider, err)) {
             const until = primaryCooldownUntil(err.rateLimit!);
             blockedUntil.set(idx, until);
