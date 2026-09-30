@@ -29,10 +29,17 @@ export interface SpotlightLaneConfig {
   lead?: boolean;
   /** optional: list open items first and fold the rest behind a "Closed (N)" count. */
   foldClosed?: boolean;
+  /**
+   * optional: a lane of program trackers. Its cards show program progress, and
+   * it also lists the open trackers the producer pins outside the date range
+   * (window reason `program_tracker`). The lane's own match still applies to
+   * them, so a pinned item without the lane's label stays out.
+   */
+  program?: boolean;
 }
 
 export const SPOTLIGHT_LANES: SpotlightLaneConfig[] = [
-  { key: "trackers", label: "Trackers", hint: "issues labeled workflow::tracking", kind: "issue", anyLabel: ["workflow::tracking"], lead: true, foldClosed: true },
+  { key: "trackers", label: "Trackers", hint: "issues labeled workflow::tracking", kind: "issue", anyLabel: ["workflow::tracking"], lead: true, foldClosed: true, program: true },
   { key: "follow-up", label: "Follow-up", hint: "issues labeled workflow::follow-up", kind: "issue", anyLabel: ["workflow::follow-up"] },
   { key: "pr", label: "Change requests", hint: "open change requests", kind: "change_request", state: "open" },
 ];

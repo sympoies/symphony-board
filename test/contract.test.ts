@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContract } from "../src/contract/build.ts";
+import { buildContract, PROGRAM_TRACKER_PIN_LIMIT } from "../src/contract/build.ts";
+import { TRACKING_LABEL } from "../src/model/labels.ts";
 import { CONTRACT_VERSION } from "../src/contract/version.ts";
 import { validateContract } from "../src/contract/validate.ts";
 import { deriveActorKey } from "../src/model/actor.ts";
@@ -345,6 +346,135 @@ test("buildContract emits a windowed item set with endpoint closure and full tot
     [["o/old-linked", 1], ["o/old-unlinked", 1], ["o/recent", 1]],
     "settings counts are full repo totals, not loaded item counts",
   );
+});
+
+test("buildContract pins open program trackers outside the item window (4.8.0)", () => {
+  const SRC = "github:github.com";
+  const sources: SourceRow[] = [
+    { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const OLD = "2020-01-01T00:00:00Z";
+  const RECENT = "2026-06-07T00:00:00Z";
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "TRACKER_old", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 2, external_id: "CHILD_done", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 3, external_id: "CHILD_waiting", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 4, external_id: "CHILD_recent", state: "open", updated_at: RECENT }),
+    itemRow({ item_id: 5, external_id: "PR_open", kind: "change_request", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 6, external_id: "PR_merged", kind: "change_request", state: "merged", updated_at: OLD }),
+    itemRow({ item_id: 7, external_id: "TRACKER_closed", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 8, external_id: "CHILD_of_closed", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 9, external_id: "TRACKER_recent", state: "open", updated_at: RECENT }),
+    itemRow({ item_id: 10, external_id: "KID_a", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 11, external_id: "KID_b", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 12, external_id: "UNRELATED_old", state: "closed", updated_at: OLD }),
+    itemRow({ item_id: 13, external_id: "PHASE_unlabeled", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 14, external_id: "CHILD_of_unlabeled", state: "open", updated_at: OLD }),
+    itemRow({ item_id: 15, external_id: "OUTSIDER_old", state: "open", updated_at: OLD }),
+  ];
+  // TRACKER_old, TRACKER_closed, TRACKER_recent carry the tracking label;
+  // PHASE_unlabeled has a phase table (a `parent` edge) and no label.
+  const labels: LabelRow[] = [1, 7, 9].map((item_id) => ({ item_id, name: TRACKING_LABEL, scope: "workflow", color: null }));
+  const e = (type: string, from: string, to: string, from_state: string, to_state: string, lifecycle: string | null = null): EdgeRow =>
+    ({ type, from_source_id: SRC, from_external_id: from, to_source_id: SRC, to_external_id: to, from_state, to_state, lifecycle });
+  const edges: EdgeRow[] = [
+    e("parent", "PHASE_unlabeled", "CHILD_of_unlabeled", "open", "open"),
+    // Children of two different pinned trackers: pinned.
+    e("blocks", "CHILD_waiting", "KID_b", "open", "open"),
+    // From an item that is no pinned tracker's child into one that is: not pinned.
+    e("blocks", "OUTSIDER_old", "CHILD_waiting", "open", "open"),
+    e("blocks", "CHILD_done", "CHILD_of_unlabeled", "closed", "open"),
+    e("parent", "TRACKER_old", "CHILD_done", "open", "closed"),
+    e("parent", "TRACKER_old", "CHILD_waiting", "open", "open"),
+    e("parent", "TRACKER_old", "CHILD_recent", "open", "open"),
+    e("blocks", "CHILD_done", "CHILD_waiting", "closed", "open"),
+    e("closes", "PR_open", "CHILD_waiting", "open", "open", "declared"),
+    e("closes", "PR_merged", "CHILD_done", "merged", "closed", "fulfilled"),
+    e("mentions", "UNRELATED_old", "CHILD_done", "closed", "closed"),
+    e("parent", "TRACKER_closed", "CHILD_of_closed", "closed", "closed"),
+    e("parent", "TRACKER_recent", "KID_a", "open", "closed"),
+    e("parent", "TRACKER_recent", "KID_b", "open", "open"),
+    e("blocks", "KID_a", "KID_b", "closed", "open"),
+  ];
+
+  const env = buildContract({ sources, items, labels, edges, generatedAt: "2026-06-08T00:00:00.000Z" });
+  assert.deepEqual(validateContract(env), []);
+
+  const reasons = Object.fromEntries(env.items.map((it) => [it.external_id, it.window_reasons]));
+  assert.deepEqual(reasons, {
+    TRACKER_old: ["edge_endpoint", "program_tracker"],
+    CHILD_done: ["edge_endpoint"],
+    CHILD_waiting: ["edge_endpoint"],
+    CHILD_recent: ["primary", "edge_endpoint"],
+    TRACKER_recent: ["primary", "edge_endpoint", "program_tracker"],
+    KID_a: ["edge_endpoint"],
+    KID_b: ["edge_endpoint"],
+  }, "open labeled trackers are pinned with their children; a closed tracker, an unlabeled phase-table issue, a change request closing a child, and a non-child blocker are not");
+
+  const emitted = env.edges.map((edge) => `${edge.type}:${edge.from.split("|")[1]}>${edge.to.split("|")[1]}`).sort();
+  assert.deepEqual(emitted, [
+    "blocks:CHILD_done>CHILD_waiting",
+    "blocks:CHILD_waiting>KID_b",
+    "blocks:KID_a>KID_b",
+    "parent:TRACKER_old>CHILD_done",
+    "parent:TRACKER_old>CHILD_recent",
+    "parent:TRACKER_old>CHILD_waiting",
+    "parent:TRACKER_recent>KID_a",
+    "parent:TRACKER_recent>KID_b",
+  ], "pinned trackers bring their parent edges and the blocks edges whose two endpoints are both their children, nothing else");
+
+  // The pin adds support rows only: the primary window and every aggregate are
+  // the same totals a window without pinned trackers would report.
+  assert.equal(env.item_window?.primary_items, 2);
+  assert.equal(env.item_window?.edge_endpoint_items, 5);
+  assert.equal(env.item_window?.total_items, 15);
+  const board90 = env.aggregates?.find((a) => a.scope === "boardWindow" && a.window.days === 90);
+  assert.equal(board90?.stats.items, 2, "a pinned tracker is not a Board-window item");
+  assert.deepEqual(board90?.stats.by_state, { open: 2 });
+  assert.deepEqual(board90?.stats.by_lifecycle, { other: 3 }, "only the edges touching in-window items");
+  const graph90 = env.aggregates?.find((a) => a.scope === "graphWindow" && a.window.days === 90);
+  assert.equal(graph90?.stats.items, 5, "graph nodes of edges with an endpoint active in the window");
+  assert.deepEqual(graph90?.stats.by_lifecycle, { other: 3 });
+});
+
+test("buildContract caps the program tracker pin at the newest trackers", () => {
+  const SRC = "github:github.com";
+  const sources: SourceRow[] = [
+    { source_id: SRC, kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  // Two more labeled open trackers than the cap, all outside the window, one
+  // child each. The three oldest share one updated_at, so the id breaks the tie.
+  const count = PROGRAM_TRACKER_PIN_LIMIT + 2;
+  const name = (prefix: string, i: number) => `${prefix}${String(i).padStart(3, "0")}`;
+  const items: ItemRow[] = [itemRow({ item_id: 1, external_id: "ISSUE_recent", updated_at: "2026-06-07T00:00:00Z" })];
+  const labels: LabelRow[] = [];
+  const edges: EdgeRow[] = [];
+  for (let i = 0; i < count; i++) {
+    const updated_at = new Date(Date.UTC(2020, 0, 1) + Math.max(i, 2) * 86_400_000).toISOString();
+    items.push(itemRow({ item_id: 100 + i, external_id: name("T", i), state: "open", updated_at }));
+    items.push(itemRow({ item_id: 1000 + i, external_id: name("C", i), state: "closed", updated_at: "2019-01-01T00:00:00Z" }));
+    labels.push({ item_id: 100 + i, name: TRACKING_LABEL, scope: "workflow", color: null });
+    edges.push({ type: "parent", from_source_id: SRC, from_external_id: name("T", i), to_source_id: SRC, to_external_id: name("C", i), from_state: "open", to_state: "closed", lifecycle: null });
+  }
+  const input = { sources, items, edges, generatedAt: "2026-06-08T00:00:00.000Z" };
+  const env = buildContract({ ...input, labels });
+  const unpinned = buildContract({ ...input, labels: [] });
+
+  assert.deepEqual(validateContract(env), []);
+  const kept = [0, ...Array.from({ length: count - 3 }, (_, i) => i + 3)];
+  const pinned = env.items.filter((it) => it.window_reasons?.includes("program_tracker")).map((it) => it.external_id).sort();
+  assert.equal(pinned.length, PROGRAM_TRACKER_PIN_LIMIT);
+  assert.deepEqual(pinned, kept.map((i) => name("T", i)), "newest updated_at first; the id breaks a tie");
+  assert.deepEqual(
+    env.items.map((it) => it.external_id).filter((id) => id.startsWith("C")).sort(),
+    kept.map((i) => name("C", i)),
+    "a tracker beyond the cap brings no child row",
+  );
+  assert.equal(env.edges.length, PROGRAM_TRACKER_PIN_LIMIT);
+  assert.deepEqual(unpinned.items.map((it) => it.external_id), ["ISSUE_recent"], "without the label nothing is pinned");
+  assert.equal(env.item_window?.primary_items, 1);
+  assert.equal(unpinned.item_window?.primary_items, 1);
+  assert.deepEqual(env.aggregates, unpinned.aggregates, "the pin changes no aggregate");
 });
 
 test("buildContract emits repo metrics for the static default window", () => {

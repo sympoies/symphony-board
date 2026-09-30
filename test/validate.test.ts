@@ -82,6 +82,15 @@ test("an out-of-enum item state is rejected", () => {
   assert.ok(errors.some((e) => e.path === "/items/0/state" && /enum/.test(e.message)));
 });
 
+test("item window reasons accept program_tracker (4.8.0) and reject unknown reasons", () => {
+  const env: any = validEnvelope();
+  env.items[0].window_reasons = ["primary", "edge_endpoint", "program_tracker"];
+  assert.deepEqual(validateContract(env), []);
+  env.items[0].window_reasons = ["pinned"];
+  const errors = validateContract(env);
+  assert.ok(errors.some((e) => e.path === "/items/0/window_reasons/0" && /enum/.test(e.message)));
+});
+
 test("a wrong-typed field is rejected", () => {
   const env: any = validEnvelope();
   env.items[0].iid = "seven"; // schema: integer | null

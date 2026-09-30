@@ -40,6 +40,7 @@ import {
   deriveRepoOptions,
   applyVisibility,
   itemIsPrimaryWindow,
+  pinnedTrackerItems,
   buildColorIndex,
   resolveRepoColor,
   parseHashRoute,
@@ -64,6 +65,7 @@ import {
   type ReviewSort,
   type GraphNeighborhoodResponse,
 } from "./model.ts";
+import { programRollups } from "./program.ts";
 import {
   activityFacets,
   toggleActivityFacet,
@@ -1185,6 +1187,12 @@ export function App() {
     () => primaryItems.filter((i) => itemMatches(i, itemFilters)),
     [primaryItems, itemFilters],
   );
+  // Open program trackers outside the selected range, for the Board's Trackers
+  // lane only. Visibility and the item facets apply to them like to any card.
+  const pinnedTrackers = useMemo(
+    () => (visibleEnv ? pinnedTrackerItems(visibleEnv.items, itemFilters) : []),
+    [visibleEnv, itemFilters],
+  );
 
   // The Activity feed's facets (source/repo/kind/action) are route-backed — the
   // single source of truth shared by the content filter AND the visible chips,
@@ -1406,6 +1414,9 @@ export function App() {
   // doubles as the old linkedIds set: the card's "focus in graph" link shows ONLY
   // for entries here, since an item with no relationships has no node to focus.
   const boardRelationCounts = useMemo(() => relationCounts(visibleEnv?.edges ?? []), [visibleEnv]);
+  // Program progress per tracker, over the same full visible edge set: a facet
+  // that hides closed children must not change how far a program is.
+  const boardPrograms = useMemo(() => programRollups(itemsById, visibleEnv?.edges ?? []), [itemsById, visibleEnv]);
 
   // Toggle one shared item-facet value (board / graph / repo-analytics) in the
   // URL — the single source of truth, so the chips, the filtered views, reload,
@@ -2196,11 +2207,13 @@ export function App() {
       ) : (
         <FullBoard
           items={filteredItems}
+          pinnedTrackers={pinnedTrackers}
           edges={filteredEdgeDTOs}
           statuses={statuses}
           sourceKind={sourceKind}
           colorOf={colorOf}
           relationCounts={boardRelationCounts}
+          programs={boardPrograms}
           collapsed={collapsedColumns}
           peeked={peekedColumns}
           onToggleCollapse={toggleColumnCollapse}

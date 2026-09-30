@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.7.3`.
+Current emitted version: `4.8.0`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.8.0` | additive | `items[].window_reasons` value `program_tracker`; open labeled program trackers are always emitted | Item Window |
 | `4.7.3` | clarification | `parent` / `blocks` edges from program tracker phase tables | Edges |
 | `4.7.2` | clarification | `details.actor_avatar_url` on supported activity rows | Activities |
 | `4.7.1` | clarification | `details.additions` / `details.deletions` on commit activity rows | Activities |
@@ -39,7 +40,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.7.3",
+  "contract_version": "4.8.0",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -348,8 +349,11 @@ Important fields:
 - `window_reasons`: v2 inclusion reasons. `primary` means the item belongs to
   `item_window`; `edge_endpoint` means it is included to resolve an emitted edge
   endpoint; `activity_target` means it is included to resolve an emitted review
-  activity's target change request and current review-thread state. Missing
-  means "primary" when reading old v1 payloads.
+  activity's target change request and current review-thread state;
+  `program_tracker` (4.8.0+) means it is an open program tracker labeled
+  `workflow::tracking`, which is emitted whatever the window (see Item Window).
+  A row can carry several reasons. Missing means "primary" when reading old v1
+  payloads.
 
 The TypeScript DTOs describe what the producer emits. The JSON Schema is the
 normative validation surface.
@@ -408,7 +412,9 @@ window. The producer also includes tracked endpoint item rows for those edges so
 the UI graph can resolve nodes instead of treating known items as untracked
 refs. Relationships wholly outside the primary window are omitted from the
 payload, while their full lifecycle counts remain available through
-`aggregates[]`.
+`aggregates[]`. The one exception is the program tracker pin (see Item Window):
+a pinned tracker's `parent` edges, and the `blocks` edges whose two endpoints
+are both children of pinned trackers, are always emitted.
 
 ## Activities
 
@@ -881,7 +887,7 @@ The backend currently emits:
 - basis: `item_updated_at`
 - preset: 90 days relative to `generated_at`
 - included rows: every item in that primary window, plus tracked endpoints of
-  every emitted relationship edge
+  every emitted relationship edge, plus the pinned program trackers (below)
 
 Fields:
 
@@ -901,6 +907,51 @@ Choosing a different Board, Graph, Activity, or Commits date range requires
 another payload such as `/api/range`; the static v2 contract cannot synthesize
 missing historical cards or events. Consumers can still show true full totals
 from `aggregates[]`.
+
+Version `4.8.0` added the program tracker pin, in the static contract and in
+`/api/range` alike. A pinned tracker is an item that meets all three
+conditions:
+
+- its `state` is `open`;
+- it carries the label `workflow::tracking` (exact name);
+- it has at least one live outgoing `parent` edge.
+
+The label is part of the rule, not a display convention. A `parent` edge comes
+from a phase table, which is issue text that anyone who can open an issue in a
+tracked repository controls, and the pin puts rows into every window and every
+range response. Only a triager can set a label, so an issue author cannot
+select what is pinned. An open issue with a phase table and no label still
+reports its `parent` / `blocks` edges (see Edges); it is simply not pinned.
+
+One projection pins at most 100 trackers: the 100 with the newest `updated_at`,
+ties broken by ascending `id`. The cap is a guard on payload size, not an
+expected limit; a tracker beyond it is emitted only under the ordinary window
+rules.
+
+A pinned tracker is always emitted, whatever the window or range:
+
+- its row carries `program_tracker` in `window_reasons`, in addition to any
+  other reason. Outside the window it has no `primary` reason, so it is not a
+  primary Board item; being an edge endpoint it also carries `edge_endpoint`
+  and counts in `edge_endpoint_items`.
+- its `parent` edges, and the `blocks` edges whose two endpoints are both
+  children of pinned trackers, are emitted with it. The children therefore
+  arrive as `edge_endpoint` rows, exactly as they do for a tracker inside the
+  window; a child that is a change request brings its `review_threads[]` rows
+  like any other emitted change request.
+- nothing else is pinned: a closed tracker appears only when the window selects
+  it, and a `closes` edge into a child is emitted only under the ordinary
+  window rules. A consumer deriving "a change request is open for this child"
+  sees only the change requests the window loaded.
+- `primary_items`, `aggregates[]`, `repo_stats[]`, and `repo_metrics[]` are
+  unchanged by the pin: they are computed from the window or the full live set,
+  never from the emitted support rows.
+
+This is a **minor** bump: a new value on an existing array field, no field
+added or removed. A consumer that only tests for `primary` keeps working and
+simply does not list the pinned trackers. Consumers that branch on
+`window_reasons` should ignore an unrecognized value rather than rejecting the
+row or the payload.
 
 ## Range Query
 
@@ -925,6 +976,11 @@ The range response is a projection, not a second schema:
 - tracked edge endpoints are included in `items[]` with
   `window_reasons: ["edge_endpoint"]` when they are outside the primary item
   set.
+- pinned program trackers — open, labeled `workflow::tracking`, with a
+  `parent` edge, at most 100 — are included whatever the range, with
+  `program_tracker` in `window_reasons`, their `parent` edges, and the `blocks`
+  edges whose two endpoints are both children of pinned trackers (4.8.0+; see
+  Item Window).
 - in-range review activity targets are included in `items[]` with
   `window_reasons: ["activity_target"]` when they are outside the primary item
   set, so unresolved-review filters can read the target change request's current

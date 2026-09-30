@@ -19,6 +19,7 @@ import {
   type RelationCount,
   type TimeRange,
 } from "../model.ts";
+import type { ProgramRollup } from "../program.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 
 // A column renders at most `cap` cards (the list arrives already sorted, newest
@@ -26,7 +27,8 @@ import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 // hides some, a "+N more" footer marks what was trimmed — so the count never
 // lies. Omit `cap` to render the whole column. A `foldClosed` column arrives
 // open-items-first and tucks the closed rest behind a "Closed (N)" toggle, folded
-// by default. A `collapsed` column renders instead as a slim rail (dot + count +
+// by default. A column given `programs` (the Trackers lane) shows each card's
+// program progress. A `collapsed` column renders instead as a slim rail (dot + count +
 // vertical label); clicking either the rail or the header caret flips it via
 // `onToggle`.
 function Column({
@@ -41,6 +43,7 @@ function Column({
   sourceKind,
   colorOf,
   relationCounts,
+  programs,
   lens,
   mobileActive = false,
 }: {
@@ -55,6 +58,7 @@ function Column({
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   relationCounts: Map<string, RelationCount>;
+  programs?: ReadonlyMap<string, ProgramRollup>;
   lens?: ItemRouteFields;
   mobileActive?: boolean;
 }) {
@@ -89,6 +93,7 @@ function Column({
       sourceKind={sourceKind.get(it.source_id)}
       accentColor={colorOf(it.source_id, it.project_path)}
       related={relationCounts.get(it.id) ?? null}
+      program={programs?.get(it.id) ?? null}
       graphLink
       lens={lens}
     />
@@ -139,6 +144,7 @@ interface BoardColumn {
   items: ItemDTO[];
   cap?: number;
   foldClosed: boolean;
+  program: boolean;
 }
 
 // The primary, full-bleed board (GitHub-Projects style): the 2 status columns
@@ -150,13 +156,19 @@ interface BoardColumn {
 // cross-cut (by label/kind/state, latest N), so an item can appear in both
 // a status column AND a lane. Intentional — it puts the predecessor's two views
 // on one surface. The column counts therefore won't sum to the item total.
+//
+// `pinnedTrackers` are open program trackers outside the date range: only a
+// program lane (Trackers) lists them, so they never reach a status column, the
+// stats, or the item count above the board.
 export function FullBoard({
   items,
+  pinnedTrackers,
   edges,
   statuses,
   sourceKind,
   colorOf,
   relationCounts,
+  programs,
   collapsed,
   peeked,
   onToggleCollapse,
@@ -166,11 +178,13 @@ export function FullBoard({
   lens,
 }: {
   items: ItemDTO[];
+  pinnedTrackers: ItemDTO[];
   edges: EdgeDTO[];
   statuses: Map<string, ItemStatus>;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   relationCounts: Map<string, RelationCount>;
+  programs: ReadonlyMap<string, ProgramRollup>;
   collapsed: ReadonlySet<string>;
   peeked: ReadonlySet<string>;
   onToggleCollapse: (kind: string, isEmpty: boolean) => void;
@@ -190,7 +204,7 @@ export function FullBoard({
   );
   const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], closed: [] };
   for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
-  const lanes = spotlight(boardItems);
+  const lanes = spotlight(boardItems, pinnedTrackers);
   const laneColumn = ({ lane, items: laneItems }: (typeof lanes)[number]): BoardColumn => ({
     kind: `lane-${lane.key}`,
     label: lane.label,
@@ -198,6 +212,7 @@ export function FullBoard({
     items: laneItems,
     cap: COLUMN_CAP,
     foldClosed: lane.foldClosed,
+    program: lane.program,
   });
   // Column order: the leading lanes (Trackers), the status columns, then the
   // remaining lanes. The phone selector and the lane row both follow it.
@@ -210,6 +225,7 @@ export function FullBoard({
       items: statusCols[s],
       cap: CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined,
       foldClosed: false,
+      program: false,
     })),
     ...lanes.filter(({ lane }) => !lane.lead).map(laneColumn),
   ];
@@ -259,6 +275,7 @@ export function FullBoard({
             sourceKind={sourceKind}
             colorOf={colorOf}
             relationCounts={relationCounts}
+            programs={column.program ? programs : undefined}
             lens={lens}
             mobileActive={mobileKind === column.kind}
           />

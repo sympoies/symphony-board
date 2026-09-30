@@ -9,6 +9,12 @@
 
 import type { CanonicalLabel } from "./types.ts";
 
+// The label that marks an issue as a program tracker. Producer decisions that
+// single an item out — parking it in the actionable queue, pinning it into
+// every contract window — key on this label, never on issue text alone: anyone
+// who can open an issue can write a phase table, only a triager can set a label.
+export const TRACKING_LABEL = "workflow::tracking";
+
 // Returns the scope (text before the first "::") or null when the label is not
 // scoped. "priority::high" -> "priority"; "bug" -> null; "::weird" -> null
 // (empty scope is treated as unscoped).

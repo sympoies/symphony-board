@@ -594,6 +594,21 @@ function rangeProjection(rawBody, reqUrl) {
     const to = byId.get(edge.to);
     if (inRange(from?.updated_at, fromMs, toMs) || inRange(to?.updated_at, fromMs, toMs)) addEdge(edge);
   }
+  // The producer's program tracker pin (contract 4.8.0): an open item labeled
+  // `workflow::tracking` with outgoing `parent` edges is emitted whatever the
+  // range, with those edges and the `blocks` edges whose two endpoints are both
+  // children of pinned trackers. (The producer's cap is not mirrored here.)
+  const trackerIds = new Set();
+  const trackerChildIds = new Set();
+  for (const edge of env.edges) {
+    const tracker = byId.get(edge.from);
+    if (edge.type !== "parent" || tracker?.state !== "open" || !tracker.labels.some((label) => label.name === "workflow::tracking")) continue;
+    trackerIds.add(edge.from);
+    trackerChildIds.add(edge.to);
+  }
+  for (const edge of env.edges) {
+    if (edge.type === "parent" ? trackerIds.has(edge.from) : edge.type === "blocks" && trackerChildIds.has(edge.from) && trackerChildIds.has(edge.to)) addEdge(edge);
+  }
 
   const endpointIds = new Set();
   for (const edge of selectedEdges.values()) {
@@ -613,6 +628,7 @@ function rangeProjection(rawBody, reqUrl) {
       if (primaryIds.has(item.id)) window_reasons.push("primary");
       if (endpointIds.has(item.id)) window_reasons.push("edge_endpoint");
       if (activityTargetIds.has(item.id)) window_reasons.push("activity_target");
+      if (trackerIds.has(item.id)) window_reasons.push("program_tracker");
       return { ...item, window_reasons };
     });
   const edgeEndpointItems = items.filter((item) => item.window_reasons.includes("edge_endpoint") && !item.window_reasons.includes("primary")).length;
@@ -1690,6 +1706,23 @@ try {
     returnByValue: true,
   })).result.value || {};
   await sleep(100);
+  // The sample tracker (ISSUE_c): one of its three children is closed, one is
+  // free to start, and the untracked one waits on it.
+  const boardTrackerCard = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const card = document.querySelector('.board-lanes .col-lane-trackers .card');
+      const texts = (selector) => Array.from(card?.querySelectorAll(selector) || []).map((el) => el.textContent?.trim() || '');
+      return {
+        title: card?.querySelector('.card-title')?.textContent?.trim() || '',
+        badges: texts('.card-program .badge'),
+        ready: texts('.card-program-ready .card-program-child'),
+        readyHrefs: Array.from(card?.querySelectorAll('a.card-program-child') || []).map((el) => el.getAttribute('href') || ''),
+        graphHref: card?.querySelector('a.card-graph')?.getAttribute('href') || '',
+        programRowsElsewhere: document.querySelectorAll('.board-lanes .col:not(.col-lane-trackers) .card-program').length,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
   boardTrackersLane.unfoldedStates = (await send("Runtime.evaluate", {
     expression: `(() => {
       const states = ${boardTrackerStates};
@@ -1764,6 +1797,27 @@ try {
   await setControlledInput(".time-range-controls label:nth-of-type(1) input", "2026-06-10");
   const boardNarrowHtml = await waitHtml("document.querySelector('.board-lanes .card') && !document.body.innerText.includes('Loading range')");
   const boardNarrowStats = await statsTextOf();
+  // A range that ends before the sample tracker was last updated: the open
+  // tracker stays in the Trackers lane (the producer pins it), and nowhere else.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/board?from=2026-04-10&to=2026-04-30'" });
+  await waitHtml("document.querySelector('.board-lanes .col-closed .card') && !document.querySelector('.board-lanes .col-open .card') && !document.body.innerText.includes('Loading range')");
+  const boardPinnedTracker = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const titles = (selector) => Array.from(document.querySelectorAll(selector)).map((el) => el.textContent?.trim() || '');
+      return {
+        hash: location.hash,
+        trackers: titles('.board-lanes .col-lane-trackers .card .card-title'),
+        trackerBadges: titles('.board-lanes .col-lane-trackers .card .card-program .badge'),
+        trackerFold: document.querySelector('.board-lanes .col-lane-trackers .col-fold')?.textContent?.trim() || '',
+        statusTitles: titles('.board-lanes .col-open .card .card-title, .board-lanes .col-closed .card .card-title'),
+        otherLaneTitles: titles('.board-lanes .col-lane-follow-up .card .card-title, .board-lanes .col-lane-pr .card .card-title'),
+        openCount: document.querySelector('.board-lanes .col-open .col-rail-count, .board-lanes .col-open .count')?.textContent?.trim() || '',
+        showing: document.querySelector('.board-controls .muted')?.textContent?.trim() || '',
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  boardPinnedTracker.stats = await statsTextOf();
   // Page 2 — the relationship graph (React Flow renders DOM card nodes; assert
   // the page, count label, and at least one node mount cleanly and the lazy
   // chunk loads without errors).
@@ -7814,6 +7868,11 @@ try {
     [!has(boardHtml, "col-in_progress") && !has(boardHtml, "col-trailing"), "board: retired In Progress / Trailing status columns are gone"],
     [boardTrackersLane.sub === "issues labeled workflow::tracking" && boardTrackersLane.foldedStates?.length >= 1 && boardTrackersLane.foldedStates.every((state) => state === "open"), `board: Trackers lane opens on open trackers only (${JSON.stringify(boardTrackersLane)})`],
     [/^Closed \([1-9]\d*\)$/.test(boardTrackersLane.fold || "") && boardTrackersLane.foldExpanded === "false" && boardTrackersLane.unfoldedStates?.length > boardTrackersLane.foldedStates?.length && boardTrackersLane.unfoldedStates.slice(boardTrackersLane.foldedStates.length).every((state) => state !== "open"), `board: closed trackers stay folded behind a count until toggled (${JSON.stringify(boardTrackersLane)})`],
+    [boardTrackerCard.title === "Add incremental sync cadence" && JSON.stringify(boardTrackerCard.badges) === JSON.stringify(["1/3 done", "blocked: 1"]) && boardTrackerCard.programRowsElsewhere === 0, `board: tracker card shows program progress, in the Trackers lane only (${JSON.stringify(boardTrackerCard)})`],
+    [JSON.stringify(boardTrackerCard.ready) === JSON.stringify(["Investigate rate-limit handling"]) && JSON.stringify(boardTrackerCard.readyHrefs) === JSON.stringify(["https://github.com/sympoies/symphony-board/issues/7"]), `board: tracker card names the children that can start next (${JSON.stringify(boardTrackerCard)})`],
+    [boardTrackerCard.graphHref === `#/graph?focus=${encodeURIComponent("github:github.com|ISSUE_c")}`, `board: tracker card's graph link focuses the tracker (${boardTrackerCard.graphHref})`],
+    [JSON.stringify(boardPinnedTracker.trackers) === JSON.stringify(["Add incremental sync cadence"]) && boardPinnedTracker.trackerBadges?.[0] === "1/3 done" && boardPinnedTracker.trackerFold === "", `board: an open tracker outside the range stays in the Trackers lane; a closed one does not (${JSON.stringify(boardPinnedTracker)})`],
+    [boardPinnedTracker.statusTitles?.length === 1 && !boardPinnedTracker.statusTitles.includes("Add incremental sync cadence") && boardPinnedTracker.otherLaneTitles?.length === 0 && boardPinnedTracker.openCount === "0" && /^showing 1 of 1 items/.test(boardPinnedTracker.showing || "") && /ITEMS\s+total 1\s+STATE\s+closed 1\b/.test(boardPinnedTracker.stats || "") && !/\bother\b/.test(boardPinnedTracker.stats || ""), `board: a pinned tracker stays out of the status columns, the other lanes, and the counts (${JSON.stringify(boardPinnedTracker)})`],
     [has(boardHtml, "col-lane-pr"), "board: change request spotlight lane present"],
     [boardKindLabelSummary.label === "Change requests" && boardKindLabelSummary.sub === "open change requests", `board: change request spotlight lane uses neutral visible label and hint (${JSON.stringify(boardKindLabelSummary)})`],
     [boardKindLabelSummary.states?.length >= 1 && boardKindLabelSummary.states.every((state) => state === "open"), `board: change request spotlight lane lists open change requests only (${JSON.stringify(boardKindLabelSummary.states)})`],

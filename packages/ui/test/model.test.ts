@@ -64,6 +64,7 @@ import {
   itemMatches,
   indexItems,
   resolveEdges,
+  resolveEdgeList,
   edgeMatches,
   computeStats,
   computeGlobalStats,
@@ -107,6 +108,8 @@ import {
   columnSlices,
   initialMobileColumn,
   itemIsPrimaryWindow,
+  itemIsPinnedTracker,
+  pinnedTrackerItems,
   buildColorIndex,
   resolveRepoColor,
   isHexColor,
@@ -135,6 +138,7 @@ import {
   syncProducedFreshData,
   liveSourceStatus,
   syncRunSummary,
+  type Filters,
   type ResolvedEdge,
   type GraphNode,
   type SyncRunStatus,
@@ -1101,6 +1105,14 @@ test("v2 window helpers separate primary board items from endpoint extras", () =
   assert.equal(itemIsPrimaryWindow(primary), true);
   assert.equal(itemIsPrimaryWindow(endpoint), false);
   assert.equal(itemIsPrimaryWindow(oldV1), true, "missing reasons means old v1 full item payload");
+});
+
+test("a pinned tracker is a program_tracker row outside the primary window", () => {
+  assert.equal(itemIsPinnedTracker(item({ window_reasons: ["edge_endpoint", "program_tracker"] })), true);
+  assert.equal(itemIsPinnedTracker(item({ window_reasons: ["primary", "edge_endpoint", "program_tracker"] })), false, "in range -> already a primary card");
+  assert.equal(itemIsPinnedTracker(item({ window_reasons: ["edge_endpoint"] })), false, "a plain endpoint row is never a Board card");
+  assert.equal(itemIsPinnedTracker(item({ window_reasons: ["activity_target"] })), false);
+  assert.equal(itemIsPinnedTracker(item()), false, "missing reasons means primary");
 });
 
 test("deriveRepoOptions uses full v2 repo_stats instead of loaded item counts", () => {
@@ -3466,6 +3478,66 @@ test("the trackers lane lists open trackers before closed ones, newest first wit
   const trackers = lanes.find((l) => l.lane.key === "trackers");
   assert.deepEqual(trackers?.items.map((i) => i.id), ["i|open-new", "i|open-old", "i|closed-new", "i|closed-old"]);
   assert.deepEqual(lanes.filter((l) => l.lane.foldClosed).map((l) => l.lane.key), ["trackers"], "only Trackers folds its closed items behind a count");
+});
+
+test("pinnedTrackerItems keeps pinned trackers that pass the item facets", () => {
+  const pinned = (over: Partial<ItemDTO>) => item({ window_reasons: ["edge_endpoint", "program_tracker"], ...over });
+  const github = pinned({ id: "github|t", source_id: "github", project_path: "o/board", title: "Board program" });
+  const gitlab = pinned({ id: "gitlab|t", source_id: "gitlab", project_path: "g/other", title: "Other program" });
+  const items = [
+    github,
+    gitlab,
+    item({ id: "github|primary", source_id: "github", window_reasons: ["primary", "program_tracker"] }),
+    item({ id: "github|child", source_id: "github", window_reasons: ["edge_endpoint"] }),
+  ];
+  const ids = (filters: Partial<Filters>) => pinnedTrackerItems(items, { ...emptyFilters(), ...filters }).map((i) => i.id);
+
+  assert.deepEqual(ids({}), ["github|t", "gitlab|t"], "no facet: every pinned tracker, never a primary or plain endpoint row");
+  assert.deepEqual(ids({ sources: new Set(["gitlab"]) }), ["gitlab|t"], "a source facet removes the other source's tracker");
+  assert.deepEqual(ids({ states: new Set(["closed"]) }), [], "pinned trackers are open, so a closed-state facet removes them");
+  assert.deepEqual(ids({ states: new Set(["open"]), kinds: new Set(["issue"]) }), ["github|t", "gitlab|t"]);
+  assert.deepEqual(ids({ kinds: new Set(["change_request"]) }), []);
+  assert.deepEqual(ids({ repos: new Set(["o/board"]) }), ["github|t"]);
+  assert.deepEqual(ids({ search: "other" }), ["gitlab|t"]);
+});
+
+test("a pinned tracker outside the range adds nothing to the Board or Graph window", () => {
+  const range = { from: "2026-06-01", to: "2026-06-07" };
+  const inRange = item({ id: "s|in", updated_at: "2026-06-03T00:00:00Z", window_reasons: ["primary"] });
+  const tracker = item({ id: "s|tracker", updated_at: "2026-01-01T00:00:00Z", window_reasons: ["edge_endpoint", "program_tracker"] });
+  const childA = item({ id: "s|a", state: "closed", updated_at: "2026-01-02T00:00:00Z", window_reasons: ["edge_endpoint"] });
+  const childB = item({ id: "s|b", updated_at: "2026-01-03T00:00:00Z", window_reasons: ["edge_endpoint"] });
+  const items = [inRange, tracker, childA, childB];
+  const edges = [edge("s|tracker", "s|a", null, "parent"), edge("s|tracker", "s|b", null, "parent"), edge("s|a", "s|b", null, "blocks")];
+  const primary = items.filter(itemIsPrimaryWindow);
+
+  assert.deepEqual(primary.map((i) => i.id), ["s|in"]);
+  assert.deepEqual(computeBoardWindowStats(primary, edges).stats, { items: 1, byState: { open: 1 }, byKind: { issue: 1 }, byLifecycle: {} });
+  const overview = graphOverviewVisibility(resolveEdgeList(edges, new Map(items.map((i) => [i.id, i]))), range, "UTC");
+  assert.deepEqual(overview.candidateEdges, [], "pinned edges have no endpoint updated in the range");
+  assert.deepEqual([...overview.drawnIds], []);
+});
+
+test("only the trackers lane takes pinned trackers, and only labeled ones", () => {
+  const tracking = [{ name: "workflow::tracking", scope: "workflow", color: null }];
+  const followUp = [{ name: "workflow::follow-up", scope: "workflow", color: null }];
+  const inRange = item({ id: "i|in-range", created_at: "2026-03-01T00:00:00Z", labels: tracking });
+  const closed = item({ id: "i|closed", state: "closed", created_at: "2026-09-01T00:00:00Z", labels: tracking });
+  const pinnedNew = item({ id: "i|pinned-new", created_at: "2026-06-01T00:00:00Z", labels: [...tracking, ...followUp] });
+  const pinnedOld = item({ id: "i|pinned-old", created_at: "2026-01-01T00:00:00Z", labels: tracking });
+  const pinnedUnlabeled = item({ id: "i|pinned-unlabeled", created_at: "2026-07-01T00:00:00Z" });
+  const pinnedFollowUp = item({ id: "i|pinned-follow-up", labels: followUp });
+  const lanes = spotlight([closed, inRange], [pinnedOld, pinnedUnlabeled, pinnedNew, pinnedFollowUp]);
+  const byKey = new Map(lanes.map((l) => [l.lane.key, l.items.map((i) => i.id)]));
+  assert.deepEqual(
+    byKey.get("trackers"),
+    ["i|pinned-new", "i|in-range", "i|pinned-old", "i|closed"],
+    "pinned trackers sort with the in-range ones; a pinned item without the label stays out",
+  );
+  assert.deepEqual(byKey.get("follow-up"), [], "the other lanes keep to the primary window");
+  assert.deepEqual(byKey.get("pr"), []);
+  assert.deepEqual(lanes.filter((l) => l.lane.program).map((l) => l.lane.key), ["trackers"], "only Trackers is a program lane");
+  assert.deepEqual(spotlight([closed, inRange]).find((l) => l.lane.key === "trackers")?.items.map((i) => i.id), ["i|in-range", "i|closed"]);
 });
 
 test("sourceTokenEnvs lists the primary then any fallback envs, dropping empties", () => {

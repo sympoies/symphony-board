@@ -318,7 +318,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.7.3`.
+Current major: v4. Current emitted version: `4.8.0`.
 
 Version `1.1.0` added display metadata:
 
@@ -452,6 +452,37 @@ Config-declared usernames are host-agnostic, so they are never guessed onto a
 source — authorship with no observed username on a source (raw email/name)
 renders unlinked there rather than risk a wrong-host profile link.
 
+Version `4.8.0` adds the program tracker pin. Both projections — the static
+90-day window and `/api/range` — always emit an open item that carries the
+`workflow::tracking` label and has a live outgoing `parent` edge, marked with
+the new `window_reasons` value `program_tracker`, together with its `parent`
+edges and the `blocks` edges whose two endpoints are both children of pinned
+trackers; the children arrive as `edge_endpoint` rows. The reason is the Board:
+an open program tracker must be listed whatever date range is selected, and the
+UI only ever holds one projection. The pin is computed in
+`src/contract/build.ts` from the item and edge rows the projection already
+loads (no store read).
+
+The pin requires the label, and that supersedes an earlier choice to key it on
+the `parent` edge alone so the producer stayed free of label conventions. A
+phase table is issue text: anyone who can open an issue in a tracked public
+repository can write one, and a pin keyed on the edge alone let that author
+put rows into the static contract and into every `/api/range` response for as
+long as the issue stayed open. Only a triager can set a label, so the label
+decides what is pinned — the same rule the Board's Trackers lane selects by.
+The label name is one producer constant, `TRACKING_LABEL` in
+`src/model/labels.ts`, shared with the actionable queue's park list. The pin is
+also capped: `PROGRAM_TRACKER_PIN_LIMIT` (100) trackers per projection, newest
+`updated_at` first, ties by id. The cap is a guard, not an expected limit.
+Emitting `parent` / `blocks` edges still needs no label (see Program Tracker
+Edges); only the pin does.
+
+The pin adds support rows only: `item_window.primary_items`, `aggregates[]`,
+`repo_stats[]`, and `repo_metrics[]` are unchanged. Closed trackers are not
+pinned, and `closes` edges into a child are not pinned either, so "a change
+request is open for this child" is only known for change requests the selected
+window loaded.
+
 Contract rules:
 
 - patch: clarification only
@@ -496,7 +527,25 @@ Pages:
   behind a `Closed (N)` toggle. `Follow-up` keeps issues labeled
   `workflow::follow-up` in any state, and `Change requests` lists open change
   requests only. Spotlight lanes are cross-cuts, so their counts do not sum to
-  the item total. The Board uses the shared date range and filters primary
+  the item total. A tracker card says how far its program is and what can start
+  next: `done/total` over the tracker's children (the targets of its `parent`
+  edges), up to three ready children by name then `+N`, and the in-review and
+  blocked counts when non-zero. The rules live in `packages/ui/src/program.ts`,
+  a pure, view-agnostic module: a child is done when closed or merged;
+  otherwise blocked when a `blocks` edge into it comes from an item that is not
+  done; otherwise in review when a `closes` edge into it comes from an open
+  item; otherwise ready. An endpoint's state is its loaded item row's, falling
+  back to the edge's state, and unknown counts as open. A tracker without
+  children shows no progress. The lane stays label-selected: `parent` edges
+  never add an issue to it, because anyone who can write an issue can write a
+  phase table while only triagers set the label. An open tracker is listed
+  whatever the date range: the producer pins open labeled trackers into every
+  projection (window reason `program_tracker`, capped at the newest 100, see
+  Contract), and the Trackers lane — only that
+  lane — also takes those rows when they are outside the range. Item facets and
+  source/repo visibility apply to them; the status columns, the summary stats,
+  and the other lanes keep to primary-window items. Closed trackers appear only
+  when in range. The Board uses the shared date range and filters primary
   cards by item `updated_at`. For the default static window it can consume a
   matching `boardWindow` aggregate when no viewer-local filters are active. For
   custom `/api/range` responses and viewer-local filters, it computes scoped

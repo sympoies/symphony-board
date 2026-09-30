@@ -35,6 +35,7 @@ import type {
   EdgeLifecycle,
 } from "@symphony-board/contract";
 import { refOf } from "../model/ref.ts";
+import { TRACKING_LABEL } from "../model/labels.ts";
 import { deriveActorKey, emailActorKey, normalizeActorName } from "../model/actor.ts";
 import type { IdentityConfig } from "../config.ts";
 import { CONTRACT_VERSION, GENERATOR } from "./version.ts";
@@ -1065,6 +1066,45 @@ function buildAggregates(items: ItemDTO[], edges: EdgeDTO[], generatedAt: string
   return aggregates;
 }
 
+// How many trackers one projection pins, newest `updated_at` first (ties by
+// id). A guard on payload size, not an expected limit.
+export const PROGRAM_TRACKER_PIN_LIMIT = 100;
+
+// Program tracker pin (4.8.0). The Board lists an open program tracker whatever
+// the window, so both projections always emit one (window reason
+// `program_tracker`) with the edges its progress is read from: its `parent`
+// edges and the `blocks` edges whose two endpoints are both children of pinned
+// trackers. The children then arrive as ordinary `edge_endpoint` rows.
+//
+// A pinned tracker is an OPEN item that carries TRACKING_LABEL and has at least
+// one live outgoing `parent` edge. The label is required because the pin puts
+// rows into every window and every range response: what it selects must not be
+// selectable by any issue author, and a phase table alone is issue text. The
+// pin is also capped (PROGRAM_TRACKER_PIN_LIMIT). Computed from the rows the
+// projection already holds; a closed tracker is not pinned.
+function programTrackerPin(items: ItemDTO[], edges: EdgeDTO[]): { trackerIds: Set<string>; edges: Set<EdgeDTO> } {
+  const parentIds = new Set(edges.filter((edge) => edge.type === "parent").map((edge) => edge.from));
+  const trackerIds = new Set(
+    items
+      .filter((item) => item.state === "open" && parentIds.has(item.id) && item.labels.some((label) => label.name === TRACKING_LABEL))
+      .sort((a, b) => compareTimestampDesc(a.updated_at, b.updated_at) || a.id.localeCompare(b.id))
+      .slice(0, PROGRAM_TRACKER_PIN_LIMIT)
+      .map((item) => item.id),
+  );
+  if (trackerIds.size === 0) return { trackerIds, edges: new Set() };
+  const childIds = new Set(edges.filter((edge) => edge.type === "parent" && trackerIds.has(edge.from)).map((edge) => edge.to));
+  return {
+    trackerIds,
+    edges: new Set(
+      edges.filter((edge) =>
+        edge.type === "parent"
+          ? trackerIds.has(edge.from)
+          : edge.type === "blocks" && childIds.has(edge.from) && childIds.has(edge.to),
+      ),
+    ),
+  };
+}
+
 function buildWindowedProjection(
   items: ItemDTO[],
   edges: EdgeDTO[],
@@ -1072,7 +1112,8 @@ function buildWindowedProjection(
 ): { items: ItemDTO[]; edges: EdgeDTO[]; itemWindow: ItemWindowDTO } {
   const since = cutoffIso(CONTRACT_ITEM_WINDOW_DAYS, generatedAt);
   const primaryIds = new Set(items.filter((item) => itemActiveSince(item, since)).map((item) => item.id));
-  const selectedEdges = edges.filter((edge) => primaryIds.has(edge.from) || primaryIds.has(edge.to));
+  const pin = programTrackerPin(items, edges);
+  const selectedEdges = edges.filter((edge) => primaryIds.has(edge.from) || primaryIds.has(edge.to) || pin.edges.has(edge));
 
   const endpointIds = new Set<string>();
   for (const edge of selectedEdges) {
@@ -1087,6 +1128,7 @@ function buildWindowedProjection(
       const reasons: ItemWindowReason[] = [];
       if (primaryIds.has(item.id)) reasons.push("primary");
       if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
+      if (pin.trackerIds.has(item.id)) reasons.push("program_tracker");
       return { ...item, window_reasons: reasons };
     });
 
@@ -1148,8 +1190,9 @@ function buildRangeProjection(
     return (from ? itemUpdatedInRange(from, range) : false) || (to ? itemUpdatedInRange(to, range) : false);
   });
 
+  const pin = programTrackerPin(items, edges);
   const selectedByKey = new Map<string, EdgeDTO>();
-  for (const edge of [...boardEdges, ...graphEdges]) selectedByKey.set(edgeKey(edge), edge);
+  for (const edge of [...boardEdges, ...graphEdges, ...pin.edges]) selectedByKey.set(edgeKey(edge), edge);
   const selectedEdges = [...selectedByKey.values()];
   const rangedActivities = activities.filter((activity) => activityOccurredInRange(activity, range));
 
@@ -1172,6 +1215,7 @@ function buildRangeProjection(
       if (primaryIds.has(item.id)) reasons.push("primary");
       if (endpointIds.has(item.id)) reasons.push("edge_endpoint");
       if (activityTargetIds.has(item.id)) reasons.push("activity_target");
+      if (pin.trackerIds.has(item.id)) reasons.push("program_tracker");
       return { ...item, window_reasons: reasons };
     });
 
