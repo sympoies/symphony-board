@@ -1193,7 +1193,8 @@ the two objections above require.
   provider being down — and the last two look the same from one response. A
   token failure stops the pass at once. Any other failure sets the commit
   aside and the pass goes on; the commits set aside are answered `unavailable`
-  only when the provider answered some other commit in the same pass. When
+  only when the provider answered some other commit in the same pass (and a
+  warning names how many). When
   nothing was answered, nothing is recorded, and the pass gives up after eight
   failures. Without this a commit that always fails would head the
   newest-first queue every sweep and keep every older commit of the source

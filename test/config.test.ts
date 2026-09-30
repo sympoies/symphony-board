@@ -18,6 +18,7 @@ import {
   tokensForProject,
   upsertEnvText,
   type AppConfig,
+  collectsCommitFiles,
   commitFilesPerSweep,
   DEFAULT_COMMIT_FILES_PER_SWEEP,
 } from "../src/config.ts";
@@ -105,6 +106,15 @@ test("accepts a commit_files_per_sweep budget, including 0, and rejects anything
   assert.equal(commitFilesPerSweep({}), DEFAULT_COMMIT_FILES_PER_SWEEP);
   assert.equal(commitFilesPerSweep({ commit_files_per_sweep: 0 }), 0);
   assert.equal(commitFilesPerSweep({ commit_files_per_sweep: 7 }), 7);
+});
+
+test("a deployment collects commit files when any enabled source runs the pass", () => {
+  const collects = (...sources: Array<Record<string, unknown>>) => collectsCommitFiles({ sources } as unknown as Parameters<typeof collectsCommitFiles>[0]);
+  const off = baseSource({ commit_files_per_sweep: 0 });
+  assert.equal(collects(baseSource()), true, "the default is on");
+  assert.equal(collects(off), false);
+  assert.equal(collects(off, baseSource({ commit_files_per_sweep: 5 })), true, "one source is enough");
+  assert.equal(collects(off, baseSource({ enabled: false })), false, "a disabled source collects nothing");
 });
 
 test("accepts sync cadence settings and rejects malformed values", () => {

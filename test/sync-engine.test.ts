@@ -758,6 +758,9 @@ test("the file pass follows a partial sweep, and does not follow one whose write
     },
   });
   const later = commitFilesSource([...FOUR_COMMITS(), activity("c5", { occurredAt: daysAgo(0.5), details: { sha: "sha5" } })]);
+  // Stored by an earlier sweep with the pass off, so the queue is not empty:
+  // a pass that ran anyway would have c5 to ask for.
+  await syncSource(store, later, null, { full: true, dryRun: false });
   const failed = await syncSource(failing, later, null, { full: true, dryRun: false, commitFilesLimit: 10 });
   assert.equal(failed.status, "error");
   assert.match(failed.error ?? "", /database is locked/);

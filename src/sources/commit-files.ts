@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import type { CanonicalCommitFile, CanonicalCommitFiles, CommitFileStatus, CommitFilesState, NormalizedBundle } from "../model/types.ts";
 import { mapWithConcurrency } from "../lib/concurrency.ts";
+import { log } from "../log.ts";
 import type { RestClient } from "./rest.ts";
 import type { CommitFilesCandidate, CommitFilesFetchResult, RawRecord } from "./types.ts";
 
@@ -291,8 +292,16 @@ export async function fetchCommitFileRecords(opts: {
     }
   });
   const records = results.filter((r): r is RawRecord => r !== null);
-  if (answered > 0) records.push(...failed.map((f) => unavailable(f.candidate)));
-  else stopped ??= failed[0]?.message ?? null;
+  if (answered > 0) {
+    records.push(...failed.map((f) => unavailable(f.candidate)));
+    // An answer is final, so an operator should be able to see when it was
+    // reached this way rather than from the provider saying the commit is gone.
+    if (failed.length > 0) {
+      log.warn(`[source] commit files: ${failed.length} commit(s) failed on their own and are recorded unavailable; first: ${failed[0]!.message}`);
+    }
+  } else {
+    stopped ??= failed[0]?.message ?? null;
+  }
   return { records, stopped };
 }
 

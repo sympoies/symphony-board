@@ -167,6 +167,25 @@ test("a commit that fails on its own is set aside, the rest are read, and it is 
   }
 });
 
+test("a commit the provider says is gone counts as an answer, and an answered pass is read to its end", async () => {
+  await oneAtATime(async () => {
+    const calls: string[] = [];
+    const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+      calls.push(path);
+      if (path.endsWith(sha("a"))) throw new ProviderHttpError("REST HTTP 404: Not Found", 404);
+      throw new ProviderHttpError("REST HTTP 500: Server Error", 500);
+    };
+    const src = new GitHubSource(GH, noGql, ["o/r"], rest);
+    const seeds = ["a", "b", "c", "d", "e", "f", "0", "1", "2", "3", "4", "5"];
+    const res = await src.fetchCommitFiles(seeds.map((seed) => candidate(seed)));
+    // The 404 shows the provider is up, so the eleven 500s are those commits'
+    // own, and the limit on unanswered failures does not apply.
+    assert.equal(calls.length, 12);
+    assert.equal(res.stopped, null);
+    assert.deepEqual(res.records.map((r) => payloadOf(r).state), Array(12).fill("unavailable"));
+  });
+});
+
 test("when nothing is answered the failures are not the commits': nothing is recorded and the pass gives up", async () => {
   // The provider or the network is down. Recording these as unavailable would
   // drop fifty readable commits from the aggregate on every sweep of an outage.

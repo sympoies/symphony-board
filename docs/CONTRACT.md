@@ -900,7 +900,8 @@ files (and on any payload older than `4.9.0`): no enabled source runs the file
 pass, and the store holds no file lists for the window. Present with
 `scanned: 0` means the producer collects them and has not reached these
 commits yet. File lists collected before the pass was turned off are still
-reported.
+reported, and a repository of a source that does not run the pass appears with
+`scanned: 0` beside the repositories of one that does.
 
 The top lists are per repository so a consumer can re-rank across the
 repositories it shows: the top N of a union of per-repository top-N lists is
