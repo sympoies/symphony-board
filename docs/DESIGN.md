@@ -348,7 +348,7 @@ the backend does not emit focus aggregates because the focus target is
 viewer-local.
 
 Aggregates describe the emitted contract before local viewer state. Source/repo
-visibility, search, facets, Graph mention toggles, and focus targets remain UI
+visibility, search, facets, Graph relation type toggles, and focus targets remain UI
 display filters; the UI consumes a contract aggregate only when its scope,
 window, and edge filter exactly match the visible view, otherwise it computes a
 local scoped summary from `items[]` and `edges[]`.
@@ -559,7 +559,8 @@ Pages:
   custom `/api/range` responses and viewer-local filters, it computes scoped
   summary stats locally from the returned window.
 - **Graph**: relationship view built from edge-connected items. It supports the
-  shared date range, mention toggles, side-list search, focus subgraphs, and
+  shared date range, relation type toggles, side-list search, focus subgraphs,
+  a program view for trackers, and
   board-card deep-links like `#/graph?focus=<ref>` (the `focus` ref alone drives
   the side-list focus view and the focus subgraph; the global search bar is a
   cross-tab filter and is never seeded by navigation). Focus is URL-backed both
@@ -573,14 +574,24 @@ Pages:
   In overview, the side list is the
   relationship inventory for the selected range before the mention canvas
   declutter is applied, so mention-only items remain discoverable without a
-  redundant per-card canvas-visibility cue. Disconnected overview components
+  redundant per-card canvas-visibility cue. The overview has one toggle per
+  relation type present in the loaded edges — an unknown type gets one like any
+  other — with every type on except `mentions`, which keeps its all / issues /
+  change requests target filter; the toggles are page state, not route or
+  stored state, and focus always draws every type. Each type has its own
+  stroke, distinguishable without colour: `closes` solid in its lifecycle
+  colour, `blocks` heavy, `parent` dash-dotted, `mentions` short-dashed; the
+  legend keys the types on the canvas. The side list names an item's strongest
+  relation: `closes`, then `blocks`, `parent`, `mentions`, `relates`.
+  Disconnected overview components
   are laid out independently and packed into a compact canvas; focus retains
   the roomier single-neighborhood layout. Graph overview summary stats
-  are still scoped to the rendered canvas after the range, mention controls,
-  search, and facets. Focus view uses a separate `focus` summary for the focused
-  subgraph instead of reusing overview totals. Contract aggregates are used only
-  for the default no-mentions overview when the static window exactly matches an
-  emitted aggregate row; custom range responses compute from the returned edges.
+  are still scoped to the rendered canvas after the range, relation type
+  toggles, search, and facets. Focus view uses a separate `focus` summary for the
+  focused subgraph instead of reusing overview totals. Contract aggregates are
+  used only for the default overview (every type on except mentions) when the
+  static window exactly matches an emitted aggregate row; custom range responses
+  compute from the returned edges.
   Overview remains range-windowed, but focus is a canonical-history inspection:
   the UI calls `GET /api/graph-neighborhood?ref=<ref>&depth=<1..5>&mentions=all`,
   defaults to one hop, and remembers an explicit depth across focus exit and
@@ -593,6 +604,30 @@ Pages:
   one-hop fallback and labels that limitation in the focus view. The focused
   canvas card has a theme-aware target marker and outline; a Locate target
   control centers it at readable zoom when a deeper neighborhood is crowded.
+  Focusing a program tracker — an item with outgoing `parent` edges in the focus
+  data — opens its program view instead: the tracker is the header (title,
+  state, `done/total`), its children are the nodes, and `parent` edges are
+  implied rather than drawn. Children sit in columns left to right, each one
+  column after its last prerequisite, in program order within a column, joined
+  by the transitive reduction of the `blocks` edges among them (gate contraction
+  makes the raw set dense; a cycle has no reduction, so then every edge is
+  drawn and the header says so). Each child carries its status marker and its
+  delivering change requests, attached underneath by `closes`; a child without
+  an item row is an untracked node. Child order and status are the Board's
+  (`packages/ui/src/program.ts`, rule stated under **Board** above), read from
+  the same kind of edge set: persistent visibility applies, item facets and
+  search do not, so a program reads the same on both pages. A `blocks` edge
+  into a child from outside the program therefore blocks it without being
+  drawn. The columns are laid out directly rather than by dagre, whose
+  coordinate assignment spreads a layer that depends on a whole layer over
+  several times its own height. A view toggle switches to the ordinary
+  neighborhood and back; `scope=neighborhood` on the route records that choice,
+  while its absence (every older focus link) means the program view, and a new
+  focus always starts on its default. With a server the view loads
+  `GET /api/graph-neighborhood?ref=<ref>&scope=program` — directly when the
+  loaded window already shows the tracker's children (always, for a pinned open
+  tracker), otherwise after the ordinary neighborhood response shows them; a
+  static/local-file deployment reads the same scope from the loaded edges.
 - **Activity**: newest-first feed of commit, repository/project event, and
   item-transition records. It uses the same date range as Board and Graph. The
   range is applied before its route-backed source/repo/kind/action facets and
@@ -1025,7 +1060,7 @@ fails to load — exactly when it is needed.
 | Route | Method | Served by | Purpose |
 | --- | --- | --- | --- |
 | `/api/capabilities` | GET | read-only `api` sidecar / app server | safe server capability/status document: board read routes, Live read availability, Live snapshot status, optional non-secret webhook setup hint, and allowlist enabled/count |
-| `/api/graph-neighborhood` | GET | read-only `api` sidecar / app server | bounded canonical-history relationship neighborhood for one `ref`; accepts `depth=1..5` (default 1) and `mentions=direct\|all` (default `all`; the UI requests `all`), returns deterministic nodes with hop distance and original directed edges, and reports depth/node/edge limit reasons |
+| `/api/graph-neighborhood` | GET | read-only `api` sidecar / app server | bounded canonical-history relationship neighborhood for one `ref`; accepts `depth=1..5` (default 1) and `mentions=direct\|all` (default `all`; the UI requests `all`), returns deterministic nodes with hop distance and original directed edges, and reports depth/node/edge limit reasons; `scope=program` returns a tracker's program instead (children, what blocks them, what closes them) in the same shape |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
 | `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
 | `/api/actionable` | GET | read-only `api` sidecar / app server | open-work discovery over the full canonical store; accepts `repo`, `source`, `limit`, `stale_days`, and `include_unconfigured`, and returns items grouped into actionable buckets |
@@ -1045,7 +1080,9 @@ carries no `contract_version` and needs no bump.
 configured repos rather than the range-windowed contract. It is deliberately
 bounded (five hops, 200 nodes, 500 edges), returns `404` for an unknown focus,
 and carries its own `symphony-board-graph-neighborhood/1` operational schema;
-changing it does not bump `contract_version`.
+changing it does not bump `contract_version`. Its program scope reads through
+the same two bounded store methods as the neighborhood walk — the tracker's
+edges, then its children's — so it adds no query, driver, or schema surface.
 `/api/review-candidates` is an agent/workflow surface for review-thread cleanup:
 it computes from the full canonical store, not the windowed UI contract, so an
 old merged PR with a lingering unresolved thread still appears. `/api/actionable`

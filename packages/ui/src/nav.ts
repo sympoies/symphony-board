@@ -42,7 +42,7 @@ export type Page = "live" | "activity" | "items" | "commits" | "reviews" | "boar
 export function inPageHref(route: HashRoute, patch: Partial<HashRoute>): string {
   const shared = ["q", "from", "to", "preset", "tab", "isource", "istate", "ikind", "ireview", "irepo"] as const;
   const local: Record<string, readonly (keyof HashRoute)[]> = {
-    graph: ["focus", "depth"],
+    graph: ["focus", "depth", "scope"],
     activity: ["source", "repo", "kind", "action", "unresolved"],
     commits: ["source", "repo", "branch", "author", "commitDetail"],
     live: ["liveDetail"],
@@ -425,6 +425,7 @@ export function clearFiltersHref(route: HashRoute, page: string = route.page): s
     page,
     focus: page === "graph" ? route.focus : null,
     depth: page === "graph" && route.focus ? route.depth : null,
+    scope: page === "graph" && route.focus ? route.scope : null,
     from: route.from,
     to: route.to,
     preset: route.preset,

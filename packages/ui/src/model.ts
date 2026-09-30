@@ -18,6 +18,7 @@ import type {
   ReviewThreadsDTO,
   SourceDTO,
 } from "@symphony-board/contract";
+import { programChildName, type ProgramChildStatus, type ProgramRollup } from "./program.ts";
 import { SPOTLIGHT_LANES as SPOTLIGHT_LANE_CONFIG, type SpotlightLaneConfig } from "./spotlight.config.ts";
 import { zonedDateOnly, zonedWeekday, zonedHour, zonedDayStartIso, zonedDayEndIso, shiftDateOnly } from "./tz.ts";
 
@@ -193,6 +194,7 @@ export interface HashRoute {
   page: string; // "" | "board" | "graph" | "activity" | "commits" | "repo-analytics" | "settings" | "debug" (hidden; Cmd+/)
   focus: string | null; // an item ref to focus on the graph (side-list view + camera)
   depth: number | null; // focused Graph neighbourhood hops (1..5); null = default 1
+  scope: string | null; // focused Graph view of a program tracker; null = its program, "neighborhood" = the ordinary neighbourhood
   q: string | null; // a search token to seed the search bar (narrows the graph)
   source: string | null; // source_id for source-aware Activity / Commits drill-downs
   repo: string | null; // a project_path the Commits page filters to
@@ -235,6 +237,10 @@ const routeParam = (value: string | null | undefined): string | null => {
 
 export const GRAPH_FOCUS_DEFAULT_DEPTH = 1;
 export const GRAPH_FOCUS_MAX_DEPTH = 5;
+// A program scope response is a fixed two-hop projection: tracker, children,
+// then the items that close or block a child.
+export const GRAPH_PROGRAM_DEPTH = 2;
+export type GraphFocusScope = "program" | "neighborhood";
 
 export function graphFocusDepth(value: unknown): number | null {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
@@ -252,6 +258,10 @@ export function graphFocusDepthPreference(
   return graphFocusDepth(rememberedDepth) ?? GRAPH_FOCUS_DEFAULT_DEPTH;
 }
 
+// Only the non-default view is spelled out, so a focus link without `scope`
+// (every link written before the program view) opens the default.
+const graphFocusScopeParam = (value: string | null | undefined): string | null => (value === "neighborhood" ? value : null);
+
 export function parseHashRoute(hash: string): HashRoute {
   const raw = hash.replace(/^#\/?/, "");
   const i = raw.indexOf("?");
@@ -262,6 +272,7 @@ export function parseHashRoute(hash: string): HashRoute {
     page,
     focus: routeParam(params?.get("focus")),
     depth: graphFocusDepth(params?.get("depth")),
+    scope: graphFocusScopeParam(params?.get("scope")),
     q: routeParam(params?.get("q")),
     source: routeParam(params?.get("source")),
     repo: routeParam(params?.get("repo")),
@@ -292,6 +303,7 @@ export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<Has
   const params: string[] = [];
   const focus = routeParam(route.focus);
   const depth = graphFocusDepth(route.depth);
+  const scope = graphFocusScopeParam(route.scope);
   const q = routeParam(route.q);
   const source = routeParam(route.source);
   const repo = routeParam(route.repo);
@@ -317,6 +329,7 @@ export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<Has
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
   if (focus && depth !== null) params.push(`depth=${depth}`);
+  if (focus && scope) params.push(`scope=${scope}`);
   if (q) params.push(`q=${encodeURIComponent(q)}`);
   if (source) params.push(`source=${encodeURIComponent(source)}`);
   if (repo) params.push(`repo=${encodeURIComponent(repo)}`);
@@ -2623,6 +2636,8 @@ export interface GraphNode {
   accentColor?: string | null; // repo/source highlight, resolved + attached by the page (not buildGraph)
   related?: RelationCount | null; // FULL relation count (chain-link chip) from the page's adjacency, attached by the page (not buildGraph)
   relatedDrawn?: number; // distinct neighbours drawn in the CURRENT canvas view — the windowed overview may draw fewer than `related.total`
+  programStatus?: ProgramChildStatus; // program view only: the child's status from program.ts
+  attachedTo?: string; // program view only: the child this delivering change request sits under
 }
 export interface GraphLink {
   id: string;
@@ -2637,6 +2652,14 @@ export interface GraphData {
   links: GraphLink[];
 }
 export type GraphMentionTarget = "all" | "issue" | "change_request";
+// The overview's relation filter. `mentions` has its own switch (off by
+// default) and target sub-filter; every other type is drawn unless it is in
+// `hiddenTypes`.
+export interface GraphOverviewOptions {
+  showMentions: boolean;
+  mentionTarget: GraphMentionTarget;
+  hiddenTypes?: ReadonlySet<string>;
+}
 export interface GraphOverviewVisibility {
   candidateEdges: ResolvedEdge[];
   drawnEdges: ResolvedEdge[];
@@ -2684,12 +2707,14 @@ export function graphOverviewVisibility(
   edges: ResolvedEdge[],
   range: TimeRange,
   tz: string = DEFAULT_TIMEZONE,
-  opts: { showMentions: boolean; mentionTarget: GraphMentionTarget } = { showMentions: false, mentionTarget: "all" },
+  opts: GraphOverviewOptions = { showMentions: false, mentionTarget: "all" },
 ): GraphOverviewVisibility {
   const candidateEdges = graphWindowEdgesInRange(edges, range, tz);
-  const drawnEdges = opts.showMentions
-    ? candidateEdges.filter((re) => graphMentionVisible(re, opts.mentionTarget))
-    : candidateEdges.filter((re) => re.edge.type !== "mentions");
+  const drawnEdges = candidateEdges.filter((re) =>
+    re.edge.type === "mentions"
+      ? opts.showMentions && graphMentionVisible(re, opts.mentionTarget)
+      : !opts.hiddenTypes?.has(re.edge.type),
+  );
   return {
     candidateEdges,
     drawnEdges,
@@ -2705,7 +2730,7 @@ export function graphOverviewVisibility(
 export type GraphCanvasEmptyReason =
   | { kind: "mentions-hidden"; hiddenLinks: number } // mentions toggle off, every candidate is a mention
   | { kind: "mention-target-filtered"; mentionTarget: Exclude<GraphMentionTarget, "all">; hiddenLinks: number } // mentions on, but the target filter drops them all (never "all" — that draws every candidate)
-  | { kind: "filtered"; hiddenLinks: number }; // suppressed for some other filter combination (defensive fallback)
+  | { kind: "filtered"; hiddenLinks: number }; // another relation type is switched off too, so no single flip recovers the canvas
 
 // Returns null when there is nothing actionable to explain: the canvas already
 // has edges to draw, or there are no candidates at all (the outer "No
@@ -2713,11 +2738,12 @@ export type GraphCanvasEmptyReason =
 // overview canvas — a focus subgraph draws every edge type regardless.
 export function graphCanvasEmptyReason(
   overview: GraphOverviewVisibility,
-  opts: { showMentions: boolean; mentionTarget: GraphMentionTarget },
+  opts: GraphOverviewOptions,
 ): GraphCanvasEmptyReason | null {
   if (overview.drawnEdges.length > 0) return null; // canvas has content
   if (overview.candidateEdges.length === 0) return null; // outer empty state
   const hiddenLinks = overview.candidateEdges.length;
+  if (overview.candidateEdges.some((re) => re.edge.type !== "mentions")) return { kind: "filtered", hiddenLinks };
   if (!opts.showMentions) return { kind: "mentions-hidden", hiddenLinks };
   if (opts.mentionTarget !== "all") return { kind: "mention-target-filtered", mentionTarget: opts.mentionTarget, hiddenLinks };
   return { kind: "filtered", hiddenLinks };
@@ -2728,30 +2754,33 @@ export function graphCanvasEmptyReason(
 export function buildGraph(edges: ResolvedEdge[], extraNodes: readonly GraphNeighborhoodNode[] = []): GraphData {
   const nodes = new Map<string, GraphNode>();
   const links: GraphLink[] = [];
-  let i = 0;
   const ensure = (it: ItemDTO | null, ref: string) => {
-    if (nodes.has(ref)) return;
-    nodes.set(
-      ref,
-      it
-        ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
-        : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true },
-    );
+    if (!nodes.has(ref)) nodes.set(ref, graphNodeOf(it, ref));
   };
   for (const node of extraNodes) ensure(node.item, node.ref);
   for (const re of edges) {
     ensure(re.from, re.edge.from);
     ensure(re.to, re.edge.to);
-    links.push({
-      id: `g${i++}`,
-      source: re.edge.from,
-      target: re.edge.to,
-      type: re.edge.type,
-      lifecycle: re.edge.lifecycle ?? null,
-      color: EDGE_STROKE[re.edge.lifecycle ?? "other"] ?? "var(--muted)",
-    });
+    links.push(graphLinkOf(re.edge, links.length));
   }
   return { nodes: [...nodes.values()], links };
+}
+
+function graphNodeOf(it: ItemDTO | null, ref: string): GraphNode {
+  return it
+    ? { id: ref, item: it, label: it.title ?? ref, repo: it.project_path ?? null, iid: it.iid ?? null, kind: it.kind, state: it.state, url: it.url ?? null, author: it.author ?? null, color: NODE_FILL[it.state] ?? "var(--muted)", demand: it.demand ?? null, created_at: it.created_at ?? null, updated_at: it.updated_at ?? null, untracked: false }
+    : { id: ref, item: null, label: ref.split("|").pop() ?? ref, repo: null, iid: null, kind: "unknown", state: "unknown", url: null, author: null, color: "var(--muted)", demand: null, created_at: null, updated_at: null, untracked: true };
+}
+
+function graphLinkOf(edge: EdgeDTO, index: number): GraphLink {
+  return {
+    id: `g${index}`,
+    source: edge.from,
+    target: edge.to,
+    type: edge.type,
+    lifecycle: edge.lifecycle ?? null,
+    color: EDGE_STROKE[edge.lifecycle ?? "other"] ?? "var(--muted)",
+  };
 }
 
 // Partition a graph into deterministic connected components. Overview layout
@@ -2940,13 +2969,177 @@ function dtoAdjacency(edges: EdgeDTO[]): Map<string, RelatedRef[]> {
   return adj;
 }
 
+// How one relation type is drawn, shared by the canvas and the legend. The
+// types differ by dash pattern or weight, never by colour alone. A null stroke
+// means the edge's lifecycle colour (`closes`; muted for a type without one).
+export interface GraphEdgeStyle {
+  stroke: string | null;
+  width: number;
+  dash: string | null;
+}
+
+const GRAPH_EDGE_STYLE: Record<string, GraphEdgeStyle> = {
+  blocks: { stroke: "var(--graph-blocks)", width: 2.75, dash: null },
+  parent: { stroke: "var(--graph-parent)", width: 1.25, dash: "9 3 2 3" },
+  mentions: { stroke: "var(--graph-mention)", width: 1, dash: "4 3" },
+};
+const GRAPH_EDGE_STYLE_DEFAULT: GraphEdgeStyle = { stroke: null, width: 1.5, dash: null };
+
+export function graphEdgeStyle(type: string): GraphEdgeStyle {
+  return GRAPH_EDGE_STYLE[type] ?? GRAPH_EDGE_STYLE_DEFAULT;
+}
+
+// The distinct relation types in a list, strongest first — the order of the
+// Graph page's per-type toggles and legend key. A type the UI has never heard
+// of is listed like any other.
+export function graphRelationTypes(types: Iterable<string>): string[] {
+  return [...new Set(types)].sort((a, b) => relationRank(a) - relationRank(b) || a.localeCompare(b));
+}
+
+export function graphEdgeTypes(edges: readonly ResolvedEdge[]): string[] {
+  return graphRelationTypes(edges.map((re) => re.edge.type));
+}
+
+// The transitive reduction of a directed graph: an edge implied by a longer
+// path is dropped. Kept edges stay in input order; self edges and repeats are
+// ignored. A graph with a cycle has no unique reduction, so it comes back whole
+// with `cyclic` set.
+export function transitiveReduction(edges: ReadonlyArray<readonly [string, string]>): { edges: Array<[string, string]>; cyclic: boolean } {
+  const successors = new Map<string, Set<string>>();
+  const unique: Array<[string, string]> = [];
+  for (const [from, to] of edges) {
+    if (from === to || successors.get(from)?.has(to)) continue;
+    if (!successors.has(from)) successors.set(from, new Set());
+    if (!successors.has(to)) successors.set(to, new Set());
+    successors.get(from)!.add(to);
+    unique.push([from, to]);
+  }
+
+  // Everything reachable from a node, filled in depth-first post-order; meeting
+  // a node that is still open means a cycle.
+  const reachable = new Map<string, Set<string>>();
+  const open = new Set<string>();
+  const visit = (node: string): boolean => {
+    if (reachable.has(node)) return true;
+    if (open.has(node)) return false;
+    open.add(node);
+    const reached = new Set<string>();
+    for (const next of successors.get(node)!) {
+      if (!visit(next)) return false;
+      reached.add(next);
+      for (const further of reachable.get(next)!) reached.add(further);
+    }
+    open.delete(node);
+    reachable.set(node, reached);
+    return true;
+  };
+  for (const node of successors.keys()) if (!visit(node)) return { edges: unique, cyclic: true };
+
+  const implied = ([from, to]: [string, string]): boolean =>
+    [...successors.get(from)!].some((via) => via !== to && reachable.get(via)!.has(to));
+  return { edges: unique.filter((pair) => !implied(pair)), cyclic: false };
+}
+
+// A tracker's program scope over loaded edges — what the server's
+// `scope=program` read returns: the `parent` edges to its children, every
+// `blocks` edge into a child, and every `closes` edge into a child. A blocker
+// outside the program is kept because it decides a child's status.
+export function programScopeEdges(edges: readonly ResolvedEdge[], trackerId: string): ResolvedEdge[] {
+  const children = new Set<string>();
+  for (const { edge } of edges) if (edge.type === "parent" && edge.from === trackerId && edge.to !== trackerId) children.add(edge.to);
+  return edges.filter(({ edge }) =>
+    edge.type === "parent"
+      ? edge.from === trackerId && children.has(edge.to)
+      : (edge.type === "blocks" || edge.type === "closes") && children.has(edge.to) && edge.from !== edge.to,
+  );
+}
+
+// The Graph page's program view of one tracker: its children as nodes, in
+// program order and carrying their program.ts status; the transitive reduction
+// of the `blocks` edges among them (all of them when they form a cycle); and
+// each child's delivering change requests, attached by `closes`. The tracker is
+// the view's header, not a node, so its `parent` edges are implied and an item
+// that blocks a child from outside the program changes that child's status
+// without being drawn.
+export interface GraphProgramView {
+  graph: GraphData;
+  /** child ref -> the change requests laid out under it, in edge order. */
+  attached: Map<string, string[]>;
+  /** `blocks` edges among the children: drawn after reduction, and in total. */
+  blocks: { drawn: number; total: number; cyclic: boolean };
+}
+
+export function graphProgramView(edges: readonly ResolvedEdge[], trackerId: string, rollup: ProgramRollup): GraphProgramView {
+  const nodes = new Map<string, GraphNode>();
+  for (const child of rollup.children) {
+    nodes.set(child.id, { ...graphNodeOf(child.item, child.id), label: programChildName(child), programStatus: child.status });
+  }
+  const isChild = (ref: string): boolean => nodes.get(ref)?.programStatus !== undefined;
+  const scope = programScopeEdges(edges, trackerId);
+
+  const pairKey = (edge: EdgeDTO): string => JSON.stringify([edge.from, edge.to]);
+  const blocks = scope.filter(({ edge }) => edge.type === "blocks" && isChild(edge.from));
+  const reduced = transitiveReduction(blocks.map(({ edge }) => [edge.from, edge.to]));
+  const kept = new Set(reduced.edges.map(([from, to]) => JSON.stringify([from, to])));
+  const links: GraphLink[] = [];
+  for (const { edge } of blocks) {
+    // `delete` so a repeated edge is drawn once.
+    if (kept.delete(pairKey(edge))) links.push(graphLinkOf(edge, links.length));
+  }
+  const blocksDrawn = links.length;
+
+  const attached = new Map<string, string[]>();
+  const closes = scope.filter(({ edge }) => edge.type === "closes" && edge.from !== trackerId);
+  for (const child of rollup.children) {
+    for (const re of closes) {
+      if (re.edge.to !== child.id) continue;
+      if (!nodes.has(re.edge.from)) {
+        nodes.set(re.edge.from, { ...graphNodeOf(re.from, re.edge.from), attachedTo: child.id });
+        attached.set(child.id, [...(attached.get(child.id) ?? []), re.edge.from]);
+      }
+      links.push(graphLinkOf(re.edge, links.length));
+    }
+  }
+  return {
+    graph: { nodes: [...nodes.values()], links },
+    attached,
+    blocks: { drawn: blocksDrawn, total: new Set(blocks.map(({ edge }) => pairKey(edge))).size, cyclic: reduced.cyclic },
+  };
+}
+
+// The program view's columns, left to right: a child sits one column after its
+// last prerequisite among the drawn `blocks` links, so a child with none is in
+// the first column. Children keep their program order within a column. Where
+// the links form a cycle, the one that closes it is not counted.
+export function programLayers(program: GraphProgramView): string[][] {
+  const children = program.graph.nodes.filter((node) => node.programStatus !== undefined).map((node) => node.id);
+  const prerequisites = new Map<string, string[]>(children.map((id) => [id, []]));
+  for (const link of program.graph.links) if (link.type === "blocks") prerequisites.get(link.target)?.push(link.source);
+
+  const column = new Map<string, number>();
+  const open = new Set<string>();
+  const columnOf = (id: string): number => {
+    const known = column.get(id);
+    if (known !== undefined) return known;
+    if (open.has(id)) return -1;
+    open.add(id);
+    const at = Math.max(-1, ...prerequisites.get(id)!.map(columnOf)) + 1;
+    open.delete(id);
+    column.set(id, at);
+    return at;
+  };
+  const layers: string[][] = [];
+  for (const id of children) (layers[columnOf(id)] ??= []).push(id);
+  return layers;
+}
+
 // Build the focus-view subgraph for the Graph page's canvas: the focused item +
 // its DIRECT neighbours (the other end of every edge touching it) and EVERY edge
 // among that set (the focus's own edges PLUS neighbour-neighbour links). It is
 // built from the full resolved edge set with mentions INCLUDED, on
 // purpose: a focus view exists to inspect ONE item's relationships, so it should
-// show all of them — closes, mentions, and relates — independent of the overview
-// graph's range and "+ mentions" toggle (those declutter the
+// show all of them — every relation type — independent of the overview
+// graph's range and relation type toggles (those declutter the
 // whole-graph view, not a single item's neighbourhood). Returns an empty graph
 // when the focus has no edges, so the caller can fall back to the full graph.
 // Pure: same inputs -> same GraphData, so it is unit-testable.
@@ -2966,8 +3159,9 @@ export function focusSubgraph(edges: ResolvedEdge[], focusId: string): GraphData
 //      common) merge their out + in into direction "both" instead of listing the
 //      neighbour twice;
 //   2. when an item relates via several edge TYPES, the strongest one wins
-//      (closes > mentions > relates) — a PR that both closes and mentions an issue
-//      shows once as "closes", since the mention is redundant with the close.
+//      (closes > blocks > parent > mentions > relates) — a PR that both closes
+//      and mentions an issue shows once as "closes", since the mention is
+//      redundant with the close.
 export interface RelatedItem {
   ref: string;
   type: string;
@@ -2976,8 +3170,8 @@ export interface RelatedItem {
 
 // Lower rank = stronger / more lifecycle-meaningful. Unknown types sit between
 // mentions and relates so a future edge type still ranks deterministically.
-const RELATION_RANK: Record<string, number> = { closes: 0, mentions: 1, relates: 2 };
-const relationRank = (type: string): number => RELATION_RANK[type] ?? 1.5;
+const RELATION_RANK: Record<string, number> = { closes: 0, blocks: 1, parent: 2, mentions: 3, relates: 4 };
+const relationRank = (type: string): number => RELATION_RANK[type] ?? 3.5;
 
 export function relatedItems(refs: RelatedRef[]): RelatedItem[] {
   const byRef = new Map<string, { ref: string; type: string; dirs: Set<"out" | "in"> }>();

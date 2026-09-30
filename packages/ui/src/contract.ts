@@ -4,7 +4,7 @@
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
 import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
-import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot, GraphNeighborhoodResponse } from "./model.ts";
+import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot, GraphNeighborhoodResponse, GraphFocusScope } from "./model.ts";
 import { GRAPH_FOCUS_MAX_DEPTH } from "./model.ts";
 import { appFetch } from "./runtime.ts";
 import { currentClientKind, loadServerBaseUrl, requiresConfiguredServerBaseUrl, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
@@ -633,8 +633,12 @@ export async function fetchGraphNeighborhood(
   depth: number,
   serverBaseUrl: string | null = loadServerBaseUrl(),
   signal?: AbortSignal,
+  scope: GraphFocusScope = "neighborhood",
 ): Promise<GraphNeighborhoodResponse> {
-  const params = new URLSearchParams({ ref: focusRef, depth: String(depth), mentions: "all" });
+  // A program scope is a fixed projection, so it sends no depth; `depth` is then
+  // the depth the response must report (GRAPH_PROGRAM_DEPTH), which a server
+  // that does not know the scope would not.
+  const params = new URLSearchParams(scope === "program" ? { ref: focusRef, scope } : { ref: focusRef, depth: String(depth), mentions: "all" });
   const target = resolveEndpoint(`./api/graph-neighborhood?${params.toString()}`, serverBaseUrl);
   const res = await appFetch(target, { cache: "no-store", signal });
   if (!res.ok) throw new Error(`graph neighborhood: HTTP ${res.status}`);

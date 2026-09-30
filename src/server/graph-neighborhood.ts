@@ -1,6 +1,9 @@
 // Bounded canonical-history graph neighbourhood for focused Graph inspection.
 // This is an operational read-only API, separate from ContractEnvelope: range
 // responses stay small while a focused item can inspect older live relations.
+// It serves two scopes in one response shape: the ordinary neighbourhood of any
+// item, and the program of a tracker (its children, what blocks them, and what
+// closes them).
 
 import type { ServerResponse } from "node:http";
 import type { EdgeDTO, ItemDTO } from "@symphony-board/contract";
@@ -15,14 +18,23 @@ export const GRAPH_NEIGHBORHOOD_DEFAULT_DEPTH = 1;
 export const GRAPH_NEIGHBORHOOD_MAX_DEPTH = 5;
 export const GRAPH_NEIGHBORHOOD_MAX_NODES = 200;
 export const GRAPH_NEIGHBORHOOD_MAX_EDGES = 500;
+// A program scope is a fixed two-hop projection: tracker, children, then the
+// items that close or block a child.
+export const GRAPH_PROGRAM_DEPTH = 2;
+// Edge rows a program read may scan before it keeps only program edge types, so
+// the mentions on a program's children cannot crowd out its structure.
+const GRAPH_PROGRAM_MAX_EDGE_READS = 4 * GRAPH_NEIGHBORHOOD_MAX_EDGES;
 
 export interface GraphNeighborhoodOptions {
   focusRef: string;
   depth: number;
   mentionMode: GraphNeighborhoodMentionMode;
+  scope: GraphNeighborhoodScope;
 }
 
 export type GraphNeighborhoodMentionMode = "all" | "direct";
+
+export type GraphNeighborhoodScope = "neighborhood" | "program";
 
 export type GraphNeighborhoodLimitReason = "depth" | "nodes" | "edges";
 
@@ -66,6 +78,8 @@ export interface BuildGraphNeighborhoodInput {
   maxNodes?: number;
   maxEdges?: number;
 }
+
+export type BuildGraphProgramInput = Omit<BuildGraphNeighborhoodInput, "depth" | "mentionMode">;
 
 export class GraphNeighborhoodNotFoundError extends Error {}
 
@@ -114,7 +128,11 @@ export function parseGraphNeighborhoodOptions(url: URL): GraphNeighborhoodOption
   if (rawMentionMode !== "all" && rawMentionMode !== "direct") {
     throw new Error('mentions must be "all" or "direct"');
   }
-  return { focusRef, depth, mentionMode: rawMentionMode };
+  const rawScope = url.searchParams.get("scope")?.trim() || "neighborhood";
+  if (rawScope !== "neighborhood" && rawScope !== "program") {
+    throw new Error('scope must be "neighborhood" or "program"');
+  }
+  return { focusRef, depth, mentionMode: rawMentionMode, scope: rawScope };
 }
 
 // Traverse as undirected for neighbourhood membership, but return the original
@@ -238,6 +256,88 @@ export function buildGraphNeighborhood(input: BuildGraphNeighborhoodInput): Grap
   };
 }
 
+// The program of a tracker: its children (the targets of its `parent` edges),
+// every `blocks` edge into a child, and every `closes` edge into a child. A
+// blocker outside the program is kept because it decides a child's status.
+// Structure wins under the caps: children are cut in ref order, then edges are
+// kept as parent, blocks among children, closes, outside blockers. An item
+// beyond the children is returned only with an edge that reaches it. An item
+// without children is returned alone.
+export function buildGraphProgram(input: BuildGraphProgramInput): GraphNeighborhoodResponse {
+  const maxNodes = positiveLimit(input.maxNodes, GRAPH_NEIGHBORHOOD_MAX_NODES);
+  const maxEdges = positiveLimit(input.maxEdges, GRAPH_NEIGHBORHOOD_MAX_EDGES);
+  const mapped = mapRows({
+    sources: input.sources,
+    items: input.items,
+    labels: input.labels,
+    edges: input.edges,
+    generatedAt: input.generatedAt,
+    configuredRepos: input.configuredRepos,
+  });
+  const edges = [...mapped.edges].sort(compareEdges);
+  const byRef = new Map(mapped.items.map((item) => [item.id, item]));
+  const focusRef = input.focusRef;
+  if (!byRef.has(focusRef) && !edges.some((edge) => edge.from === focusRef || edge.to === focusRef)) {
+    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${focusRef}`);
+  }
+
+  const reasons = new Set<GraphNeighborhoodLimitReason>();
+  const parentEdges = edges.filter((edge) => edge.type === "parent" && edge.from === focusRef && edge.to !== focusRef);
+  const childRefs = [...new Set(parentEdges.map((edge) => edge.to))];
+  if (childRefs.length > maxNodes - 1) reasons.add("nodes");
+  const hops = new Map<string, number>([[focusRef, 0]]);
+  for (const ref of childRefs.slice(0, maxNodes - 1)) hops.set(ref, 1);
+  const isChild = (ref: string): boolean => hops.get(ref) === 1;
+
+  const intoChild = (type: string) => edges.filter((edge) => edge.type === type && isChild(edge.to) && edge.from !== edge.to);
+  const candidates = [
+    ...parentEdges.filter((edge) => isChild(edge.to)),
+    ...intoChild("blocks").filter((edge) => isChild(edge.from)),
+    ...intoChild("closes"),
+    ...intoChild("blocks").filter((edge) => !isChild(edge.from)),
+  ];
+  const selectedEdges: EdgeDTO[] = [];
+  for (const edge of candidates) {
+    if (selectedEdges.length >= maxEdges) {
+      reasons.add("edges");
+      break;
+    }
+    if (!hops.has(edge.from)) {
+      if (hops.size >= maxNodes) {
+        reasons.add("nodes");
+        continue;
+      }
+      hops.set(edge.from, GRAPH_PROGRAM_DEPTH);
+    }
+    selectedEdges.push(edge);
+  }
+  const reached = new Set<string>([focusRef]);
+  for (const edge of selectedEdges) reached.add(edge.from).add(edge.to);
+
+  const nodes = [...hops.entries()]
+    .filter(([ref]) => reached.has(ref))
+    .map(([ref, hop]) => ({ ref, hop, item: byRef.get(ref) ?? null }))
+    .sort((a, b) => a.hop - b.hop || a.ref.localeCompare(b.ref));
+  const limitReasons = (["depth", "nodes", "edges"] as const).filter((reason) => reasons.has(reason));
+  return {
+    schema: "symphony-board-graph-neighborhood/1",
+    generated_at: input.generatedAt,
+    focus_ref: focusRef,
+    requested_depth: GRAPH_PROGRAM_DEPTH,
+    reached_depth: Math.max(0, ...nodes.map((node) => node.hop)),
+    complete: limitReasons.length === 0,
+    limit_reasons: limitReasons,
+    limits: {
+      max_depth: GRAPH_NEIGHBORHOOD_MAX_DEPTH,
+      max_nodes: maxNodes,
+      max_edges: maxEdges,
+    },
+    counts: { nodes: nodes.length, edges: selectedEdges.length },
+    nodes,
+    edges: selectedEdges,
+  };
+}
+
 function configuredRepoKey(sourceId: string, projectPath: string): string {
   return JSON.stringify([sourceId, projectPath]);
 }
@@ -246,28 +346,134 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("graph neighborhood request aborted", "AbortError");
 }
 
-async function readGraphNeighborhoodSnapshot(
-  cfg: AppConfig,
-  options: GraphNeighborhoodOptions,
-  snapshot: Store,
-  signal?: AbortSignal,
-): Promise<GraphNeighborhoodResponse> {
+// The focus must be a live item in a configured repo; both scopes start here.
+async function readGraphFocus(cfg: AppConfig, focusRef: string, snapshot: Store, signal?: AbortSignal) {
   throwIfAborted(signal);
-  const focus = splitRef(options.focusRef);
-  if (!focus) throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${options.focusRef}`);
+  const focus = splitRef(focusRef);
+  if (!focus) throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${focusRef}`);
   const configuredRepos = configuredRepoRefs(cfg);
   const configuredRepoKeys = new Set(configuredRepos.map((repo) => configuredRepoKey(repo.source_id, repo.project_path)));
   const configuredSourceIds = new Set(configuredRepos.map((repo) => repo.source_id));
   if (!configuredSourceIds.has(focus.sourceId)) {
-    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${options.focusRef}`);
+    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${focusRef}`);
   }
 
   const focusRows = await snapshot.listLiveItemsBySourceRefs(focus.sourceId, [focus.externalId]);
   throwIfAborted(signal);
   const focusRow = focusRows[0];
   if (!focusRow || !focusRow.project_path || !configuredRepoKeys.has(configuredRepoKey(focusRow.source_id, focusRow.project_path))) {
-    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${options.focusRef}`);
+    throw new GraphNeighborhoodNotFoundError(`focus ref not found: ${focusRef}`);
   }
+  return { focus, focusRow, configuredRepos, configuredRepoKeys, configuredSourceIds };
+}
+
+// Two bounded reads: the tracker's own edges name its children, then the
+// children's edges carry what blocks and closes them.
+async function readGraphProgramSnapshot(
+  cfg: AppConfig,
+  options: GraphNeighborhoodOptions,
+  snapshot: Store,
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
+  const { focus, focusRow, configuredRepos, configuredSourceIds } = await readGraphFocus(cfg, options.focusRef, snapshot, signal);
+  const configured = (ref: string): { sourceId: string; externalId: string } | null => {
+    const parsed = splitRef(ref);
+    return parsed && configuredSourceIds.has(parsed.sourceId) ? parsed : null;
+  };
+  const bySource = (refs: Iterable<string>): Array<[string, string[]]> => {
+    const grouped = new Map<string, string[]>();
+    for (const ref of [...refs].sort()) {
+      const parsed = configured(ref);
+      if (!parsed) continue;
+      const ids = grouped.get(parsed.sourceId) ?? [];
+      ids.push(parsed.externalId);
+      grouped.set(parsed.sourceId, ids);
+    }
+    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b));
+  };
+
+  let edgeReadCapped = false;
+  let nodeReadCapped = false;
+  const focusPage = await snapshot.listLiveEdgesForSourceRefs(focus.sourceId, [focus.externalId], GRAPH_PROGRAM_MAX_EDGE_READS);
+  throwIfAborted(signal);
+  if (focusPage.truncated) edgeReadCapped = true;
+  const parentRows = focusPage.rows.filter((edge) =>
+    edge.type === "parent" && rowRef(edge.from_source_id, edge.from_external_id) === options.focusRef,
+  );
+  const allChildRefs = [...new Set(parentRows.map((edge) => rowRef(edge.to_source_id, edge.to_external_id)))]
+    .filter((ref) => ref !== options.focusRef && configured(ref))
+    .sort();
+  if (allChildRefs.length > GRAPH_NEIGHBORHOOD_MAX_NODES - 1) nodeReadCapped = true;
+  const childRefs = new Set(allChildRefs.slice(0, GRAPH_NEIGHBORHOOD_MAX_NODES - 1));
+
+  const edgeRows = parentRows.filter((edge) => childRefs.has(rowRef(edge.to_source_id, edge.to_external_id)));
+  let remaining = GRAPH_PROGRAM_MAX_EDGE_READS;
+  for (const [sourceId, externalIds] of bySource(childRefs)) {
+    if (remaining <= 0) {
+      edgeReadCapped = true;
+      break;
+    }
+    const page = await snapshot.listLiveEdgesForSourceRefs(sourceId, externalIds, remaining);
+    throwIfAborted(signal);
+    remaining -= page.rows.length;
+    edgeRows.push(...page.rows.filter((edge) =>
+      (edge.type === "blocks" || edge.type === "closes") && childRefs.has(rowRef(edge.to_source_id, edge.to_external_id)),
+    ));
+    if (page.truncated) {
+      edgeReadCapped = true;
+      break;
+    }
+  }
+
+  // A row in a repo the config no longer lists is dropped with its edges by
+  // buildGraphProgram; a ref with no row at all stays as an untracked endpoint.
+  const itemRefs = new Set<string>(childRefs);
+  for (const edge of edgeRows) itemRefs.add(rowRef(edge.from_source_id, edge.from_external_id));
+  itemRefs.delete(options.focusRef);
+  const items: ItemRow[] = [focusRow];
+  for (const [sourceId, externalIds] of bySource(itemRefs)) {
+    items.push(...await snapshot.listLiveItemsBySourceRefs(sourceId, externalIds));
+    throwIfAborted(signal);
+  }
+
+  const response = buildGraphProgram({
+    sources: await snapshot.listSources(),
+    items,
+    labels: await snapshot.listLabelsByItemIds(items.map((item) => item.item_id)),
+    edges: edgeRows,
+    generatedAt: new Date().toISOString(),
+    configuredRepos,
+    focusRef: options.focusRef,
+  });
+  const reasons = new Set(response.limit_reasons);
+  if (nodeReadCapped) reasons.add("nodes");
+  if (edgeReadCapped) reasons.add("edges");
+  return withLimitReasons(response, reasons);
+}
+
+// Report read-side truncation with the builder's own reasons, and drop the
+// provider bodies the Graph never renders.
+function withLimitReasons(response: GraphNeighborhoodResponse, reasons: ReadonlySet<GraphNeighborhoodLimitReason>): GraphNeighborhoodResponse {
+  const limitReasons = (["depth", "nodes", "edges"] as const).filter((reason) => reasons.has(reason));
+  return {
+    ...response,
+    complete: limitReasons.length === 0,
+    limit_reasons: limitReasons,
+    nodes: response.nodes.map((node) => {
+      if (!node.item) return node;
+      const { body: _body, ...item } = node.item;
+      return { ...node, item: item as ItemDTO };
+    }),
+  };
+}
+
+async function readGraphNeighborhoodSnapshot(
+  cfg: AppConfig,
+  options: GraphNeighborhoodOptions,
+  snapshot: Store,
+  signal?: AbortSignal,
+): Promise<GraphNeighborhoodResponse> {
+  const { focusRow, configuredRepos, configuredRepoKeys, configuredSourceIds } = await readGraphFocus(cfg, options.focusRef, snapshot, signal);
 
   const itemsByRef = new Map<string, ItemRow>([[options.focusRef, focusRow]]);
   const allowedRefs = new Set<string>([options.focusRef]);
@@ -387,17 +593,7 @@ async function readGraphNeighborhoodSnapshot(
   });
   const reasons = new Set(response.limit_reasons);
   if (edgeReadCapped) reasons.add("edges");
-  const limitReasons = (["depth", "nodes", "edges"] as const).filter((reason) => reasons.has(reason));
-  return {
-    ...response,
-    complete: limitReasons.length === 0,
-    limit_reasons: limitReasons,
-    nodes: response.nodes.map((node) => {
-      if (!node.item) return node;
-      const { body: _body, ...item } = node.item;
-      return { ...node, item: item as ItemDTO };
-    }),
-  };
+  return withLimitReasons(response, reasons);
 }
 
 async function loadGraphNeighborhoodProjection(
@@ -407,7 +603,8 @@ async function loadGraphNeighborhoodProjection(
 ): Promise<GraphNeighborhoodResponse> {
   const store = await openConfiguredStoreReadOnly(cfg);
   try {
-    return await store.readSnapshot((snapshot) => readGraphNeighborhoodSnapshot(cfg, options, snapshot, signal));
+    const read = options.scope === "program" ? readGraphProgramSnapshot : readGraphNeighborhoodSnapshot;
+    return await store.readSnapshot((snapshot) => read(cfg, options, snapshot, signal));
   } finally {
     await store.close();
   }
@@ -426,7 +623,7 @@ function projectionKey(cfg: AppConfig, options: GraphNeighborhoodOptions): strin
   const repos = configuredRepoRefs(cfg)
     .map((repo) => configuredRepoKey(repo.source_id, repo.project_path))
     .sort();
-  return JSON.stringify([store, repos, options.focusRef, options.depth, options.mentionMode]);
+  return JSON.stringify([store, repos, options.focusRef, options.depth, options.mentionMode, options.scope]);
 }
 
 export async function graphNeighborhoodProjection(

@@ -161,6 +161,7 @@ let graphNeighborhoodDelayDepth = null;
 let graphNeighborhoodDelayMs = 0;
 let graphNeighborhoodForcedLimitReason = null;
 const MENTION_ONLY_FOCUS_REF = "github:github.com|ISSUE_e";
+const PROGRAM_TRACKER_REF = "github:github.com|ISSUE_c";
 let activityDailyRequestCount = 0;
 let liveSnapshotRequestCount = 0;
 const liveSnapshotRequestUrls = [];
@@ -497,8 +498,22 @@ function fail(msg) {
 const SMOKE_COMMIT_TYPES = ["fix", "feat", "docs", "chore", "test", "refactor", "ci"];
 const SMOKE_COMMIT_SCOPES = ["ui", "api", "sync", "contract", "db"];
 
+// The tracked sample has no `mentions` edge, and the Graph overview only offers
+// a toggle for a relation type that is loaded. One mention between the GitLab
+// pair (already joined by `closes`, so no node or component changes) gives the
+// mentions toggle and its target sub-filter something to act on.
+const SMOKE_MENTION_EDGE = {
+  type: "mentions",
+  from: "gitlab:gitlab.com|gid://gitlab/MergeRequest/201",
+  to: "gitlab:gitlab.com|gid://gitlab/Issue/101",
+  from_state: "open",
+  to_state: "open",
+  lifecycle: null,
+};
+
 function inflateActivityContract(body) {
   const env = withSmokeHeaderSources(JSON.parse(body.toString("utf8")));
+  if (Array.isArray(env.edges) && !env.edges.some((edge) => edge.type === "mentions")) env.edges = [...env.edges, SMOKE_MENTION_EDGE];
   if (!Array.isArray(env.activities) || env.activities.length === 0) return JSON.stringify(env);
 
   const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
@@ -725,6 +740,39 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
   const byId = new Map(env.items.map((item) => [item.id, item]));
   const focus = byId.get(focusRef);
   if (!focus) return { status: 404, body: JSON.stringify({ error: "focus ref not found" }) };
+
+  // A tracker's program scope, as the server builds it: its children, every
+  // `blocks` edge into a child, and every `closes` edge into a child. Its
+  // ordinary scope returns every direct edge, which is what tells the UI that
+  // the focus is a tracker at all.
+  const parentEdges = env.edges.filter((edge) => edge.type === "parent" && edge.from === focusRef && edge.to !== focusRef);
+  if (url.searchParams.get("scope") === "program" || parentEdges.length > 0) {
+    const program = url.searchParams.get("scope") === "program";
+    const children = new Set(parentEdges.map((edge) => edge.to));
+    const edges = program
+      ? [...parentEdges, ...env.edges.filter((edge) => (edge.type === "blocks" || edge.type === "closes") && children.has(edge.to))]
+      : env.edges.filter((edge) => edge.from === focusRef || edge.to === focusRef);
+    const hopOf = (ref) => (ref === focusRef ? 0 : !program || children.has(ref) ? 1 : 2);
+    const nodes = [...new Set([focusRef, ...edges.flatMap((edge) => [edge.from, edge.to])])]
+      .map((ref) => ({ ref, hop: hopOf(ref), item: byId.get(ref) ?? null }))
+      .sort((a, b) => a.hop - b.hop || a.ref.localeCompare(b.ref));
+    return {
+      status: 200,
+      body: JSON.stringify({
+        schema: "symphony-board-graph-neighborhood/1",
+        generated_at: "2026-07-02T12:00:00.000Z",
+        focus_ref: focusRef,
+        requested_depth: program ? 2 : requestedDepth,
+        reached_depth: Math.max(...nodes.map((node) => node.hop)),
+        complete: true,
+        limit_reasons: [],
+        limits: { max_depth: 5, max_nodes: 200, max_edges: 500 },
+        counts: { nodes: nodes.length, edges: edges.length },
+        nodes,
+        edges,
+      }),
+    };
+  }
 
   const incidentEdge = (edge) =>
     (edge.from === focusRef && byId.has(edge.to)) || (edge.to === focusRef && byId.has(edge.from));
@@ -1645,6 +1693,25 @@ try {
     labelled: fileGraphFallbackHtml.includes("Full relationship history is unavailable in this static contract"),
     hasFocusedList: fileGraphFallbackHtml.includes("graph-list-back"),
   };
+  // Without a server the tracker's program is read from the loaded edges.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}'` });
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
+  const fileGraphProgram = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      head: document.querySelector('.graph-program-head')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      children: [...document.querySelectorAll('.react-flow__node')]
+        .map((node) => ({ id: (node.getAttribute('data-id') || '').split('|').pop(), left: Math.round(node.getBoundingClientRect().left), status: node.querySelector('[data-program-status]')?.getAttribute('data-program-status') || null }))
+        .filter((node) => node.status)
+        .sort((a, b) => a.left - b.left)
+        .map((node) => node.id + ':' + node.status),
+      attached: document.querySelectorAll('.react-flow__node .rf-node-attached').length,
+      load: document.querySelector('.graph-focus-load-fallback')?.textContent || '',
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  fileGraphProgram.requestDelta = graphNeighborhoodRequestCount - fileGraphRequestBefore;
+  await send("Emulation.clearDeviceMetricsOverride");
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   // Auto-hiding scrollbars: the styled scrollbars are transparent at rest and only
@@ -1894,8 +1961,7 @@ try {
         .map((el) => el.textContent?.replace(/\\s+/g, ' ').trim())
         .filter(Boolean);
       const sideKindGroup = document.querySelector('.graph-list-kinds');
-      const mentionsButton = Array.from(document.querySelectorAll('.graph-controls .toggle'))
-        .find((el) => el.textContent?.trim() === '+ mentions');
+      const mentionsButton = document.querySelector('.graph-type-toggles [data-edge-type="mentions"]');
       mentionsButton?.click();
       return new Promise((resolve) => setTimeout(() => {
         const mentionGroup = Array.from(document.querySelectorAll('.graph-controls .toggle-group'))
@@ -4268,7 +4334,8 @@ try {
   await sleep(300);
   const board2Html = await waitHtml("document.querySelector('.board-lanes .card')");
   await captureTitleLinkHitTarget("board card", ".board-lanes .card-title[href]", ".card");
-  await send("Runtime.evaluate", { expression: "document.querySelector('.card-graph')?.click()" });
+  // (The tracker's card opens its program view instead, which has its own checks.)
+  await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.board-lanes .card-graph')].find((link) => !(link.getAttribute('href') || '').includes('ISSUE_c'))?.click()" });
   await sleep(500);
   const deepLinkHtml = await waitHtml("document.querySelector('.graph-list-back')");
   const deepLinkSearch = (await send("Runtime.evaluate", { expression: "document.querySelector('.search')?.value || ''", returnByValue: true })).result.value || "";
@@ -7536,35 +7603,115 @@ try {
     expression: `(() => ({
       related: !!document.querySelector('.graph-list-card:not(.active) .glc-rel-type')?.textContent?.includes('mentions'),
       link: [...document.querySelectorAll('.rf-edge-label')].some((label) => label.textContent?.trim() === 'mentions'),
-      toggleAbsent: ![...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions'),
+      toggleAbsent: !document.querySelector('.graph-type-toggles'),
     }))()`,
     returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
-  await waitHtml("document.querySelector('.graph-list-kinds') && [...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && !button.classList.contains('toggle-on'))");
+  await waitHtml("document.querySelector('.graph-list-kinds') && document.querySelector('.graph-type-toggles [data-edge-type=\"mentions\"]:not(.toggle-on)')");
   const graphOverviewMentionsRestored = (await send("Runtime.evaluate", {
-    expression: "[...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && !button.classList.contains('toggle-on'))",
+    expression: "!!document.querySelector('.graph-type-toggles [data-edge-type=\"mentions\"]:not(.toggle-on)')",
     returnByValue: true,
   })).result.value;
 
-  await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-controls .toggle')].find((button) => button.textContent?.trim() === '+ mentions')?.click()" });
-  await waitHtml("[...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && button.classList.contains('toggle-on'))");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-type-toggles [data-edge-type=\"mentions\"]')?.click()" });
+  await waitHtml("document.querySelector('.graph-type-toggles [data-edge-type=\"mentions\"].toggle-on')");
   await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(MENTION_ONLY_FOCUS_REF)}'` });
   await waitHtml(mentionFocusReady);
   const graphEnabledFocusToggleAbsent = (await send("Runtime.evaluate", {
-    expression: "![...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions')",
+    expression: "!document.querySelector('.graph-type-toggles')",
     returnByValue: true,
   })).result.value;
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-back')?.click()" });
-  await waitHtml("document.querySelector('.graph-list-kinds') && [...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && button.classList.contains('toggle-on'))");
+  await waitHtml("document.querySelector('.graph-list-kinds') && document.querySelector('.graph-type-toggles [data-edge-type=\"mentions\"].toggle-on')");
   const graphOverviewMentionsEnabledRestored = (await send("Runtime.evaluate", {
-    expression: "[...document.querySelectorAll('.graph-controls .toggle')].some((button) => button.textContent?.trim() === '+ mentions' && button.classList.contains('toggle-on'))",
+    expression: "!!document.querySelector('.graph-type-toggles [data-edge-type=\"mentions\"].toggle-on')",
     returnByValue: true,
   })).result.value;
+
+  // Relation type toggles: one per type in the loaded data, every type on but
+  // mentions (switched on just above), and each one changes what is drawn.
+  const graphOverviewState = `(() => ({
+    toggles: [...document.querySelectorAll('.graph-type-toggles .toggle')].map((button) => [button.getAttribute('data-edge-type'), button.classList.contains('toggle-on')]),
+    links: Number(/(\\d+) links/.exec(document.querySelector('.graph-controls > .muted')?.textContent || '')?.[1] ?? Number.NaN),
+    legend: [...document.querySelectorAll('.graph-legend .graph-legend-edge')].map((entry) => entry.getAttribute('data-edge-type')),
+    lifecycleKeys: [...document.querySelectorAll('.graph-legend .graph-legend-lifecycle')].map((entry) => entry.textContent?.trim()),
+  }))()`;
+  const graphTypeToggleStates = [];
+  const readGraphOverview = async (step) => {
+    await sleep(300);
+    graphTypeToggleStates.push({ step, ...((await send("Runtime.evaluate", { expression: graphOverviewState, returnByValue: true })).result.value || {}) });
+  };
+  const clickGraphType = (type) => send("Runtime.evaluate", { expression: `document.querySelector('.graph-type-toggles [data-edge-type="${type}"]')?.click()` });
+  await readGraphOverview("mentions on");
+  await clickGraphType("mentions");
+  await readGraphOverview("default");
+  await clickGraphType("parent");
+  await readGraphOverview("parent off");
+  await clickGraphType("blocks");
+  await readGraphOverview("parent and blocks off");
+  await clickGraphType("parent");
+  await clickGraphType("blocks");
+  await readGraphOverview("restored");
+
+  // Program view: focusing the sample tracker draws its children left to right
+  // in dependency order, each with its status, with the tracker as the header.
+  const graphProgramRequestsBefore = graphNeighborhoodRequestUrls.length;
+  await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}'` });
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-ready') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
+  const graphProgramState = `(() => {
+    const tail = (ref) => (ref || '').split('|').pop();
+    const nodes = [...document.querySelectorAll('.react-flow__node')].map((node) => ({
+      id: tail(node.getAttribute('data-id')),
+      left: Math.round(node.getBoundingClientRect().left),
+      top: Math.round(node.getBoundingClientRect().top),
+      status: node.querySelector('[data-program-status]')?.getAttribute('data-program-status') || null,
+      marker: node.querySelector('.program-status')?.textContent?.replace(/\\s+/g, ' ').trim() || null,
+      attached: !!node.querySelector('.rf-node-attached'),
+      untracked: !!node.querySelector('.rf-node-untracked'),
+      title: node.querySelector('.rf-node-title')?.textContent?.trim() || '',
+    }));
+    const head = document.querySelector('.graph-program-head');
+    return {
+      hash: location.hash,
+      head: head?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      headTitleHref: head?.querySelector('a.graph-program-title')?.getAttribute('href') || '',
+      children: nodes.filter((node) => node.status).sort((a, b) => a.left - b.left),
+      attached: nodes.filter((node) => node.attached).map((node) => node.id).sort(),
+      nodeIds: nodes.map((node) => node.id).sort(),
+      edges: document.querySelectorAll('.react-flow__edge').length,
+      edgeLabels: document.querySelectorAll('.rf-edge-label').length,
+      legend: [...document.querySelectorAll('.graph-legend .graph-legend-edge')].map((entry) => entry.getAttribute('data-edge-type')),
+      statusKey: [...document.querySelectorAll('.graph-legend .graph-legend-status')].map((entry) => entry.textContent?.replace(/\\s+/g, ' ').trim()),
+      scope: [...document.querySelectorAll('.graph-scope-controls .toggle')].map((button) => [button.getAttribute('data-focus-scope'), button.classList.contains('toggle-on')]),
+      depthControls: document.querySelectorAll('.graph-depth-controls button').length,
+      target: document.querySelectorAll('.rf-node-focus-marker').length,
+      showing: document.querySelector('.graph-controls > .muted')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      load: document.querySelector('.graph-focus-load')?.textContent || '',
+    };
+  })()`;
+  const readGraphProgram = async () => (await send("Runtime.evaluate", { expression: graphProgramState, returnByValue: true })).result.value || {};
+  const graphProgram = await readGraphProgram();
+  graphProgram.requests = graphNeighborhoodRequestUrls.slice(graphProgramRequestsBefore);
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"]')?.click()" });
+  await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && document.querySelector('.graph-focus-load-ready')?.textContent.includes('1/1 hops')");
+  const graphProgramNeighborhood = await readGraphProgram();
+  await send("Page.reload");
+  await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"].toggle-on')");
+  const graphProgramNeighborhoodReloaded = await readGraphProgram();
+  await send("Runtime.evaluate", { expression: "document.querySelector('.graph-scope-controls [data-focus-scope=\"program\"]')?.click()" });
+  await waitHtml("document.querySelector('.graph-program-head') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
+  const graphProgramBack = await readGraphProgram();
 
   ws.close();
 
   // --- assertions ---
+  const graphTypeState = (step) => graphTypeToggleStates.find((state) => state.step === step) || {};
+  const graphTypeMentionsOn = graphTypeState("mentions on");
+  const graphTypeDefault = graphTypeState("default");
+  const graphTypeParentOff = graphTypeState("parent off");
+  const graphTypeBothOff = graphTypeState("parent and blocks off");
+  const graphTypeRestored = graphTypeState("restored");
   const has = (h, s) => h.includes(s);
   const m = (h, re) => (h.match(re) || []).length;
   const classBlocks = (h, className) => [...h.matchAll(new RegExp(`class="${className}"[^>]*>([\\s\\S]*?)<\\/div>`, "g"))].map((x) => x[1] || "");
@@ -8303,6 +8450,64 @@ try {
     [graphBoardWidthSamples.length === 2 && graphBoardWidthSamples.every((sample) => sample.matches === true), `graph: Board/Graph width parity holds across desktop clamp regimes (${JSON.stringify(graphBoardWidthSamples)})`],
     [JSON.stringify(graphKindLabelSummary.sideKindLabels || []) === JSON.stringify(["all", "issue", "change request"]), `graph: side-list kind toggles use neutral change request label (${(graphKindLabelSummary.sideKindLabels || []).join(", ") || "none"})`],
     [JSON.stringify(graphKindLabelSummary.mentionLabels || []) === JSON.stringify(["all", "issues", "change requests"]), `graph: mention target toggles use neutral change request label (${(graphKindLabelSummary.mentionLabels || []).join(", ") || "none"})`],
+    // relation type toggles, the per-type legend, and the program view
+    [
+      JSON.stringify(graphTypeDefault.toggles) === JSON.stringify([["closes", true], ["blocks", true], ["parent", true], ["mentions", false]]),
+      `graph: one toggle per loaded relation type, every type on but mentions (${JSON.stringify(graphTypeDefault.toggles)})`,
+    ],
+    [
+      graphTypeMentionsOn.links === graphTypeDefault.links + 1 &&
+        graphTypeParentOff.links < graphTypeDefault.links &&
+        graphTypeBothOff.links < graphTypeParentOff.links &&
+        graphTypeRestored.links === graphTypeDefault.links,
+      `graph: each relation type toggle changes the drawn links (${graphTypeToggleStates.map((state) => `${state.step}: ${state.links}`).join(", ")})`,
+    ],
+    [
+      JSON.stringify(graphTypeDefault.legend) === JSON.stringify(["closes", "blocks", "parent"]) &&
+        JSON.stringify(graphTypeMentionsOn.legend) === JSON.stringify(["closes", "blocks", "parent", "mentions"]) &&
+        JSON.stringify(graphTypeBothOff.legend) === JSON.stringify(["closes"]) &&
+        JSON.stringify(graphTypeDefault.lifecycleKeys) === JSON.stringify(["declared", "fulfilled", "broken"]),
+      `graph: the legend keys the relation types on the canvas and keeps the closes lifecycle colours (${JSON.stringify(graphTypeToggleStates.map((state) => [state.step, state.legend]))})`,
+    ],
+    [
+      graphProgram.head?.includes("Add incremental sync cadence") && graphProgram.head?.includes("1/3 done") && !!graphProgram.headTitleHref &&
+        !graphProgram.nodeIds?.includes("ISSUE_c") && graphProgram.target === 0 && /program/.test(graphProgram.showing || ""),
+      `graph: a focused tracker is the program view's header, not a node (${JSON.stringify({ head: graphProgram.head, nodeIds: graphProgram.nodeIds, showing: graphProgram.showing })})`,
+    ],
+    [
+      JSON.stringify((graphProgram.children || []).map((child) => `${child.id}:${child.status}`)) === JSON.stringify(["ISSUE_a:done", "ISSUE_e:ready", "ISSUE_UNTRACKED_99:blocked"]) &&
+        (graphProgram.children || []).every((child, index, all) => index === 0 || child.left > all[index - 1].left + 100) &&
+        (graphProgram.children || []).every((child) => (child.marker || "").includes(child.status)),
+      `graph: program children sit left to right in dependency order, each with its status marker (${JSON.stringify(graphProgram.children)})`,
+    ],
+    [
+      graphProgram.children?.[2]?.untracked === true && graphProgram.children?.[2]?.title === "ISSUE_UNTRACKED_99" &&
+        JSON.stringify(graphProgram.attached) === JSON.stringify(["PR_b", "PR_f"]) && graphProgram.edges === 5 &&
+        JSON.stringify(graphProgram.legend) === JSON.stringify(["closes", "blocks"]) && graphProgram.statusKey?.length === 4,
+      `graph: the program view draws blocks and closes only, attaches change requests, and keys the statuses (${JSON.stringify({ attached: graphProgram.attached, edges: graphProgram.edges, legend: graphProgram.legend, statusKey: graphProgram.statusKey, untracked: graphProgram.children?.[2] })})`,
+    ],
+    [
+      graphProgram.requests?.length === 1 && /[?&]scope=program(&|$)/.test(graphProgram.requests[0]) && !/[?&]depth=/.test(graphProgram.requests[0]) &&
+        !/scope=/.test(graphProgram.hash || "") && graphProgram.depthControls === 0 && /^program · /.test(graphProgram.load || ""),
+      `graph: a loaded tracker requests its program scope once (${JSON.stringify({ requests: graphProgram.requests, hash: graphProgram.hash, load: graphProgram.load })})`,
+    ],
+    [
+      /[?&]scope=neighborhood(&|$)/.test(graphProgramNeighborhood.hash || "") && graphProgramNeighborhood.nodeIds?.includes("ISSUE_c") && graphProgramNeighborhood.target === 1 &&
+        graphProgramNeighborhood.depthControls === 5 && graphProgramNeighborhood.legend?.includes("parent") && graphProgramNeighborhood.edgeLabels >= 1 &&
+        JSON.stringify(graphProgramNeighborhood.scope) === JSON.stringify([["program", false], ["neighborhood", true]]),
+      `graph: the view toggle switches a tracker to its route-backed neighbourhood (${JSON.stringify({ hash: graphProgramNeighborhood.hash, nodeIds: graphProgramNeighborhood.nodeIds, scope: graphProgramNeighborhood.scope })})`,
+    ],
+    [
+      graphProgramNeighborhoodReloaded.hash === graphProgramNeighborhood.hash && graphProgramNeighborhoodReloaded.target === 1 &&
+        !/scope=/.test(graphProgramBack.hash || "") && graphProgramBack.children?.length === 3 && graphProgramBack.target === 0,
+      `graph: the neighbourhood choice survives a reload and the toggle returns to the program (${JSON.stringify({ reloaded: graphProgramNeighborhoodReloaded.hash, back: graphProgramBack.hash })})`,
+    ],
+    [
+      fileGraphProgram.requestDelta === 0 && fileGraphProgram.head?.includes("1/3 done") && fileGraphProgram.attached === 2 &&
+        JSON.stringify(fileGraphProgram.children) === JSON.stringify(["ISSUE_a:done", "ISSUE_e:ready", "ISSUE_UNTRACKED_99:blocked"]) &&
+        fileGraphProgram.load?.includes("showing the program from loaded items"),
+      `graph: without a server the program view is drawn from the loaded edges (${JSON.stringify(fileGraphProgram)})`,
+    ],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],
     [graphListKindIcons >= graphCards, `graph: side-list item kind renders as shared SVG icons (${graphListKindIcons} icons for ${graphCards} cards)`],

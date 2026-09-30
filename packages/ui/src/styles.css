@@ -44,6 +44,8 @@
   --warn: #ffcb6b;       /* gold   — partial-source banner                */
   --graph-grid: #1d3b53;
   --graph-mention: #8aa0b6;
+  --graph-blocks: #82aaff;   /* blue — a prerequisite; drawn heavy          */
+  --graph-parent: #7fdbca;   /* teal — tracker to child; drawn dash-dotted  */
   --brand-mark-bg: #030b22;
   --brand-mark-bars: #24dae8;
 
@@ -119,6 +121,8 @@
   --warn: #855b00;
   --graph-grid: #d6d9cf;
   --graph-mention: #596b79;
+  --graph-blocks: #2457a7;
+  --graph-parent: #0c655b;
   --brand-mark-bg: #f8f8f3;
   --brand-mark-bars: #1f2520;
 
@@ -908,6 +912,30 @@ a.item-metric:hover {
 .graph-focus-load { margin: -2px 0 8px; color: var(--muted); font-size: 12px; }
 .graph-focus-load-ready { color: var(--text); }
 .graph-focus-load-fallback { color: var(--warning, #e0af68); }
+/* Program view header: the tracker, its progress, and what the canvas leaves
+   out. Wraps rather than clips, so a long title stays whole on a phone. */
+.graph-program-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  margin: 0 0 8px; padding: 8px 10px; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+}
+.graph-program-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.graph-program-title { min-width: 0; color: var(--text); font-weight: 700; overflow-wrap: anywhere; }
+a.graph-program-title:hover { color: var(--accent); }
+.graph-program-progress { font-weight: 700; color: var(--iid); white-space: nowrap; }
+.graph-program-count { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.graph-program-note { font-size: 12px; }
+/* Program child status: a glyph and a word in a pill, so the hue is a second
+   cue and never the only one. */
+.program-status {
+  display: inline-flex; align-items: center; gap: 3px; padding: 0 5px;
+  border: 1px solid currentColor; border-radius: 4px;
+  font-size: .85em; font-weight: 700; line-height: 1.5; white-space: nowrap;
+}
+.program-status-done { color: color-mix(in srgb, var(--text) 62%, var(--muted)); }
+.program-status-ready { color: var(--open); }
+.program-status-in_review { color: var(--declared); border-style: dashed; }
+.program-status-blocked { color: var(--broken); background: color-mix(in srgb, var(--broken) 14%, transparent); }
 .date-filter .date-input {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px 0 0 6px; padding: 3px 6px; margin-left: 0;
@@ -1019,6 +1047,9 @@ a.item-metric:hover {
 .graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
 .graph-legend > span { display: inline-flex; align-items: center; }
 .graph-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+.graph-legend-line { flex: none; margin-right: 4px; overflow: visible; }
+.graph-legend-edge { gap: 0; }
+.graph-legend-lifecycle { display: inline-flex; align-items: center; margin-left: 6px; }
 /* [ list | canvas ]: the side list uses the same scan width as a Board lane. */
 .graph-body {
   display: grid;
@@ -1125,6 +1156,9 @@ a.item-metric:hover {
   background: color-mix(in srgb, var(--iid) 14%, var(--panel));
 }
 .rf-node-untracked { border-style: dashed; opacity: .8; font-family: ui-monospace, monospace; }
+/* A program child's delivering change request: a compact card, one title line. */
+.rf-node-attached { padding: 4px 8px; }
+.rf-node-attached .rf-node-title { -webkit-line-clamp: 1; }
 .rf-node-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
 .rf-node-kind-icon { width: 1.15em; height: 1.15em; }
 .rf-node-title {

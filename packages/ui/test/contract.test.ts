@@ -206,6 +206,18 @@ test("fetchGraphNeighborhood encodes focus/depth, forwards cancellation, and val
     }
     globalThis.fetch = (async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
     await assert.rejects(fetchGraphNeighborhood("x", 1, null), /HTTP 404/);
+
+    // The program scope is a fixed two-hop projection: it sends no depth, and a
+    // server that ignored the scope (it would answer at depth 1) is rejected.
+    const program = { ...body, requested_depth: 2 };
+    globalThis.fetch = (async (url: string) => {
+      seenUrl = String(url);
+      return { ok: true, status: 200, json: async () => program };
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await fetchGraphNeighborhood("github:github.com|I1", 2, "https://board.example/app/", undefined, "program"), program);
+    assert.equal(seenUrl, "https://board.example/app/api/graph-neighborhood?ref=github%3Agithub.com%7CI1&scope=program");
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ ...body, requested_depth: 1, reached_depth: 1, counts: { nodes: 2, edges: 1 }, nodes: body.nodes.slice(0, 2), edges: body.edges.slice(0, 1) }) })) as unknown as typeof fetch;
+    await assert.rejects(fetchGraphNeighborhood("github:github.com|I1", 2, null, undefined, "program"), /invalid response/);
   } finally {
     globalThis.fetch = realFetch;
   }

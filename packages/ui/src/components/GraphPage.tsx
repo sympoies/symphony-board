@@ -32,17 +32,20 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, type GraphCanvasEmptyReason, type GraphMentionTarget, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphRelationTypes, graphProgramView, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
 
 // React Flow renders each node as real HTML, so a node can be a card showing the
-// repo / #iid / state — not just a label. closes edges (issue <-> change request) are
-// solid; opt-in mentions are dashed — de-emphasised (thin, faint) in the dense
-// overview, but drawn full-strength in the focus view. Layout is computed (RF
-// ships none): dagre for the hierarchy view, d3-force for the knowledge-graph view.
+// repo / #iid / state — not just a label. Each relation type has its own stroke
+// (model graphEdgeStyle): closes edges (issue <-> change request) are solid and
+// lifecycle-coloured, blocks heavy, parent dash-dotted; opt-in mentions are
+// dashed — de-emphasised (thin, faint) in the dense overview, but drawn
+// full-strength in the focus view. Layout is computed (RF ships none): dagre for
+// the hierarchy view, d3-force for the knowledge-graph view.
 //
 // Node size scales with demand (comments + reactions) so busy items stand out;
 // hovering a node highlights it + its neighbours and dims the rest, and labels
@@ -62,12 +65,13 @@ import type { GraphView } from "../nav.ts";
 // focus change reframes the camera. Related items are computed from the FULL
 // edge set (model buildAdjacency), so a relation hidden by the "active since"
 // window still lists, marked "off-window". A "← all items" button returns.
+//
+// Focusing a program tracker opens its PROGRAM view instead (model
+// graphProgramView): the tracker is the header, its children are the nodes,
+// layered left to right by what blocks what, each with its program.ts status
+// and its delivering change requests underneath. A view toggle switches to the
+// ordinary neighbourhood and back.
 
-// Stroke for `mentions` edges. The lifecycle palette colours a mention edge with
-// the muted "other" grey, which is near-invisible on the dark canvas — a problem
-// the dense overview hides via opacity/width but the sparse focus view exposes.
-// A lighter slate lifts it off the background. CSS vars keep it theme-aware.
-const MENTION_STROKE = "var(--graph-mention)";
 const NODE_W = 200;
 // Tall enough for head + two-line title + repo + the counts row (@author 💬 🔗)
 // + the updated/created times row — the two meta rows mirror the board card and
@@ -78,6 +82,16 @@ const OVERVIEW_EDGE_GAP = 56;
 const FOCUS_EDGE_GAP = 132;
 const OVERVIEW_COLLISION_GAP = 18;
 const FOCUS_COLLISION_GAP = 36;
+// Program view: a delivering change request is a compact card under its child,
+// indented, with room above it for the closes arrow.
+const ATTACHED_H = 50;
+const ATTACHED_GAP = 26;
+const ATTACHED_INDENT = 16;
+const PROGRAM_COLUMN_GAP = 140;
+const PROGRAM_ROW_GAP = 28;
+// Arrowheads scale with the stroke; past this width the marker box shrinks so a
+// heavy line does not grow a heavier head than any other edge has.
+const ARROW_MAX_STROKE = 1.75;
 
 // Node box + font scale from demand (comments + reactions). Log-damped so a few
 // very busy items don't dwarf the rest; capped at ~1.9x.
@@ -93,19 +107,48 @@ const NODE_LEGEND = [
   { c: "var(--merged)", t: "merged" },
   { c: "var(--muted)", t: "untracked" },
 ];
+const LIFECYCLE_LEGEND = ["declared", "fulfilled", "broken"];
+
+// A program child's status marker: a glyph and a word, so it never reads by
+// colour alone. The rule itself lives in program.ts.
+const PROGRAM_STATUS: Record<ProgramChildStatus, { mark: string; label: string }> = {
+  done: { mark: "✓", label: "done" },
+  ready: { mark: "→", label: "ready" },
+  in_review: { mark: "…", label: "in review" },
+  blocked: { mark: "×", label: "blocked" },
+};
+const PROGRAM_STATUSES = Object.keys(PROGRAM_STATUS) as ProgramChildStatus[];
+
+function ProgramStatusMark({ status }: { status: ProgramChildStatus }) {
+  return (
+    <span className={`program-status program-status-${status}`}>
+      <span aria-hidden="true">{PROGRAM_STATUS[status].mark}</span> {PROGRAM_STATUS[status].label}
+    </span>
+  );
+}
+
+// A sample of one relation type's line, for the legend.
+function EdgeSwatch({ type, stroke }: { type: string; stroke?: string }) {
+  const style = graphEdgeStyle(type);
+  return (
+    <svg className="graph-legend-line" width="26" height="8" viewBox="0 0 26 8" aria-hidden="true">
+      <line x1="1" y1="4" x2="25" y2="4" stroke={stroke ?? style.stroke ?? "var(--muted)"} strokeWidth={style.width} strokeDasharray={style.dash ?? undefined} />
+    </svg>
+  );
+}
 
 type GraphListVisibility = "off-window" | "not-drawn";
 type ItemNodeData = GraphNode & { item?: ItemDTO | null; focused?: boolean };
 
 // Tooltip for a node's relation count: the per-type breakdown, plus an explicit
 // callout when the CURRENT view draws fewer neighbours than the item has (the
-// overview is time-windowed and mention-filtered; the count is not) — the cue
+// overview is time-windowed and filtered by relation type; the count is not) — the cue
 // that focusing the node reveals more than the visible lines suggest.
 function relatedTitle(d: GraphNode): string {
   const rel = d.related!;
   const parts = rel.byType.map((t) => `${t.type} ${t.count}`).join(" · ");
   const drawn = d.relatedDrawn ?? 0;
-  return drawn < rel.total ? `${parts} — ${drawn} of ${rel.total} drawn in this view (time window / mention filters); focus the node to see all` : parts;
+  return drawn < rel.total ? `${parts} — ${drawn} of ${rel.total} drawn in this view (time window / relation filters); focus the node to see all` : parts;
 }
 
 function ItemNode({ data }: NodeProps) {
@@ -125,11 +168,13 @@ function ItemNode({ data }: NodeProps) {
         ...(d.accentColor && !d.focused ? { outline: `2px solid ${d.accentColor}`, outlineOffset: "1px" } : {}),
       }}
       title={d.demand != null ? `${d.label} · ${d.demand} comments + reactions` : d.label}
+      data-program-status={d.programStatus}
     >
       <Handle type="target" position={Position.Top} className="rf-handle" />
       <div className="rf-node-head">
         <ItemKindIcon kind={d.kind} className="rf-node-kind-icon" />
         <Badge text={d.state} kind={d.state} />
+        {d.programStatus ? <ProgramStatusMark status={d.programStatus} /> : null}
         {d.focused ? <span className="rf-node-focus-marker">TARGET</span> : null}
       </div>
       {/* The title is a real anchor to the provider page when the item has a
@@ -170,7 +215,31 @@ function ItemNode({ data }: NodeProps) {
   );
 }
 
-const nodeTypes = { item: ItemNode };
+// A program child's delivering change request: kind, state, number, one title
+// line. Clicking it focuses it like any node; its title opens the provider.
+function AttachedNode({ data }: NodeProps) {
+  const d = data as unknown as ItemNodeData;
+  return (
+    <div className={`rf-node rf-node-attached${d.untracked ? " rf-node-untracked" : ""}`} style={{ borderLeftColor: d.color }} title={d.label}>
+      <Handle type="target" position={Position.Top} className="rf-handle" />
+      <div className="rf-node-head">
+        <ItemKindIcon kind={d.kind} className="rf-node-kind-icon" />
+        <Badge text={d.state} kind={d.state} />
+        {d.iid != null ? <span className="card-iid">#{d.iid}</span> : null}
+      </div>
+      {d.url ? (
+        <a className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+          {d.label}
+        </a>
+      ) : (
+        <div className="rf-node-title">{d.label}</div>
+      )}
+      <Handle type="source" position={Position.Bottom} className="rf-handle" />
+    </div>
+  );
+}
+
+const nodeTypes = { item: ItemNode, attached: AttachedNode };
 
 // Floating edges (adapted from the React Flow floating-edges example). The force
 // layout places nodes anywhere, so fixed Top/Bottom handles make a side-by-side
@@ -253,6 +322,36 @@ function layoutDagre(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
     const p = g.node(n.id);
     const { w, h } = dimOf(n.id);
     m.set(n.id, { x: (p?.x ?? 0) - w / 2, y: (p?.y ?? 0) - h / 2 });
+  }
+  return m;
+}
+
+// The program view's layout: one column per dependency layer (model
+// programLayers), left to right, each column centred on the tallest. It is not
+// dagre's: gate contraction makes whole layers depend on whole layers, and
+// dagre's coordinate assignment spreads such a column over several times its
+// own height. A child's change requests are stacked under it, inside its slot.
+function layoutProgram(program: GraphProgramView, dimOf: (id: string) => Dim): Map<string, { x: number; y: number }> {
+  const attachedTo = (id: string): string[] => program.attached.get(id) ?? [];
+  const slotHeight = (id: string): number => dimOf(id).h + attachedTo(id).length * (ATTACHED_GAP + ATTACHED_H);
+  const columns = programLayers(program).map((ids) => ({
+    ids,
+    width: Math.max(...ids.map((id) => dimOf(id).w)),
+    height: ids.reduce((sum, id) => sum + slotHeight(id), 0) + (ids.length - 1) * PROGRAM_ROW_GAP,
+  }));
+  const tallest = Math.max(0, ...columns.map((column) => column.height));
+  const m = new Map<string, { x: number; y: number }>();
+  let x = 0;
+  for (const column of columns) {
+    let y = (tallest - column.height) / 2;
+    for (const id of column.ids) {
+      m.set(id, { x, y });
+      attachedTo(id).forEach((attached, index) =>
+        m.set(attached, { x: x + ATTACHED_INDENT, y: y + dimOf(id).h + ATTACHED_GAP + index * (ATTACHED_H + ATTACHED_GAP) }),
+      );
+      y += slotHeight(id) + PROGRAM_ROW_GAP;
+    }
+    x += column.width + PROGRAM_COLUMN_GAP;
   }
   return m;
 }
@@ -645,16 +744,28 @@ function GraphCanvasEmptyState({
   reason,
   onShowMentions,
   onShowAllMentions,
+  onShowAllTypes,
 }: {
   reason: GraphCanvasEmptyReason | null;
   onShowMentions: () => void;
   onShowAllMentions: () => void;
+  onShowAllTypes: () => void;
 }) {
-  if (!reason || reason.kind === "filtered") {
-    // `filtered` is the non-actionable fallback — no single toggle flip recovers
-    // the canvas — so keep the original bare line. (Effectively unreachable via
-    // graphOverviewVisibility; see graphCanvasEmptyReason.)
-    return <p className="empty">No relationships are drawn with the current edge filter.</p>;
+  if (!reason) return <p className="empty">No relationships are drawn with the current edge filter.</p>;
+  if (reason.kind === "filtered") {
+    // Relation types other than mentions are switched off: switching them all
+    // back on draws at least the non-mention candidates.
+    return (
+      <div className="graph-empty">
+        <p className="graph-empty-title">Nothing drawn yet</p>
+        <p className="graph-empty-body">
+          {reason.hiddenLinks} {pluralize(reason.hiddenLinks, "link")} in range {reason.hiddenLinks === 1 ? "is" : "are"} hidden by the relation types switched off above.
+        </p>
+        <button type="button" className="toggle toggle-on graph-empty-action" onClick={onShowAllTypes}>
+          Show all relation types
+        </button>
+      </div>
+    );
   }
   if (reason.kind === "mentions-hidden") {
     const noun = pluralize(reason.hiddenLinks, "mention link");
@@ -690,6 +801,10 @@ export function GraphPage({
   focusOverviewEdges,
   focusEdges,
   focusNodes,
+  programEdges,
+  programFacetsIgnored = false,
+  focusScope,
+  onFocusScopeChange,
   sourceKind,
   colorOf,
   focusRef,
@@ -723,6 +838,17 @@ export function GraphPage({
   // edges. Keep those nodes as first-class render input instead of falling back
   // to the unrelated overview graph.
   focusNodes: readonly GraphNeighborhoodNode[];
+  // What a focused tracker's program is read from: the focus data under the
+  // persistent visibility choices only — no search, no item facets — so its
+  // children and their statuses match the Board's tracker card.
+  programEdges: ResolvedEdge[];
+  // True while item facets are active, which the program view does not apply.
+  programFacetsIgnored?: boolean;
+  // Route-backed ("?scope="): "program" (the default) shows a focused tracker's
+  // program; "neighborhood" its ordinary neighbourhood. Ignored for an item that
+  // is not a tracker.
+  focusScope: GraphFocusScope;
+  onFocusScopeChange: (scope: GraphFocusScope) => void;
   sourceKind: Map<string, string>;
   colorOf: ColorOf;
   // The focused item ref, owned by the ROUTE ("?focus="): a deep-link sets it,
@@ -767,29 +893,62 @@ export function GraphPage({
   const showListPane = !isMobile || mobileView === "list";
   const showGraphPane = !isMobile || mobileView === "graph";
   const [layout, setLayout] = useState<"force" | "hierarchy">("force");
-  // This preference belongs to the overview canvas. A focused item always
-  // reveals its available relationships, including mentions.
+  // These preferences belong to the overview canvas: one switch per relation
+  // type in the loaded data, every type on except mentions. A focused item
+  // always reveals its available relationships, including mentions.
   const [showMentions, setShowMentions] = useState(false);
   const [mentionTarget, setMentionTarget] = useState<GraphMentionTarget>("all");
+  const [hiddenTypes, setHiddenTypes] = useState<ReadonlySet<string>>(() => new Set());
+  const edgeTypes = useMemo(() => graphEdgeTypes(edges), [edges]);
+  const typeShown = (type: string): boolean => (type === "mentions" ? showMentions : !hiddenTypes.has(type));
+  const toggleType = (type: string) => {
+    if (type === "mentions") {
+      setShowMentions((v) => !v);
+      return;
+    }
+    setHiddenTypes((current) => {
+      const next = new Set(current);
+      if (!next.delete(type)) next.add(type);
+      return next;
+    });
+  };
+  const overviewOptions = useMemo<GraphOverviewOptions>(() => ({ showMentions, mentionTarget, hiddenTypes }), [showMentions, mentionTarget, hiddenTypes]);
   // Drives BOTH the side list's focus view and the canvas subgraph below;
   // null = the flat list + full graph.
   const focusId = focusRef ?? null;
 
   const overview = useMemo(
-    () => graphOverviewVisibility(edges, range, timezone, { showMentions, mentionTarget }),
-    [edges, range, timezone, showMentions, mentionTarget],
+    () => graphOverviewVisibility(edges, range, timezone, overviewOptions),
+    [edges, range, timezone, overviewOptions],
   );
   const focusOverview = useMemo(
-    () => graphOverviewVisibility(focusOverviewEdges, range, timezone, { showMentions, mentionTarget }),
-    [focusOverviewEdges, range, timezone, showMentions, mentionTarget],
+    () => graphOverviewVisibility(focusOverviewEdges, range, timezone, overviewOptions),
+    [focusOverviewEdges, range, timezone, overviewOptions],
   );
   const listGraph = useMemo(() => buildGraph(overview.candidateEdges), [overview]);
   const graph = useMemo(() => buildGraph(overview.drawnEdges), [overview]);
 
+  // Every tracker's rollup in the focus data, indexed once; the focused item is
+  // a program tracker when it has an entry.
+  const programs = useMemo(() => {
+    if (!focusId) return null;
+    const items = new Map<string, ItemDTO>();
+    for (const re of programEdges) {
+      if (re.from) items.set(re.edge.from, re.from);
+      if (re.to) items.set(re.edge.to, re.to);
+    }
+    return programRollups(items, programEdges.map((re) => re.edge));
+  }, [focusId, programEdges]);
+  const focusProgram = (focusId && programs?.get(focusId)) || null;
+  const program = useMemo(
+    () => (focusId && focusProgram && focusScope === "program" ? graphProgramView(programEdges, focusId, focusProgram) : null),
+    [focusId, focusProgram, focusScope, programEdges],
+  );
+  const programScope = useMemo(() => (focusId && program ? programScopeEdges(programEdges, focusId) : null), [focusId, program, programEdges]);
   // Side-list derivations over the FOCUS edge set: every resolvable item in the
   // loaded projection, the adjacency map, and the set of refs currently available
-  // to the overview list/canvas.
-  const focusViewEdges = focusEdges;
+  // to the overview list/canvas. In the program view that set is the program.
+  const focusViewEdges = programScope ?? focusEdges;
   const focusViewNodes = useMemo(
     () => focusExpanded && focusId ? focusNeighborhoodNodes(focusNodes, focusId, focusViewEdges) : focusNodes,
     [focusExpanded, focusId, focusNodes, focusViewEdges],
@@ -835,19 +994,20 @@ export function GraphPage({
   // Falls back to the full graph if the focus has no edges (nothing to render).
   const view = useMemo<GraphData>(() => {
     if (!focusId) return graph;
+    if (program) return program.graph;
     const sub = focusExpanded ? buildGraph(focusViewEdges, focusViewNodes) : focusSubgraph(focusViewEdges, focusId);
     return sub.nodes.length ? sub : graph;
-  }, [focusViewEdges, focusViewNodes, focusId, focusExpanded, graph]);
+  }, [focusViewEdges, focusViewNodes, focusId, focusExpanded, graph, program]);
   // True when the canvas is showing a focus subgraph (not the full overview). In
   // focus there is no clutter to fight, so edges — mentions especially — are
   // drawn at full strength rather than the overview's de-emphasised styling.
   const inFocus = view !== graph;
   const contractGraphStats = useMemo(
     () =>
-      !inFocus && !showMentions && mentionTarget === "all"
+      !inFocus && !showMentions && mentionTarget === "all" && hiddenTypes.size === 0
         ? findContractScopedStats(aggregates, { scope: "graphWindow", since: range.from, edgeFilter: "no_mentions" })
         : null,
-    [aggregates, range.from, inFocus, showMentions, mentionTarget],
+    [aggregates, range.from, inFocus, showMentions, mentionTarget, hiddenTypes],
   );
   const scopedStats = useMemo(
     () => contractGraphStats ?? computeGraphStats(view, inFocus ? "focus" : "graphWindow"),
@@ -856,7 +1016,8 @@ export function GraphPage({
 
   const dimOf = useMemo(() => {
     const m = new Map<string, Dim>();
-    for (const n of view.nodes) m.set(n.id, dims(n.demand));
+    for (const n of view.nodes) if (!n.attachedTo) m.set(n.id, dims(n.demand));
+    for (const n of view.nodes) if (n.attachedTo) m.set(n.id, { w: (m.get(n.attachedTo)?.w ?? NODE_W) - ATTACHED_INDENT, h: ATTACHED_H, scale: 1 });
     return (id: string): Dim => m.get(id) ?? { w: NODE_W, h: NODE_H, scale: 1 };
   }, [view]);
 
@@ -865,6 +1026,7 @@ export function GraphPage({
       layout === "hierarchy"
         ? layoutDagre(component.nodes, component.links, dimOf)
         : layoutForce(component.nodes, component.links, dimOf, inFocus ? "focus" : "overview", tickBudget);
+    if (program) return layoutProgram(program, dimOf);
     if (inFocus) return layoutOne(view, graphForceLayoutTicks(view.nodes.length));
     const components = graphConnectedComponents(view);
     const tickBudgets = graphForceLayoutTickBudgets(components.map((component) => component.nodes.length));
@@ -872,7 +1034,7 @@ export function GraphPage({
       components.map((component, index) => ({ key: component.nodes[0]?.id ?? "", positions: layoutOne(component, tickBudgets[index] ?? 0) })),
       dimOf,
     );
-  }, [view, layout, dimOf, inFocus]);
+  }, [view, layout, dimOf, inFocus, program]);
 
   // Distinct neighbours per node IN THE CURRENT VIEW's links — compared against
   // the full relation count to tell the tooltip when the windowed/mention-filtered
@@ -902,7 +1064,7 @@ export function GraphPage({
         const related = relationCountOf(adjacency.get(n.id) ?? []);
         return {
           id: n.id,
-          type: "item",
+          type: n.attachedTo ? "attached" : "item",
           position: positions.get(n.id) ?? { x: 0, y: 0 },
           style: { width: w, height: h },
           data: { ...n, item: it ?? null, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0, focused: n.id === focusId } as unknown as Record<string, unknown>,
@@ -915,12 +1077,16 @@ export function GraphPage({
     () =>
       view.links.map((l) => {
         const isMention = l.type === "mentions";
-        // Mentions stay dashed (their visual signature) and keep the lighter
-        // slate stroke. In the OVERVIEW they're thin + faint to recede behind
-        // closes; in FOCUS they go full opacity + slightly thicker so the one
-        // relationship you drilled into is actually visible. Non-mention edges
-        // (closes / relates) are already solid + full strength.
-        const stroke = isMention ? MENTION_STROKE : l.color;
+        // Each type has its own line (graphEdgeStyle); a type without a stroke
+        // of its own takes the lifecycle colour. Mentions stay dashed in a
+        // lighter slate — the lifecycle palette's muted grey is near-invisible
+        // on the dark canvas. In the OVERVIEW they're thin + faint to recede
+        // behind the structure; in FOCUS they go full opacity + slightly thicker
+        // so the one relationship you drilled into is actually visible.
+        const style = graphEdgeStyle(l.type);
+        const stroke = style.stroke ?? l.color;
+        const strokeWidth = isMention && inFocus ? 1.75 : style.width;
+        const arrow = 14 * Math.min(1, ARROW_MAX_STROKE / strokeWidth);
         return {
           id: l.id,
           type: "floating",
@@ -929,11 +1095,11 @@ export function GraphPage({
           data: { type: l.type },
           style: {
             stroke,
-            strokeWidth: isMention ? (inFocus ? 1.75 : 1) : 1.5,
-            strokeDasharray: isMention ? "4 3" : undefined,
-            opacity: isMention ? (inFocus ? 1 : 0.55) : 1,
+            strokeWidth,
+            strokeDasharray: style.dash ?? undefined,
+            opacity: isMention && !inFocus ? 0.55 : 1,
           },
-          markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: arrow, height: arrow },
         };
       }),
     [view, inFocus],
@@ -943,25 +1109,45 @@ export function GraphPage({
   // `fitView` to frame the new subgraph — that is what makes clicking a related
   // item visibly switch the canvas to that item (the old design only panned the
   // full graph, so a neighbour barely moved the camera).
-  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${range.from}|${range.to}|${focusId ?? ""}|${focusDepth}|${graphTopologyKey(view, focusExpanded)}`;
+  const flowKey = `${layout}|${showMentions}|${mentionTarget}|${[...hiddenTypes].sort().join(",")}|${range.from}|${range.to}|${focusId ?? ""}|${focusDepth}|${program ? "program" : ""}|${graphTopologyKey(view, focusExpanded)}`;
   const { paneRef: graphPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLDivElement>([
     showListPane,
     showGraphPane,
     mobileView,
     focusId,
+    program !== null,
     view.nodes.length,
     view.links.length,
   ]);
+  // What the legend keys: the relation types on the canvas right now.
+  const legendTypes = useMemo(() => graphRelationTypes(view.links.map((l) => l.type)), [view]);
+  const trackerItem = focusId && program ? itemsByRef.get(focusId) ?? null : null;
 
   return (
     <section className="graph-page">
       <div className="graph-controls">
         <span className="muted">
           showing {view.nodes.length} nodes · {view.links.length} links
-          {focusId ? " · focused" : ""}
+          {focusId ? (program ? " · program" : " · focused") : ""}
           {itemWindow?.truncated && !focusId ? ` · range ${range.from} to ${range.to}` : ""}
         </span>
-        {focusId ? (
+        {/* Offered for a tracker, and whenever the route already says
+            "neighborhood": a capped response can lose the parent edges, and the
+            way back to the program must not go with them. */}
+        {focusId && (focusProgram || focusScope === "neighborhood") ? (
+          <div className="toggle-group graph-scope-controls">
+            <span className="toggle-label">view</span>
+            {([
+              ["program", "Program"],
+              ["neighborhood", "Neighborhood"],
+            ] as Array<[GraphFocusScope, string]>).map(([scope, label]) => (
+              <button key={scope} type="button" className={`toggle${focusScope === scope ? " toggle-on" : ""}`} aria-pressed={focusScope === scope} data-focus-scope={scope} onClick={() => onFocusScopeChange(scope)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {focusId && !program ? (
           <div className="toggle-group graph-depth-controls">
             <span className="toggle-label">depth</span>
             {Array.from({ length: GRAPH_FOCUS_MAX_DEPTH }, (_, index) => index + 1).map((depth) => (
@@ -977,24 +1163,28 @@ export function GraphPage({
             ))}
           </div>
         ) : null}
-        <div className="toggle-group">
-          <span className="toggle-label">layout</span>
-          <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
-            Force
-          </button>
-          <button type="button" className={`toggle${layout === "hierarchy" ? " toggle-on" : ""}`} onClick={() => setLayout("hierarchy")}>
-            Hierarchy
-          </button>
-        </div>
-        {!focusId ? (
+        {program ? null : (
           <div className="toggle-group">
-            <span className="toggle-label">edges</span>
-            <button type="button" className={`toggle${showMentions ? " toggle-on" : ""}`} onClick={() => setShowMentions((v) => !v)}>
-              + mentions
+            <span className="toggle-label">layout</span>
+            <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
+              Force
+            </button>
+            <button type="button" className={`toggle${layout === "hierarchy" ? " toggle-on" : ""}`} onClick={() => setLayout("hierarchy")}>
+              Hierarchy
             </button>
           </div>
+        )}
+        {!focusId && edgeTypes.length > 0 ? (
+          <div className="toggle-group graph-type-toggles">
+            <span className="toggle-label">edges</span>
+            {edgeTypes.map((type) => (
+              <button key={type} type="button" className={`toggle${typeShown(type) ? " toggle-on" : ""}`} aria-pressed={typeShown(type)} data-edge-type={type} onClick={() => toggleType(type)}>
+                {type}
+              </button>
+            ))}
+          </div>
         ) : null}
-        {!focusId && showMentions && (
+        {!focusId && showMentions && edgeTypes.includes("mentions") && (
           <div className="toggle-group">
             <span className="toggle-label">mentions of</span>
             {([
@@ -1017,11 +1207,49 @@ export function GraphPage({
       {focusId && focusLoadStatus !== "idle" ? (
         <p className={`graph-focus-load graph-focus-load-${focusLoadStatus}`} role={focusLoadStatus === "fallback" ? "status" : undefined}>
           {focusLoadStatus === "loading"
-            ? `Loading relationship history up to ${focusDepth} ${focusDepth === 1 ? "hop" : "hops"}…`
+            ? program
+              ? "Loading program…"
+              : `Loading relationship history up to ${focusDepth} ${focusDepth === 1 ? "hop" : "hops"}…`
             : focusLoadStatus === "ready" && focusNeighborhood
-              ? `${focusNeighborhood.reached_depth}/${focusNeighborhood.requested_depth} hops · ${view.nodes.length} nodes · ${view.links.length} links${focusNeighborhood.complete ? " · complete" : ` · limited by ${focusNeighborhood.limit_reasons.join(", ")}`}`
+              ? `${program ? "program" : `${focusNeighborhood.reached_depth}/${focusNeighborhood.requested_depth} hops`} · ${view.nodes.length} nodes · ${view.links.length} links${focusNeighborhood.complete ? " · complete" : ` · limited by ${focusNeighborhood.limit_reasons.join(", ")}`}`
               : focusLoadMessage}
         </p>
+      ) : null}
+      {/* The tracker is the program view's header, not one of its nodes. */}
+      {focusId && program && focusProgram ? (
+        <div className="graph-program-head">
+          <span className="graph-program-kicker muted">program</span>
+          {trackerItem?.url ? (
+            <a className="graph-program-title" href={trackerItem.url} target="_blank" rel="noopener noreferrer">
+              {trackerItem.title ?? focusId}
+            </a>
+          ) : (
+            <span className="graph-program-title">{trackerItem?.title ?? focusId.split("|").pop()}</span>
+          )}
+          {trackerItem ? <Badge text={trackerItem.state} kind={trackerItem.state} /> : null}
+          <span className="graph-program-progress">
+            {focusProgram.done}/{focusProgram.total} done
+          </span>
+          {([
+            ["ready", focusProgram.ready.length],
+            ["in_review", focusProgram.inReview.length],
+            ["blocked", focusProgram.blocked],
+          ] as Array<[ProgramChildStatus, number]>).map(([status, count]) =>
+            count > 0 ? (
+              <span key={status} className="graph-program-count">
+                {count} <ProgramStatusMark status={status} />
+              </span>
+            ) : null,
+          )}
+          {program.blocks.cyclic ? (
+            <span className="graph-program-note muted">the blocks links form a cycle, so all {program.blocks.total} are drawn</span>
+          ) : program.blocks.drawn < program.blocks.total ? (
+            <span className="graph-program-note muted">
+              {program.blocks.drawn} of {program.blocks.total} blocks links drawn; the rest follow from them
+            </span>
+          ) : null}
+          {programFacetsIgnored ? <span className="graph-program-note muted">item filters do not apply to a program</span> : null}
+        </div>
       ) : null}
       {/* The legend + hint is read-only orientation, so it rides inside the
           StatsBar's collapsible region — tucked away with the stats on narrow,
@@ -1038,7 +1266,34 @@ export function GraphPage({
                 {x.t}
               </span>
             ))}
-            <span className="muted">· solid = structural · dashed = mentions · solid color = lifecycle · size = demand · hover to highlight · click to focus · title → provider</span>
+            {/* One key per relation type on the canvas; closes carries the
+                lifecycle colours, and the program view adds its status markers. */}
+            {legendTypes.map((type) =>
+              type === "closes" ? (
+                <span key={type} className="graph-legend-edge" data-edge-type={type}>
+                  closes
+                  {LIFECYCLE_LEGEND.map((lifecycle) => (
+                    <span key={lifecycle} className="graph-legend-lifecycle">
+                      <EdgeSwatch type={type} stroke={`var(--${lifecycle})`} />
+                      {lifecycle}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span key={type} className="graph-legend-edge" data-edge-type={type}>
+                  <EdgeSwatch type={type} />
+                  {type}
+                </span>
+              ),
+            )}
+            {program
+              ? PROGRAM_STATUSES.map((status) => (
+                  <span key={status} className="graph-legend-status">
+                    <ProgramStatusMark status={status} />
+                  </span>
+                ))
+              : null}
+            <span className="muted">· size = demand · hover to highlight · click to focus · title → provider</span>
           </div>
         }
       />
@@ -1092,9 +1347,9 @@ export function GraphPage({
               <div className="graph-canvas">
                 {/* Re-clicking the focused node clears focus — the same toggle
                     exit as the side list's active card. */}
-                {view.links.length === 0 ? (
+                {view.links.length === 0 && !program ? (
                   <GraphCanvasEmptyState
-                    reason={inFocus ? null : graphCanvasEmptyReason(overview, { showMentions, mentionTarget })}
+                    reason={inFocus ? null : graphCanvasEmptyReason(overview, overviewOptions)}
                     onShowMentions={() => {
                       // Also reset the target: it persists while mentions are off,
                       // so a stale non-"all" target could keep the canvas empty
@@ -1103,9 +1358,10 @@ export function GraphPage({
                       setShowMentions(true);
                     }}
                     onShowAllMentions={() => setMentionTarget("all")}
+                    onShowAllTypes={() => setHiddenTypes(new Set())}
                   />
                 ) : (
-                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
+                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus && !program} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
                 )}
               </div>
             ) : null}
