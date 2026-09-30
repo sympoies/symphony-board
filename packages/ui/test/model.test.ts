@@ -40,6 +40,8 @@ import {
   filterActivitiesByRange,
   buildActivityHeatmap,
   buildActivityHeatmapFromDaily,
+  heatmapStreaks,
+  previousPeriodCount,
   activityDailyExtent,
   buildActivityTrend,
   activitySummaryKindCounts,
@@ -3613,4 +3615,60 @@ test("heatmap month labels never sit closer than three columns", () => {
   }
   assert.equal(hm.monthLabels.at(-1)?.label, "Sep", "the current month keeps its label");
   assert.equal(hm.monthLabels.length, 12, "every full month is still named");
+});
+
+test("heatmapStreaks reports the running and the longest run of active days", () => {
+  const day = (date: string, count: number) => ({ date, count, by_kind: { commit: count } });
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2026-06-01",
+    to: "2026-09-30",
+    total: 0,
+    by_kind: {},
+    days: [
+      // A five-day run in August...
+      day("2026-08-03", 1), day("2026-08-04", 2), day("2026-08-05", 1), day("2026-08-06", 3), day("2026-08-07", 1),
+      // ...and three days running up to the anchor.
+      day("2026-09-28", 4), day("2026-09-29", 2), day("2026-09-30", 6),
+    ],
+  };
+  const streaks = heatmapStreaks(buildActivityHeatmapFromDaily(daily, "commit"));
+  assert.equal(streaks.current, 3);
+  assert.equal(streaks.longest, 5);
+
+  // A quiet "today" does not end the streak: the day is not over, so the run
+  // that reached yesterday still stands until a whole day passes empty.
+  const quietToday = heatmapStreaks(
+    buildActivityHeatmapFromDaily({ ...daily, days: daily.days.slice(0, -1) }, "commit"),
+  );
+  assert.equal(quietToday.current, 2);
+
+  // Two empty days in a row do end it.
+  const lapsed = heatmapStreaks(
+    buildActivityHeatmapFromDaily({ ...daily, days: daily.days.slice(0, -2) }, "commit"),
+  );
+  assert.equal(lapsed.current, 0);
+  assert.equal(lapsed.longest, 5);
+});
+
+test("previousPeriodCount sums the same-length window before the range, or declines to", () => {
+  const day = (date: string, commit: number) => ({ date, count: commit + 1, by_kind: { commit, issue: 1 } });
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2026-09-01",
+    to: "2026-09-30",
+    total: 0,
+    by_kind: {},
+    days: [day("2026-09-17", 5), day("2026-09-20", 7), day("2026-09-23", 9), day("2026-09-24", 100)],
+  };
+  // 09-24..09-30 is seven days, so the window before it is 09-17..09-23.
+  assert.equal(previousPeriodCount(daily, "2026-09-24", "2026-09-30", "commit"), 21);
+  // Every kind when none is named.
+  assert.equal(previousPeriodCount(daily, "2026-09-24", "2026-09-30"), 24);
+  // The aggregate starts on 09-01: a window reaching before that is not one it
+  // can vouch for, and "0 before" would read as a quiet month rather than as
+  // history that is not loaded.
+  assert.equal(previousPeriodCount(daily, "2026-09-10", "2026-09-30", "commit"), null);
+  assert.equal(previousPeriodCount(null, "2026-09-24", "2026-09-30", "commit"), null);
+  assert.equal(previousPeriodCount(daily, "2026-09-30", "2026-09-24", "commit"), null, "an inverted range has no previous period");
 });

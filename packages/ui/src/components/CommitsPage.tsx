@@ -14,7 +14,7 @@ import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useCommitFileStats } from "../useCommitFileStats.ts";
-import { COMMIT_COMPACT_SPLIT_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
+import { COMMIT_COMPACT_SPLIT_QUERY, COMMITS_PANES_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
@@ -507,6 +507,10 @@ export function CommitsPage({
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
   const isNarrow = useMediaQuery(NARROW_VIEWPORT_QUERY);
   const isCompactSplit = useMediaQuery(COMMIT_COMPACT_SPLIT_QUERY);
+  // The wide-panes tier: both supporting columns lay out two-up and carry more
+  // panes. Decided here, once, so the two columns can never disagree about
+  // which layout they are in. See layout-tier.ts.
+  const widePanes = useMediaQuery(COMMITS_PANES_QUERY);
   const [mobilePane, setMobilePane] = useState<"info" | "files">("info");
   const mobileDetailOpen = isNarrow && detailRouteOpen;
   useEffect(() => {
@@ -927,7 +931,22 @@ export function CommitsPage({
               onClose={closeDetail}
             />
           ) : null}
-          <CommitsOverview commits={commits} activityDaily={activityDaily} timezone={timezone} range={range} actorIndex={actorIndex} />
+          <CommitsOverview
+            commits={commits}
+            activityDaily={activityDaily}
+            timezone={timezone}
+            range={range}
+            actorIndex={actorIndex}
+            wide={widePanes}
+            // `commits` is the whole range only while nothing narrows it.
+            comparable={activeFilterCount === 0}
+            selectedKey={selectedKey}
+            // A Largest commits row pins, and never toggles: the row is a way
+            // INTO a commit, and the pane it opens sits directly above the list
+            // it was clicked in, where a second click closing it would read as
+            // the click not having worked.
+            onSelectCommit={(commit) => setDetailMode({ kind: "pinned", key: activityKey(commit) })}
+          />
         </div>
         {/* Third column: the ranked facets, always present. Unlike Activity's
             rail this is not gated on a wide breakpoint — the Commits page has
@@ -950,6 +969,9 @@ export function CommitsPage({
           onRepo={onRepo}
           onAuthor={onAuthor}
           onBranch={onBranch}
+          wide={widePanes}
+          timezone={timezone}
+          range={range}
         />
     </>
   );

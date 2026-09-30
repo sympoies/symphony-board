@@ -70,6 +70,31 @@ export const RAIL_ROWS_QUERY = `(min-width: ${RAIL_ROWS_MIN_WIDTH_PX}px)`;
 export const RAIL_RANK_LIMIT = 6;
 export const RAIL_RANK_LIMIT_ROWS = 8;
 
+// Where the Commits supporting columns stop being one stack each and lay their
+// panes out two-up.
+//
+// Two numbers decide it, and both are about what a column must hold rather
+// than about the viewport. The list keeps its one-line rows only while it is
+// wider than 760px (CommitTimeline switches to the stacked card at or below
+// that), and a pane that carries a ranked row with its facts beside it needs
+// about 400px. With the 32 / 34 / 34 split this tier uses, a 2480px viewport
+// gives the list 770px and each supporting column two 400px modules. Below it
+// the halves would be too narrow to read, so the page keeps the rows tier.
+//
+// It also changes what spare height buys. Up to here the charts grow to fill
+// the pane; from here they keep a designed height and the height left over
+// goes to lists, which answer it with more rows.
+//
+// styles.css mirrors this number; layout-tier.test.ts keeps the two in step.
+export const COMMITS_PANES_MIN_WIDTH_PX = 2480;
+export const COMMITS_PANES_QUERY = `(min-width: ${COMMITS_PANES_MIN_WIDTH_PX}px)`;
+// A ranked list in this tier scrolls inside its pane, so its limit is about
+// how much is worth scrolling rather than what fits: enough to hold every repo
+// and author of a busy range, short of rendering a thousand branch rows.
+export const COMMITS_PANES_RANK_LIMIT = 50;
+// Types and scopes are closed, small vocabularies; their panes do not scroll.
+export const COMMITS_PANES_KIND_LIMIT = 12;
+
 // Commits needs about 480px for its wrapping list and 360px per supporting
 // pane, plus page padding and gaps. It fits three columns before Activity does.
 export const COMMIT_THREE_COLUMN_MIN_WIDTH_PX = 1280;

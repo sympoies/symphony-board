@@ -14,6 +14,14 @@ export type RankChartItem = {
   label: string;
   count: number;
   footer: ReactNode;
+  // Facts drawn beside the bar where the chart is laid out as rows with room
+  // for them (the Commits wide-panes tier). Hidden everywhere else by the
+  // stylesheet, so a caller can pass it without knowing the layout.
+  extra?: ReactNode;
+  // The same facts in words, appended to the row's accessible name: the
+  // `extra` cells are presentation, and a bare "91%" or "7/7" means nothing
+  // read aloud without its column header.
+  detail?: string;
   // Set when the row drives a filter. A selectable row gains a real <button>
   // inside its listitem, so it is reachable by keyboard and announced as a
   // pressable action rather than as plain list content.
@@ -28,12 +36,19 @@ export function RankChart({
   className = "",
   // How a count reads to a screen reader: "412 commits", "8,188 events".
   countLabel,
+  // What a full-length bar stands for. "axis" rounds the largest count up to a
+  // 1 / 2 / 5 step, which is right while the chart draws that axis beside its
+  // bars. A row layout draws no axis, so there the rounding only shortens
+  // every bar for nothing -- 2,049 against a 5,000 ceiling leaves the leading
+  // row at 41% of its track -- and "max" lets the leader fill it.
+  scale = "axis",
 }: {
   items: RankChartItem[];
   empty: string;
   ariaLabel: string;
   className?: string;
   countLabel: (count: number) => string;
+  scale?: "axis" | "max";
 }) {
   if (items.length === 0) {
     return (
@@ -57,17 +72,22 @@ export function RankChart({
         <span className="live-rank-grid live-rank-grid-mid" aria-hidden="true" />
         <span className="live-rank-baseline" aria-hidden="true" />
         {items.map((item) => {
-          const label = `${item.label} · ${countLabel(item.count)}`;
+          const label = `${item.label} · ${countLabel(item.count)}${item.detail ? ` · ${item.detail}` : ""}`;
           const bar = (
             <>
               <span
                 className="live-rank-bar-cell"
-                style={{ "--rank-h": rankBarHeight(item.count, axisMax) } as CSSProperties}
+                style={{ "--rank-h": rankBarHeight(item.count, scale === "max" ? max : axisMax) } as CSSProperties}
                 aria-hidden="true"
               >
                 <span className="live-rank-tooltip">{item.count.toLocaleString("en-US")}</span>
                 <span className="live-rank-bar" />
               </span>
+              {item.extra ? (
+                <span className="live-rank-extra" aria-hidden="true">
+                  {item.extra}
+                </span>
+              ) : null}
               {/* The footer is clipped to one line, so the full value lives on
                   hover — as a CSS tip rather than a native `title`, which waits
                   about a second, dismisses on the smallest pointer move, and will

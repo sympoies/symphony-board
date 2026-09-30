@@ -944,6 +944,66 @@ export function buildActivityHeatmapFromDaily(daily: ActivityDailyDTO, kind?: st
   return assembleHeatmap(countByDay, kindCounts, total, startKey, today);
 }
 
+// The running and the longest run of active days in the calendar's window.
+//
+// "Current" counts back from the anchor day, and a quiet anchor does not end
+// it: that day is not over, so a run that reached yesterday still stands until
+// a whole day has passed empty. This is the convention a contribution calendar
+// uses, and the alternative reads as a lost streak every morning.
+export interface HeatmapStreaks {
+  current: number;
+  longest: number;
+}
+
+export function heatmapStreaks(heatmap: ActivityHeatmap): HeatmapStreaks {
+  // Column-major weeks flatten to date order; nulls pad the first and last week.
+  const counts = heatmap.weeks.flat().filter((cell): cell is HeatmapCell => cell !== null).map((cell) => cell.count);
+  let longest = 0;
+  let run = 0;
+  for (const count of counts) {
+    run = count > 0 ? run + 1 : 0;
+    if (run > longest) longest = run;
+  }
+  let end = counts.length - 1;
+  if (end >= 0 && counts[end] === 0) end -= 1;
+  let current = 0;
+  while (end >= 0 && counts[end]! > 0) {
+    current += 1;
+    end -= 1;
+  }
+  return { current, longest };
+}
+
+// The count over the window of the same length immediately before [from, to],
+// for a "compared with the N days before" figure. `kind` narrows it the way
+// buildActivityHeatmapFromDaily does.
+//
+// Returns null rather than 0 when the aggregate cannot vouch for that window:
+// absent, an inverted range, or a window that starts before the aggregate's
+// own first day. The last case is the important one. A range projection's
+// aggregate covers only its window, and a young board's history starts late,
+// so "0 before" there would read as a quiet period rather than as history that
+// is not loaded.
+export function previousPeriodCount(
+  daily: ActivityDailyDTO | null | undefined,
+  from: string,
+  to: string,
+  kind?: string,
+): number | null {
+  if (!daily || !from || !to || to < from) return null;
+  const span = daysBetween(from, to) + 1;
+  const prevFrom = shiftDateOnly(from, -span);
+  const prevTo = shiftDateOnly(from, -1);
+  if (prevFrom < daily.from) return null;
+  let total = 0;
+  for (const bucket of daily.days) {
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (bucket.date < prevFrom || bucket.date > prevTo) continue;
+    total += kind === undefined ? bucket.count : (bucket.by_kind[kind] ?? 0);
+  }
+  return total;
+}
+
 function dateOnlyUtcMs(date: string): number {
   const parts = date.split("-");
   return Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));

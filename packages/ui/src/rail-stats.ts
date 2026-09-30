@@ -1,6 +1,6 @@
 import type { ActivityDTO, ActorDirectoryDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
-import { commitBranches, commitMessage } from "./model.ts";
+import { commitBranches, commitMessage, commitStats } from "./model.ts";
 import { safeHref } from "./url.ts";
 
 // Aggregations for the Commits and Activity side rails. Every one of these reads
@@ -78,6 +78,43 @@ export function actorIndex(directory: ActorDirectoryDTO | null | undefined): Act
 export function actorsOf(directory: ActorDirectoryDTO | null | undefined, name: string): string[] {
   const actors = (directory?.identities ?? []).filter((i) => i.name === name).flatMap((i) => i.actors);
   return actors.length > 0 ? [...new Set(actors)] : [name];
+}
+
+// A row's calendar day and hour in a zone, computed once per row.
+//
+// Zoning a timestamp goes through Intl and costs about 5us, which is nothing
+// for one pass and is the whole cost of this module for seven. The Commits
+// wide-panes tier draws that many views of the same rows -- per-day counts, a
+// stack, lines changed, a day-by-hour grid, a series per author -- and at 25k
+// rows each extra pass was another ~125ms on every filter change. The rows are
+// the contract's own objects and outlive a render, so the answer is remembered
+// on the object: the first view to ask pays, the rest read it back.
+//
+// Keyed weakly, so a replaced contract takes its entries with it, and by zone,
+// so changing the zone recomputes instead of returning yesterday's bucket.
+type ZonedParts = { tz: string; date: string; hour: number | null };
+const zonedParts = new WeakMap<ActivityDTO, ZonedParts | null>();
+
+function zonedOf(a: ActivityDTO, tz: string): ZonedParts | null {
+  const cached = zonedParts.get(a);
+  if (cached !== undefined && (cached === null || cached.tz === tz)) return cached;
+  const ms = Date.parse(a.occurred_at);
+  const parts = Number.isFinite(ms) ? { tz, date: zonedDateOnly(ms, tz), hour: null } : null;
+  zonedParts.set(a, parts);
+  return parts;
+}
+
+// The zoned `YYYY-MM-DD` a row falls on, or null for an unparseable instant.
+function zonedDateOf(a: ActivityDTO, tz: string): string | null {
+  return zonedOf(a, tz)?.date ?? null;
+}
+
+// The zoned hour, filled in on first use: only two of the views need it.
+function zonedHourOf(a: ActivityDTO, tz: string): number | null {
+  const parts = zonedOf(a, tz);
+  if (!parts) return null;
+  if (parts.hour === null) parts.hour = zonedHour(Date.parse(a.occurred_at), tz);
+  return parts.hour;
 }
 
 // Rank by author. `actor` is nullable in the contract and a null author is not a
@@ -171,9 +208,8 @@ function topRanks(counts: ReadonlyMap<string, number>, limit: number): RailRank[
 export function countsByHour(activities: readonly ActivityDTO[], tz: string): HourBucket[] {
   const buckets: HourBucket[] = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
   for (const a of activities) {
-    const ms = Date.parse(a.occurred_at);
-    if (!Number.isFinite(ms)) continue;
-    const hour = zonedHour(ms, tz);
+    const hour = zonedHourOf(a, tz);
+    if (hour === null) continue;
     const bucket = buckets[hour];
     if (bucket) bucket.count += 1;
   }
@@ -192,9 +228,8 @@ export function countsByDay(
 ): DayBucket[] {
   const counts = new Map<string, number>();
   for (const a of activities) {
-    const ms = Date.parse(a.occurred_at);
-    if (!Number.isFinite(ms)) continue;
-    const date = zonedDateOnly(ms, tz);
+    const date = zonedDateOf(a, tz);
+    if (date === null) continue;
     counts.set(date, (counts.get(date) ?? 0) + 1);
   }
   const days = enumerateDays(fromDate, toDate);
@@ -216,7 +251,9 @@ export type DayAxisTick = {
 
 const DAY_AXIS_EVERY_MAX = 10;
 
-export function dayAxisTicks(days: readonly DayBucket[]): DayAxisTick[] {
+// Takes anything dated rather than DayBucket: the stacked and the lines-changed
+// charts label the same axis over their own per-day shapes.
+export function dayAxisTicks(days: readonly { date: string }[]): DayAxisTick[] {
   const tick = (index: number): DayAxisTick => ({ index, label: days[index]!.date.slice(5) });
   if (days.length <= DAY_AXIS_EVERY_MAX) return days.map((_, index) => tick(index));
   const last = days.length - 1;
@@ -328,4 +365,344 @@ export function actorAvatarIndex(
     }
   }
   return index;
+}
+
+// ==================== wide-panes aggregates ==================================
+// What the Commits page adds once its supporting columns have room for more
+// than rankings: the shape of each day, the size of the work, and who and
+// where in more than one number. Same rule as everything above — derived from
+// the rows the list already renders, so a pane can never disagree with it.
+
+// ---- stacked per-day series -------------------------------------------------
+
+export type StackSeries = {
+  key: string;
+  label: string;
+  // Total over the whole span, which is also what ranks the series.
+  count: number;
+};
+
+export type StackedDay = {
+  date: string;
+  total: number;
+  // One count per series, in the series' order, so a bar is drawn by index.
+  segments: number[];
+};
+
+export type StackedDays = {
+  series: StackSeries[];
+  days: StackedDay[];
+  // The tallest day, for the axis.
+  max: number;
+};
+
+// The fold's key and label. It is a real key on purpose: the commit-type
+// vocabulary already calls an unparsed subject "other", and that row belongs IN
+// the fold rather than beside it as a second bar with the same name.
+export const STACK_FOLD_KEY = "other";
+
+// Per-day counts split by whatever `keyOf` names, keeping the `limit` largest
+// series and folding the rest into one. The fold is what lets an open
+// vocabulary (32 repositories, 11 commit types) be drawn with a handful of
+// colours without dropping a single commit: every day's segments add up to its
+// total.
+export function stackedDays(
+  activities: readonly ActivityDTO[],
+  tz: string,
+  fromDate: string,
+  toDate: string,
+  keyOf: (activity: ActivityDTO) => { key: string; label: string },
+  limit: number,
+): StackedDays {
+  const totals = new Map<string, number>();
+  const labels = new Map<string, string>();
+  const perDay = new Map<string, Map<string, number>>();
+  for (const a of activities) {
+    const date = zonedDateOf(a, tz);
+    if (date === null) continue;
+    const { key, label } = keyOf(a);
+    totals.set(key, (totals.get(key) ?? 0) + 1);
+    labels.set(key, label);
+    const day = perDay.get(date) ?? new Map<string, number>();
+    day.set(key, (day.get(key) ?? 0) + 1);
+    perDay.set(date, day);
+  }
+
+  const named = topRanks(totals, 0).filter((rank) => rank.key !== STACK_FOLD_KEY);
+  const kept = named.slice(0, Math.max(0, limit));
+  const keptKeys = new Set(kept.map((rank) => rank.key));
+  const foldTotal = [...totals.entries()].reduce((sum, [key, count]) => (keptKeys.has(key) ? sum : sum + count), 0);
+
+  const series: StackSeries[] = kept.map((rank) => ({ key: rank.key, label: labels.get(rank.key) ?? rank.key, count: rank.count }));
+  if (foldTotal > 0) series.push({ key: STACK_FOLD_KEY, label: STACK_FOLD_KEY, count: foldTotal });
+
+  const days = enumerateDays(fromDate, toDate).map((date) => {
+    const counts = perDay.get(date);
+    const segments = series.map(() => 0);
+    let total = 0;
+    for (const [key, count] of counts ?? []) {
+      const index = keptKeys.has(key) ? series.findIndex((s) => s.key === key) : series.length - 1;
+      segments[index] = (segments[index] ?? 0) + count;
+      total += count;
+    }
+    return { date, total, segments };
+  });
+  return { series, days, max: Math.max(0, ...days.map((day) => day.total)) };
+}
+
+// ---- lines changed ----------------------------------------------------------
+
+export type ChurnDay = {
+  date: string;
+  additions: number;
+  deletions: number;
+  // Commits that carried counts, against every commit that day. They differ:
+  // a merge never carries them and a commit the producer could not read has
+  // none, so the pane can say how much of the day the figure covers.
+  counted: number;
+  commits: number;
+};
+
+export function churnByDay(activities: readonly ActivityDTO[], tz: string, fromDate: string, toDate: string): ChurnDay[] {
+  const byDate = new Map<string, ChurnDay>();
+  for (const a of activities) {
+    const date = zonedDateOf(a, tz);
+    if (date === null) continue;
+    const day = byDate.get(date) ?? { date, additions: 0, deletions: 0, counted: 0, commits: 0 };
+    day.commits += 1;
+    const stats = commitStats(a);
+    if (stats) {
+      day.additions += stats.additions;
+      day.deletions += stats.deletions;
+      day.counted += 1;
+    }
+    byDate.set(date, day);
+  }
+  return enumerateDays(fromDate, toDate).map(
+    (date) => byDate.get(date) ?? { date, additions: 0, deletions: 0, counted: 0, commits: 0 },
+  );
+}
+
+// ---- day x hour -------------------------------------------------------------
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+// Monday first: the grid is read as a working week, and Sunday-first splits the
+// weekend across its two ends.
+const WEEKDAY_ROWS = [1, 2, 3, 4, 5, 6, 0] as const;
+// Past this many days a row per date stops being a grid and becomes a list.
+const PUNCH_CARD_DAY_ROWS_MAX = 14;
+
+export type PunchRow = {
+  // The date for a per-day row, the weekday name for a folded one.
+  key: string;
+  weekday: string;
+  total: number;
+  hours: number[];
+};
+
+export type PunchCard = {
+  rows: PunchRow[];
+  // True when the range was too long for a row per day and was folded onto the
+  // seven weekdays instead.
+  byWeekday: boolean;
+  max: number;
+  peak: { key: string; weekday: string; hour: number; count: number } | null;
+};
+
+// The weekday of a zoned `YYYY-MM-DD`. The string is already a calendar date in
+// the viewer's zone, so reading it at UTC midnight is pure calendar arithmetic.
+function weekdayOf(date: string): number {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
+}
+
+// "Thu" for a zoned date, for axis labels that name the day as well as the date.
+export function weekdayLabel(date: string): string {
+  return WEEKDAYS[weekdayOf(date)] ?? "";
+}
+
+// Commits by day and hour, in the viewer's zone. The hour strip answers "what
+// time of day"; this also answers "on which days", which is the difference
+// between a team that works evenings and one that shipped late once.
+export function punchCard(activities: readonly ActivityDTO[], tz: string, fromDate: string, toDate: string): PunchCard {
+  const dates = enumerateDays(fromDate, toDate);
+  const byWeekday = dates.length > PUNCH_CARD_DAY_ROWS_MAX;
+  const rows: PunchRow[] = byWeekday
+    ? WEEKDAY_ROWS.map((day) => ({ key: WEEKDAYS[day], weekday: WEEKDAYS[day], total: 0, hours: Array.from({ length: 24 }, () => 0) }))
+    : dates.map((date) => ({ key: date, weekday: WEEKDAYS[weekdayOf(date)]!, total: 0, hours: Array.from({ length: 24 }, () => 0) }));
+  const rowOf = new Map(rows.map((row) => [row.key, row]));
+
+  for (const a of activities) {
+    const date = zonedDateOf(a, tz);
+    if (date === null) continue;
+    const row = rowOf.get(byWeekday ? WEEKDAYS[weekdayOf(date)]! : date);
+    if (!row) continue;
+    const hour = zonedHourOf(a, tz) ?? 0;
+    row.hours[hour] = (row.hours[hour] ?? 0) + 1;
+    row.total += 1;
+  }
+
+  let peak: PunchCard["peak"] = null;
+  for (const row of rows) {
+    row.hours.forEach((count, hour) => {
+      if (count > 0 && (!peak || count > peak.count)) peak = { key: row.key, weekday: row.weekday, hour, count };
+    });
+  }
+  return { rows, byWeekday, max: peak ? (peak as { count: number }).count : 0, peak };
+}
+
+// ---- commit size ------------------------------------------------------------
+
+export type SizedCommit = {
+  commit: ActivityDTO;
+  additions: number;
+  deletions: number;
+  lines: number;
+};
+
+function sizedCommits(activities: readonly ActivityDTO[]): SizedCommit[] {
+  const out: SizedCommit[] = [];
+  for (const commit of activities) {
+    const stats = commitStats(commit);
+    if (stats) out.push({ commit, additions: stats.additions, deletions: stats.deletions, lines: stats.additions + stats.deletions });
+  }
+  return out;
+}
+
+// The commits that changed the most lines. Commits without counts are left out
+// rather than ranked as zero: unknown is not small. Ties go to the newer commit.
+export function largestCommits(activities: readonly ActivityDTO[], limit: number): SizedCommit[] {
+  const sized = sizedCommits(activities).sort(
+    (a, b) => b.lines - a.lines || b.commit.occurred_at.localeCompare(a.commit.occurred_at),
+  );
+  return limit > 0 ? sized.slice(0, limit) : sized;
+}
+
+// The middle commit size, which is what "a typical commit" means here: the
+// mean is dragged by one vendored file or lockfile.
+export function medianCommitLines(activities: readonly ActivityDTO[]): number | null {
+  const lines = sizedCommits(activities).map((s) => s.lines).sort((a, b) => a - b);
+  if (lines.length === 0) return null;
+  return lines[Math.floor((lines.length - 1) / 2)] ?? null;
+}
+
+// ---- scopes -----------------------------------------------------------------
+
+const CONVENTIONAL_SCOPE = /^[a-z]+\(([^)]+)\)!?:\s/;
+
+// The `scope` of `type(scope): subject`, lower-cased. Null for an unscoped or
+// unconventional subject: unlike the type, there is no honest "other" scope.
+export function commitScopeOf(message: string): string | null {
+  const match = CONVENTIONAL_SCOPE.exec(message.trim().toLowerCase());
+  const scope = match?.[1]?.trim();
+  return scope ? scope : null;
+}
+
+// Which areas the range's work touched, as its authors named them.
+export function rankCommitScopes(activities: readonly ActivityDTO[], limit: number): RailRank[] {
+  const counts = new Map<string, number>();
+  for (const a of activities) {
+    const scope = commitScopeOf(commitMessage(a));
+    if (scope) counts.set(scope, (counts.get(scope) ?? 0) + 1);
+  }
+  return topRanks(counts, limit);
+}
+
+// ---- facts beside a ranked row ----------------------------------------------
+// Keyed exactly as the rankings key their rows, so a row looks its facts up by
+// the key it already has.
+
+export type ActorDetail = {
+  additions: number;
+  deletions: number;
+  counted: number;
+  repos: number;
+  activeDays: number;
+  // One count per day of the span, for the row's sparkline.
+  perDay: number[];
+};
+
+export function actorDetails(
+  activities: readonly ActivityDTO[],
+  index: ActorIndex,
+  tz: string,
+  fromDate: string,
+  toDate: string,
+): Map<string, ActorDetail> {
+  const dates = enumerateDays(fromDate, toDate);
+  const dayIndex = new Map(dates.map((date, i) => [date, i]));
+  const details = new Map<string, ActorDetail>();
+  const repos = new Map<string, Set<string>>();
+  for (const a of activities) {
+    const actor = a.actor?.trim();
+    if (!actor) continue;
+    const name = index.canonical.get(actor) ?? actor;
+    const detail = details.get(name) ?? { additions: 0, deletions: 0, counted: 0, repos: 0, activeDays: 0, perDay: dates.map(() => 0) };
+    const stats = commitStats(a);
+    if (stats) {
+      detail.additions += stats.additions;
+      detail.deletions += stats.deletions;
+      detail.counted += 1;
+    }
+    const date = zonedDateOf(a, tz);
+    const slot = date === null ? undefined : dayIndex.get(date);
+    if (slot !== undefined) detail.perDay[slot] = (detail.perDay[slot] ?? 0) + 1;
+    const path = a.project_path?.trim();
+    if (path) {
+      const set = repos.get(name) ?? new Set<string>();
+      set.add(`${a.source_id}|${path}`);
+      repos.set(name, set);
+    }
+    details.set(name, detail);
+  }
+  for (const [name, detail] of details) {
+    detail.repos = repos.get(name)?.size ?? 0;
+    detail.activeDays = detail.perDay.filter((count) => count > 0).length;
+  }
+  return details;
+}
+
+export type RepoDetail = {
+  // Distinct people, merged the way the author ranking merges them.
+  authors: number;
+  lastAt: string | null;
+};
+
+export function repoDetails(activities: readonly ActivityDTO[], index: ActorIndex): Map<string, RepoDetail> {
+  const details = new Map<string, RepoDetail>();
+  const authors = new Map<string, Set<string>>();
+  for (const a of activities) {
+    const path = a.project_path?.trim();
+    if (!path) continue;
+    const key = `${a.source_id}|${path}`;
+    const detail = details.get(key) ?? { authors: 0, lastAt: null };
+    if (!detail.lastAt || a.occurred_at > detail.lastAt) detail.lastAt = a.occurred_at;
+    const actor = a.actor?.trim();
+    if (actor) {
+      const set = authors.get(key) ?? new Set<string>();
+      set.add(index.canonical.get(actor) ?? actor);
+      authors.set(key, set);
+    }
+    details.set(key, detail);
+  }
+  for (const [key, detail] of details) detail.authors = authors.get(key)?.size ?? 0;
+  return details;
+}
+
+export type BranchDetail = {
+  // A branch is ranked by NAME across repositories, so `main` is every repo's
+  // main. This says how many that is.
+  repos: number;
+};
+
+export function branchDetails(activities: readonly ActivityDTO[]): Map<string, BranchDetail> {
+  const repos = new Map<string, Set<string>>();
+  for (const a of activities) {
+    const path = a.project_path?.trim();
+    for (const branch of commitBranches(a)) {
+      const set = repos.get(branch) ?? new Set<string>();
+      if (path) set.add(`${a.source_id}|${path}`);
+      repos.set(branch, set);
+    }
+  }
+  return new Map([...repos.entries()].map(([branch, set]) => [branch, { repos: set.size }]));
 }

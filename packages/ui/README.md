@@ -293,7 +293,9 @@ and Metrics share the same range presets, that the Settings default-range
 selector renders, that Board/Graph scoped summaries change when the range
 narrows through `/api/range`, and that large synthetic Activity/Commits feeds
 stay virtualized. Commits layout checks cover the phone reader, foldable
-compact split, filter wrapping, and the laptop three-column tier. It also mocks the daemon's sync control surface to assert the
+compact split, filter wrapping, the laptop three-column tier, and the
+wide-panes tier (two-up supporting columns whose charts keep a fixed height
+while lists take the spare height). It also mocks the daemon's sync control surface to assert the
 Header Sync action renders, enters the running (disabled) state on click, shows
 the reloaded status on completion, and that Settings exposes the advanced
 manual-sync controls.
