@@ -292,9 +292,10 @@ Top-level fields:
   `2.1.0`.
 
 The producer currently emits `timezone`, `activities`, `review_threads`,
-`activity_daily`, `actor_directory`, `commit_file_stats`, `repos`, `aggregates`, `item_window`,
+`activity_daily`, `actor_directory`, `repos`, `aggregates`, `item_window`,
 `repo_stats`, and `repo_metrics` every time; array fields are empty when no
-rows apply. Consumers should still read older optional fields
+rows apply. `commit_file_stats` is emitted only by a producer that collects
+per-commit files (see Commit File Stats). Consumers should still read older optional fields
 defensively as `env.activities ?? []`, `env.repos ?? []`,
 `env.aggregates ?? []`, and `env.repo_metrics ?? []`.
 
@@ -895,8 +896,11 @@ so its files are the merged branch's work a second time. Only path and line
 counts are aggregated; the producer never stores patch text.
 
 The key is absent, not empty, from a producer that does not collect per-commit
-files (and on any payload older than `4.9.0`). Present with `scanned: 0` means
-the producer collects them and has not reached these commits yet.
+files (and on any payload older than `4.9.0`): no enabled source runs the file
+pass, and the store holds no file lists for the window. Present with
+`scanned: 0` means the producer collects them and has not reached these
+commits yet. File lists collected before the pass was turned off are still
+reported.
 
 The top lists are per repository so a consumer can re-rank across the
 repositories it shows: the top N of a union of per-repository top-N lists is

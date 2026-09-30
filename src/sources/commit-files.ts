@@ -62,8 +62,12 @@ function githubStatus(raw: unknown): CommitFileStatus {
   }
 }
 
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
 function count(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+  return isCount(value) ? value : 0;
 }
 
 function sumFiles(files: CanonicalCommitFile[]): { additions: number; deletions: number } {
@@ -172,17 +176,32 @@ export async function gitlabCommitFiles(rest: RestClient, projectPath: string, s
 // ---- the sync side ----------------------------------------------------------
 
 // The sha reaches the provider inside a URL path, so only a FULL plain-hex oid
-// is sent (SHA-1 or SHA-256).
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+// is sent (SHA-1 or SHA-256). Both callers of the readers check it.
+export const FULL_COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 // A provider answer that says the commit is not there to read: gone from the
 // repository (404, GitLab), unresolvable (422, GitHub's "No commit found"), or
-// removed (410). It is an ANSWER — the commit leaves the queue — where any
-// other failure is a reason to stop and try again next sweep.
+// removed (410). It is an ANSWER — the commit leaves the queue.
 const GONE_STATUSES = new Set([404, 410, 422]);
+
+// A failure that is about the token, not about the commit asked for: it is
+// rejected (401) or rate limited (429, or GitHub's 403 with rate-limit
+// headers, which the REST client reports as `rateLimit`). Every further
+// request would fail the same way, so the pass stops at once.
+function sourceWideFailure(err: unknown): boolean {
+  const e = err as { status?: unknown; rateLimit?: unknown } | null;
+  return e?.status === 401 || e?.status === 429 || (e?.rateLimit !== null && e?.rateLimit !== undefined);
+}
+
+// How many commits may fail, with no commit answered yet, before the pass
+// concludes the provider or the network is down and stops asking.
+const UNANSWERED_FAILURE_LIMIT = 8;
 
 interface StoredCommitFiles {
   __kind: typeof COMMIT_FILES_ENTITY;
+  // The commit ACTIVITY's external id — the canonical row's key. It travels in
+  // the payload because the raw record has an id of its own (see `record`).
+  activity: string;
   project: string;
   sha: string;
   state: CommitFilesState;
@@ -193,6 +212,7 @@ interface StoredCommitFiles {
 function record(candidate: CommitFilesCandidate, apiVersion: string, now: string, state: CommitFilesState, read: CommitFilesRead | null): RawRecord {
   const payload: StoredCommitFiles = {
     __kind: COMMIT_FILES_ENTITY,
+    activity: candidate.externalId,
     project: candidate.projectPath,
     sha: candidate.sha,
     state,
@@ -201,9 +221,10 @@ function record(candidate: CommitFilesCandidate, apiVersion: string, now: string
   };
   return {
     entityKind: COMMIT_FILES_ENTITY,
-    // The commit ACTIVITY's external id: the raw store keys on (entity kind,
-    // external id), so this sits beside the commit's own raw record, not on it.
-    externalId: candidate.externalId,
+    // NOT the commit activity's external id: the raw store keeps one payload
+    // per (source, external id) whatever the entity kind, so sharing the id
+    // would replace the commit's own raw record with this one.
+    externalId: `${COMMIT_FILES_ENTITY}:${candidate.externalId}`,
     apiVersion,
     fetchedAt: now,
     payload,
@@ -218,9 +239,20 @@ function record(candidate: CommitFilesCandidate, apiVersion: string, now: string
 // more than the board tracks, so a commit of any other project is answered as
 // unavailable without a request — as is one whose sha is not a full oid.
 //
-// A transport or rate-limit failure stops the pass: nothing further is asked,
-// and the commits that were not answered stay in the queue for the next sweep.
-// What was read before the failure is kept.
+// A failed request is one of three things, and the pass cannot tell the last
+// two apart from one response:
+//   - about the token (rejected or rate limited): the pass stops at once;
+//   - about the commit (a diff the provider cannot render, a repository this
+//     token may not read): set aside, and the pass goes on;
+//   - about the provider or the network being down: same response, but then
+//     nothing else is answered either.
+// So the commits set aside are answered `unavailable` only when the provider
+// answered some OTHER commit in the same pass — otherwise they stay in the
+// queue, and the pass gives up after a few of them. Without that, one commit
+// that always fails would sit at the head of a newest-first queue and keep
+// every older commit of the source from ever being read.
+//
+// What was read before a stop is kept.
 export async function fetchCommitFileRecords(opts: {
   candidates: readonly CommitFilesCandidate[];
   allowed: (projectPath: string) => boolean;
@@ -231,21 +263,37 @@ export async function fetchCommitFileRecords(opts: {
 }): Promise<CommitFilesFetchResult> {
   const now = opts.now ?? new Date().toISOString();
   let stopped: string | null = null;
+  let answered = 0;
+  const failed: Array<{ candidate: CommitFilesCandidate; message: string }> = [];
+  const unavailable = (candidate: CommitFilesCandidate): RawRecord => record(candidate, opts.apiVersion, now, "unavailable", null);
   const results = await mapWithConcurrency(opts.candidates, opts.concurrency, async (candidate): Promise<RawRecord | null> => {
-    if (!opts.allowed(candidate.projectPath) || !SHA.test(candidate.sha)) return record(candidate, opts.apiVersion, now, "unavailable", null);
+    if (!opts.allowed(candidate.projectPath) || !FULL_COMMIT_SHA.test(candidate.sha)) return unavailable(candidate);
     if (stopped !== null) return null;
     try {
       const read = await opts.read(candidate);
-      if (read === null) return record(candidate, opts.apiVersion, now, "unavailable", null);
+      if (read === null) return unavailable(candidate);
+      answered++;
       return record(candidate, opts.apiVersion, now, read.merge === true ? "merge" : "ok", read);
     } catch (err) {
       const status = (err as { status?: unknown }).status;
-      if (typeof status === "number" && GONE_STATUSES.has(status)) return record(candidate, opts.apiVersion, now, "unavailable", null);
-      stopped ??= (err as Error).message;
+      if (typeof status === "number" && GONE_STATUSES.has(status)) {
+        answered++;
+        return unavailable(candidate);
+      }
+      const message = (err as Error).message;
+      if (sourceWideFailure(err)) {
+        stopped ??= message;
+        return null;
+      }
+      failed.push({ candidate, message });
+      if (answered === 0 && failed.length >= UNANSWERED_FAILURE_LIMIT) stopped ??= message;
       return null;
     }
   });
-  return { records: results.filter((r): r is RawRecord => r !== null), stopped };
+  const records = results.filter((r): r is RawRecord => r !== null);
+  if (answered > 0) records.push(...failed.map((f) => unavailable(f.candidate)));
+  else stopped ??= failed[0]?.message ?? null;
+  return { records, stopped };
 }
 
 const STATES: ReadonlySet<string> = new Set<CommitFilesState>(["ok", "unavailable", "merge"]);
@@ -254,7 +302,6 @@ const STATUSES: ReadonlySet<string> = new Set<CommitFileStatus>(["added", "modif
 function storedFile(entry: unknown): CanonicalCommitFile | null {
   const file = entry as { path?: unknown; status?: unknown; additions?: unknown; deletions?: unknown } | null;
   if (!file || typeof file !== "object" || typeof file.path !== "string" || file.path.length === 0) return null;
-  const isCount = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
   if (!isCount(file.additions) || !isCount(file.deletions)) return null;
   return {
     path: file.path,
@@ -266,17 +313,19 @@ function storedFile(entry: unknown): CanonicalCommitFile | null {
 }
 
 // Pure: a stored commit-files record -> its canonical row, or null for a
-// record with no sha or an unknown state. Shared by every source's normalize.
+// record that names no commit activity, has no sha, or has an unknown state.
+// Shared by every source's normalize.
 export function normalizeCommitFiles(sourceId: string, raw: RawRecord): CanonicalCommitFiles | null {
   const p = raw.payload as Partial<StoredCommitFiles> | null;
   if (!p || typeof p !== "object") return null;
   const sha = typeof p.sha === "string" ? p.sha.trim() : "";
-  if (!sha || typeof p.state !== "string" || !STATES.has(p.state)) return null;
+  const activity = typeof p.activity === "string" ? p.activity : "";
+  if (!activity || !sha || typeof p.state !== "string" || !STATES.has(p.state)) return null;
   const state = p.state as CommitFilesState;
   const files = state === "ok" && Array.isArray(p.files) ? p.files.map(storedFile).filter((f): f is CanonicalCommitFile => f !== null) : [];
   return {
     sourceId,
-    externalId: raw.externalId,
+    externalId: activity,
     projectPath: typeof p.project === "string" && p.project.length > 0 ? p.project : null,
     sha,
     state,

@@ -180,9 +180,10 @@ async function recordFailedRun(
 //     first parent, which is the merged branch's work again);
 //   - a row with no usable sha is recorded as unavailable;
 //   - the rest go to the source, which answers with a file list or a note that
-//     the provider no longer has the commit.
-// A commit the source could NOT answer (a transport or rate-limit failure
-// stopped the pass) gets no row and is asked for again next sweep.
+//     the commit cannot be read (the provider no longer has it, or it failed
+//     while the provider answered others).
+// A commit the source could NOT answer (the token was rejected or rate limited,
+// or nothing at all was answered) gets no row and is asked for again next sweep.
 async function enrichCommitFiles(store: Store, source: Source, opts: SyncOptions, startedAt: string): Promise<{ written: number; error: string | null }> {
   const limit = Math.max(0, Math.trunc(opts.commitFilesLimit ?? 0));
   if (limit === 0 || opts.dryRun || !source.fetchCommitFiles) return { written: 0, error: null };

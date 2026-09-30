@@ -49,7 +49,8 @@ test("GitHub reads each asked commit's files and stores paths and counts, never 
   assert.equal(res.records.length, 1);
   const record = res.records[0]!;
   assert.equal(record.entityKind, "commit_files");
-  assert.equal(record.externalId, candidate("a").externalId, "keyed like the commit activity it belongs to");
+  assert.equal(record.externalId, `commit_files:${candidate("a").externalId}`, "an id of its own: the raw store keeps one payload per id, and the commit's is already there");
+  assert.equal(payloadOf(record).activity, candidate("a").externalId, "and it names the commit activity it belongs to");
   assert.ok(!JSON.stringify(record.payload).includes("SECRET"), "the diff text is dropped before anything is stored");
   assert.deepEqual(payloadOf(record).files, [
     { path: "src/app.ts", status: "modified", additions: 10, deletions: 3 },
@@ -101,25 +102,92 @@ test("a commit the provider no longer has is recorded as unavailable, not retrie
   assert.equal(src.normalize(res.records[0]!)!.commitFiles![0]!.state, "unavailable");
 });
 
-test("a transport or rate-limit failure stops the pass and answers nothing for the rest", async () => {
+// One request at a time, so a test can say exactly which requests were made.
+async function oneAtATime<T>(run: () => Promise<T>): Promise<T> {
   const previous = process.env.SYNC_RESOLVE_CONCURRENCY;
   process.env.SYNC_RESOLVE_CONCURRENCY = "1";
   try {
-    const calls: string[] = [];
-    const rest: RestClient = async <T = any>(path: string): Promise<T> => {
-      calls.push(path);
-      if (path.endsWith(sha("b"))) throw new ProviderHttpError("REST HTTP 403: API rate limit exceeded", 403);
-      return { parents: [{ sha: "p" }], files: [{ filename: "a.ts", status: "modified", additions: 1, deletions: 1 }] } as T;
-    };
-    const src = new GitHubSource(GH, noGql, ["o/r"], rest);
-    const res = await src.fetchCommitFiles([candidate("a"), candidate("b"), candidate("c")]);
-    assert.match(res.stopped ?? "", /rate limit/);
-    assert.deepEqual(res.records.map((r) => payloadOf(r).sha), [sha("a")], "what was read before the failure is kept");
-    assert.equal(calls.length, 2, "nothing is asked after the failure: the commit stays in the queue for the next sweep");
+    return await run();
   } finally {
     if (previous === undefined) delete process.env.SYNC_RESOLVE_CONCURRENCY;
     else process.env.SYNC_RESOLVE_CONCURRENCY = previous;
   }
+}
+
+const readable = { parents: [{ sha: "p" }], files: [{ filename: "a.ts", status: "modified", additions: 1, deletions: 1 }] };
+
+test("a rejected or rate-limited token stops the pass and answers nothing for the rest", async () => {
+  for (const failure of [
+    new ProviderHttpError("REST HTTP 403: API rate limit exceeded", 403, { kind: "primary", resetAtMs: null, retryAfterMs: null }),
+    new ProviderHttpError("REST HTTP 429: Too Many Requests", 429),
+    new ProviderHttpError("REST HTTP 401: Bad credentials", 401),
+  ]) {
+    await oneAtATime(async () => {
+      const calls: string[] = [];
+      const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+        calls.push(path);
+        if (path.endsWith(sha("b"))) throw failure;
+        return readable as T;
+      };
+      const src = new GitHubSource(GH, noGql, ["o/r"], rest);
+      const res = await src.fetchCommitFiles([candidate("a"), candidate("b"), candidate("c")]);
+      assert.equal(res.stopped, failure.message);
+      assert.deepEqual(res.records.map((r) => payloadOf(r).sha), [sha("a")], "what was read before the failure is kept");
+      assert.equal(calls.length, 2, "nothing is asked after the failure: the commit stays in the queue for the next sweep");
+    });
+  }
+});
+
+test("a commit that fails on its own is set aside, the rest are read, and it is answered unavailable", async () => {
+  // A diff the provider cannot render, a timeout, a repository this token may
+  // not read (a 403 with no rate-limit headers). Were it left unanswered it
+  // would head the newest-first queue every sweep and starve every older commit.
+  for (const failure of [
+    new ProviderHttpError("REST HTTP 500: Server Error", 500),
+    new ProviderHttpError("REST HTTP 403: Resource not accessible by personal access token", 403),
+    new Error("request timed out after 30000ms"),
+  ]) {
+    await oneAtATime(async () => {
+      const calls: string[] = [];
+      const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+        calls.push(path);
+        if (path.endsWith(sha("a")) || path.endsWith(sha("b"))) throw failure;
+        return readable as T;
+      };
+      const src = new GitHubSource(GH, noGql, ["o/r"], rest);
+      const res = await src.fetchCommitFiles([candidate("a"), candidate("b"), candidate("c"), candidate("d")]);
+      assert.equal(res.stopped, null, "the pass ran to the end");
+      assert.equal(calls.length, 4, "the commits behind the failing ones are still asked for");
+      assert.deepEqual(
+        Object.fromEntries(res.records.map((r) => [payloadOf(r).sha, payloadOf(r).state])),
+        { [sha("a")]: "unavailable", [sha("b")]: "unavailable", [sha("c")]: "ok", [sha("d")]: "ok" },
+        "the provider answered other commits, so these failures are the commits' own",
+      );
+    });
+  }
+});
+
+test("when nothing is answered the failures are not the commits': nothing is recorded and the pass gives up", async () => {
+  // The provider or the network is down. Recording these as unavailable would
+  // drop fifty readable commits from the aggregate on every sweep of an outage.
+  await oneAtATime(async () => {
+    const calls: string[] = [];
+    const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+      calls.push(path);
+      throw new ProviderHttpError("REST HTTP 503: Service Unavailable", 503);
+    };
+    const src = new GitHubSource(GH, noGql, ["o/r"], rest);
+    const seeds = ["a", "b", "c", "d", "e", "f", "0", "1", "2", "3", "4", "5"];
+    const res = await src.fetchCommitFiles(seeds.map((seed) => candidate(seed)));
+    assert.deepEqual(res.records, [], "every commit stays in the queue");
+    assert.match(res.stopped ?? "", /503/);
+    assert.equal(calls.length, 8, "and the pass stops asking after a few");
+
+    // Short of that limit the pass still records nothing and says why.
+    const few = await src.fetchCommitFiles([candidate("a"), candidate("b")]);
+    assert.deepEqual(few.records, []);
+    assert.match(few.stopped ?? "", /503/);
+  });
 });
 
 test("a commit outside the configured repositories, or with no usable sha, is answered without a request", async () => {
@@ -136,6 +204,12 @@ test("a commit outside the configured repositories, or with no usable sha, is an
   ]);
   assert.deepEqual(calls, [], "the token may read more than the board tracks; the configured list is the allowlist");
   assert.deepEqual(res.records.map((r) => payloadOf(r).state), ["unavailable", "unavailable", "unavailable"]);
+
+  // The same list guards GitLab, where the project reaches the URL encoded.
+  const gitlab = new GitLabSource(GL, noGql, ["g/p"], rest);
+  const other = await gitlab.fetchCommitFiles([candidate("a", "g/other")]);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(other.records.map((r) => payloadOf(r).state), ["unavailable"]);
 });
 
 test("GitLab counts a commit's diff lines from the diff it is served", async () => {
@@ -173,12 +247,13 @@ test("a stored commit-files record with unusable entries normalizes to what is u
   const src = new GitHubSource(GH, noGql, ["o/r"]);
   const raw: RawRecord = {
     entityKind: "commit_files",
-    externalId: "commit:o%2Fr:abc",
+    externalId: "commit_files:commit:o%2Fr:abc",
     apiVersion: "github.graphql.v4.rest",
     fetchedAt: "2026-06-09T00:00:00Z",
     contentHash: "h",
     payload: {
       __kind: "commit_files",
+      activity: "commit:o%2Fr:abc",
       project: "o/r",
       sha: sha("a"),
       state: "ok",
@@ -207,9 +282,13 @@ test("a stored commit-files record with unusable entries normalizes to what is u
       ],
     },
   ]);
-  // A record with no sha or an unknown state is dropped rather than half-read.
-  assert.equal(src.normalize({ ...raw, payload: { __kind: "commit_files", project: "o/r", state: "ok", files: [] } }), null);
-  assert.equal(src.normalize({ ...raw, payload: { __kind: "commit_files", project: "o/r", sha: sha("a"), state: "maybe", files: [] } }), null);
+  // A record with no sha, an unknown state, or no commit activity to belong to
+  // is dropped rather than half-read.
+  const stored = { __kind: "commit_files", activity: "commit:o%2Fr:abc", project: "o/r", sha: sha("a"), state: "ok", files: [] };
+  assert.notEqual(src.normalize({ ...raw, payload: stored }), null);
+  assert.equal(src.normalize({ ...raw, payload: { ...stored, sha: undefined } }), null);
+  assert.equal(src.normalize({ ...raw, payload: { ...stored, state: "maybe" } }), null);
+  assert.equal(src.normalize({ ...raw, payload: { ...stored, activity: undefined } }), null);
 });
 
 test("a provider-capped file list is stored as truncated", async () => {

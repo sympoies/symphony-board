@@ -539,8 +539,9 @@ export function CommitsPage({
   // calendar. The emitted activities[] is windowed and cannot reach that far.
   activityDaily: ActivityDailyDTO | null;
   // The contract's per-repository file aggregate (`commit_file_stats`, 4.9.0),
-  // or null on a payload without one. Not to be confused with `fileStats`
-  // below, the opt-in that reads ONE opened commit's files on demand.
+  // or null on a payload without one or whose commit window is not the rows
+  // on screen. Not to be confused with `fileStats` below, the opt-in that
+  // reads ONE opened commit's files on demand.
   fileAggregate?: CommitFileStatsDTO | null;
   // Contract actor directory as lookups, for the author ranking and count.
   actorIndex?: ActorIndex;
@@ -1154,7 +1155,7 @@ export function CommitsPage({
           wide={widePanes}
           timezone={timezone}
           range={range}
-          fileStats={usableAggregate}
+          fileAggregate={usableAggregate}
           fileRepoKeys={fileRepoKeys}
           selectedPathKey={activePath?.key ?? null}
           onPath={(path) => setPathKey(path?.key ?? null)}

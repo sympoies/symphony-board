@@ -321,6 +321,7 @@ export interface Store {
   // File lists ("ok" rows only) of commit activities whose occurred_at INSTANT
   // is within [fromIso, toIso] inclusive — the same membership rule as
   // listActivitiesInRange, so the rows join the activities that query returns.
+  // In no particular order: the one consumer re-keys them.
   listCommitFilesInRange(fromIso: string, toIso: string): Promise<CommitFilesRow[]>;
   // Cached all-time per-repo activity bounds (earliest/latest occurred_at
   // INSTANT), independent of any range window. The /api/range path uses these

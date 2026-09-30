@@ -712,8 +712,7 @@ export class SqliteStore implements Store {
            AND a.kind = 'commit'
            AND a.occurred_at >= ? AND a.occurred_at <= ?
            AND julianday(a.occurred_at) >= julianday(?)
-           AND julianday(a.occurred_at) <= julianday(?)
-         ORDER BY cf.source_id, cf.external_id`,
+           AND julianday(a.occurred_at) <= julianday(?)`,
       )
       .all(coarseFrom, coarseTo, from, to) as unknown as Array<Omit<CommitFilesRow, "truncated"> & { truncated: number }>;
     return rows.map((row) => ({ ...row, truncated: row.truncated === 1 }));

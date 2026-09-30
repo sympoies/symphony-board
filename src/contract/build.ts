@@ -1266,6 +1266,7 @@ export interface BuildInput {
   // store's "ok" rows). When provided — even empty — the envelope carries
   // `commit_file_stats`; absent leaves the key out, which is how a consumer
   // tells "this producer collects no files" from "nothing was collected yet".
+  // The callers decide which it is (commitFilesForProjection in emit.ts).
   commitFiles?: CommitFilesRow[];
   generatedAt: string;
   // Config-derived display colors (NOT stored in the DB). Threaded in by the

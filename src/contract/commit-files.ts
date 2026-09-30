@@ -133,6 +133,18 @@ export function buildCommitFileStats(
   const rowsByRef = new Map<string, CommitFilesRow>();
   for (const row of rows) if (row.state === "ok") rowsByRef.set(refOf(row.source_id, row.external_id), row);
 
+  // One path recurs across many commits, and splitting it is the hot step of a
+  // year-long range, so each distinct path is rolled up once.
+  const dirByPath = new Map<string, string>();
+  const directoryOf = (path: string): string => {
+    let dir = dirByPath.get(path);
+    if (dir === undefined) {
+      dir = commitFileDirectory(path);
+      dirByPath.set(path, dir);
+    }
+    return dir;
+  };
+
   const repos = new Map<string, RepoTally>();
   for (const activity of activities) {
     if (activity.kind !== "commit" || !activity.project_path || activity.details?.merge === true) continue;
@@ -161,7 +173,7 @@ export function buildCommitFileStats(
       if (seen.has(file.path)) continue;
       seen.add(file.path);
       addCommit(tallyOf(repo.files, file.path), file.additions, file.deletions, author, sha);
-      const dir = commitFileDirectory(file.path);
+      const dir = directoryOf(file.path);
       const totals = dirTotals.get(dir) ?? { additions: 0, deletions: 0 };
       totals.additions += file.additions;
       totals.deletions += file.deletions;

@@ -11,8 +11,8 @@ import { rmSync, renameSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
-import { configuredRepoRefs } from "../config.ts";
-import type { Store } from "../db/store.ts";
+import { collectsCommitFiles, configuredRepoRefs } from "../config.ts";
+import type { CommitFilesRow, Store } from "../db/store.ts";
 import { buildContract, contractActivityWindowSince } from "./build.ts";
 import { validateContract, type ValidationError } from "./validate.ts";
 
@@ -33,6 +33,23 @@ export function displayColors(cfg: AppConfig): { sourceColors: Record<string, st
   return { sourceColors, repoColors };
 }
 
+// The file rows a projection aggregates over [fromIso, toIso], or undefined
+// when this producer has nothing to say about files: no enabled source runs the
+// file pass AND the store holds no rows for the window. Undefined is what keeps
+// `commit_file_stats` ABSENT from the envelope, which a consumer reads as "not
+// collected" — where a present key with nothing scanned reads as "collected,
+// not reached yet". Rows a pass left behind before it was turned off are still
+// reported: they are real.
+export async function commitFilesForProjection(
+  store: Pick<Store, "listCommitFilesInRange">,
+  cfg: Pick<AppConfig, "sources">,
+  fromIso: string,
+  toIso: string,
+): Promise<CommitFilesRow[] | undefined> {
+  const rows = await store.listCommitFilesInRange(fromIso, toIso);
+  return rows.length > 0 || collectsCommitFiles(cfg) ? rows : undefined;
+}
+
 // Build the contract envelope from the current store state: a pure mapping over
 // the canonical rows plus the config-derived display colors / identities.
 export async function buildContractEnvelope(
@@ -51,7 +68,7 @@ export async function buildContractEnvelope(
     reviewThreads: await store.listLiveReviewThreads(),
     // Only the emitted activity window's commits are aggregated, so only their
     // file lists are loaded.
-    commitFiles: await store.listCommitFilesInRange(contractActivityWindowSince(generatedAt), generatedAt),
+    commitFiles: await commitFilesForProjection(store, cfg, contractActivityWindowSince(generatedAt), generatedAt),
     generatedAt,
     sourceColors,
     repoColors,

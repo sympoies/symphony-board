@@ -670,8 +670,7 @@ export class PgStore implements Store {
         AND a.kind = 'commit'
         AND a.occurred_at >= ${coarseFrom} AND a.occurred_at <= ${coarseTo}
         AND a.occurred_at::timestamptz >= ${from}::timestamptz
-        AND a.occurred_at::timestamptz <= ${to}::timestamptz
-      ORDER BY cf.source_id, cf.external_id`;
+        AND a.occurred_at::timestamptz <= ${to}::timestamptz`;
     return rows as unknown as CommitFilesRow[];
   }
 

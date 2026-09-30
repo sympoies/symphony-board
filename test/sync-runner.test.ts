@@ -10,6 +10,9 @@ import { executeSyncRun, runConfiguredSync, type SyncRunProgress } from "../src/
 // Network-free Source fakes (FakeSource/BoomSource/prepared) shared with the
 // Postgres live e2e; see test/helpers/fake-source.ts.
 import { BoomSource, item, prepared, sc } from "./helpers/fake-source.ts";
+import { commitFilesBundle } from "../src/sources/commit-files.ts";
+import type { CommitFilesCandidate } from "../src/sources/types.ts";
+import type { CanonicalActivity } from "../src/model/types.ts";
 
 function hasGraphqlCostSelection(body: string): boolean {
   return body.includes("rateLimit { cost remaining used resetAt }");
@@ -608,4 +611,49 @@ test("onProgress reports the in-flight source and accumulating per-source result
   assert.equal(afterB.sources.length, 3);
   assert.notEqual(beforeA.sources, afterA.sources, "each report is a snapshot, not an alias of the runner's mutable array");
   await db.close();
+});
+
+// ---- the commit file pass ----------------------------------------------------
+
+// A source with two recent commits that can also answer for their files,
+// configured with `perSweep` (undefined = the key is not set).
+function commitFilesPrepared(perSweep: number | undefined, calls: CommitFilesCandidate[][]) {
+  const recent = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  const commit = (n: number): CanonicalActivity => ({
+    sourceId: "fake:a", externalId: `commit:${n}`, kind: "commit", action: "committed", projectPath: "x/y", targetKind: "commit", target: null, targetIid: null,
+    title: `Commit ${n}`, url: null, actor: "a", actorKey: "provider-user:fake:a:a", occurredAt: recent(n), summary: null, details: { sha: String(n).repeat(40) },
+  });
+  const built = prepared("fake:a", [item("A1")], { activities: new Map([["A1", [commit(1), commit(2)]]]) });
+  const source = built.source;
+  const normalize = source.normalize.bind(source);
+  source.normalize = (raw) => (raw.entityKind === "commit_files" ? commitFilesBundle("fake:a", raw) : normalize(raw));
+  source.fetchCommitFiles = async (candidates) => {
+    calls.push(candidates);
+    return {
+      records: candidates.map((c) => ({
+        entityKind: "commit_files", externalId: `commit_files:${c.externalId}`, apiVersion: "fake", fetchedAt: "2026-06-01T00:00:00Z", contentHash: c.sha,
+        payload: { __kind: "commit_files", activity: c.externalId, project: c.projectPath, sha: c.sha, state: "ok", truncated: false, files: [] },
+      })),
+      stopped: null,
+    };
+  };
+  return { ...built, config: { ...built.config, ...(perSweep === undefined ? {} : { commit_files_per_sweep: perSweep }) } };
+}
+
+test("the runner hands each source's commit_files_per_sweep to the file pass", async () => {
+  const run = async (perSweep: number | undefined) => {
+    const db = await openSqliteStore(":memory:");
+    const calls: CommitFilesCandidate[][] = [];
+    const result = await executeSyncRun(db, [commitFilesPrepared(perSweep, calls)], [], { mode: "full", dryRun: false, sourceId: null }, () => {});
+    const stored = (await db.overview(1)).tables.commit_files;
+    await db.close();
+    return { status: result.status, asked: calls.map((c) => c.map((x) => x.externalId)), stored };
+  };
+
+  // Not set: the pass runs at its default, which covers both commits.
+  assert.deepEqual(await run(undefined), { status: "ok", asked: [["commit:1", "commit:2"]], stored: 2 });
+  // A limit is the most it asks for in one sweep, newest first.
+  assert.deepEqual(await run(1), { status: "ok", asked: [["commit:1"]], stored: 1 });
+  // Zero turns the pass off for that source.
+  assert.deepEqual(await run(0), { status: "ok", asked: [], stored: 0 });
 });

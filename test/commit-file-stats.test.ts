@@ -4,15 +4,25 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AppConfig } from "../src/config.ts";
 import type { ActivityRow, CommitFilesRow, ItemRow, SourceRow } from "../src/db/store.ts";
+import { openSqliteStore } from "../src/db/sqlite.ts";
 import { buildContract, buildRangeContract } from "../src/contract/build.ts";
+import { buildContractEnvelope } from "../src/contract/emit.ts";
+import { rangeEnvelope } from "../src/server/range.ts";
 import { COMMIT_FILE_SHA_LIMIT, COMMIT_FILE_TOP_DIRS, COMMIT_FILE_TOP_FILES, buildCommitFileStats, commitFileDirectory } from "../src/contract/commit-files.ts";
 import { validateContract } from "../src/contract/validate.ts";
 import { refOf } from "../src/model/ref.ts";
 import type { ActivityDTO } from "../packages/contract/types.ts";
 
 const SRC = "github:github.com";
-const sha = (n: number) => n.toString(16).padStart(40, "0");
+// Distinct in its FIRST twelve characters, which is all the aggregate emits: a
+// left-padded number would give every commit the same prefix, and no assertion
+// about which commits an entry lists could fail.
+const sha = (n: number) => n.toString(16).padStart(12, "0").padEnd(40, "f");
 
 function commit(n: number, over: Partial<ActivityDTO> & { details?: Record<string, unknown> } = {}): ActivityDTO {
   const { details, ...rest } = over;
@@ -147,6 +157,22 @@ test("buildCommitFileStats counts people, not actor strings, and bounds what it 
   assert.equal(repo.files, COMMIT_FILE_SHA_LIMIT + 21, "distinct paths are counted over everything scanned, not over the top list");
 });
 
+test("buildCommitFileStats breaks ties by path and counts a path once per commit", () => {
+  const activities = [commit(2), commit(1)];
+  const stats = buildCommitFileStats(activities, keysOf(activities), [
+    // The provider listed one path twice: that is one touch of the file.
+    files(2, [["b.ts", 1, 1], ["b.ts", 5, 5], ["a.ts", 2, 0], ["lib/z.ts", 1, 0], ["app/z.ts", 1, 0]]),
+  ]);
+  const repo = stats.repos[0]!;
+  assert.deepEqual(
+    repo.top_files.map((f) => [f.path, f.commits, f.additions + f.deletions]),
+    [["a.ts", 1, 2], ["b.ts", 1, 2], ["app/z.ts", 1, 1], ["lib/z.ts", 1, 1]],
+    "equal commits and equal churn fall back to the path, so two builds agree",
+  );
+  assert.deepEqual(repo.top_dirs.map((d) => d.path), ["./", "app/", "lib/"]);
+  assert.equal(repo.files, 4);
+});
+
 test("buildCommitFileStats survives a stored file list that is not what it should be", () => {
   const activities = [commit(2), commit(1)];
   const stats = buildCommitFileStats(activities, keysOf(activities), [
@@ -227,4 +253,108 @@ test("a projection that was handed no file rows emits no aggregate at all", () =
   const empty = buildContract({ ...base, commitFiles: [] });
   assert.deepEqual(empty.commit_file_stats?.repos.map((r) => [r.commits, r.scanned, r.top_files.length]), [[1, 0, 0]]);
   assert.deepEqual(validateContract(empty), []);
+});
+
+// ---- from the store to the envelope ------------------------------------------
+
+const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+const day = (iso: string) => iso.slice(0, 10);
+
+function config(dbPath: string, perSweep?: number): AppConfig {
+  return {
+    db_path: dbPath,
+    sources: [
+      {
+        source_id: SRC,
+        kind: "github",
+        host: "github.com",
+        token_env: "T",
+        graphql_url: "https://api.github.com/graphql",
+        projects: ["o/r"],
+        ...(perSweep === undefined ? {} : { commit_files_per_sweep: perSweep }),
+      },
+    ],
+  };
+}
+
+async function seededStore(dbPath: string, withFiles: boolean) {
+  const store = await openSqliteStore(dbPath);
+  const now = new Date().toISOString();
+  await store.ensureSource({ sourceId: SRC, kind: "github", host: "github.com", displayName: null }, now);
+  const commits: Array<[n: number, occurredAt: string, path: string]> = [
+    [2, daysAgo(2), "src/recent.ts"],
+    [1, daysAgo(60), "src/old.ts"],
+  ];
+  for (const [n, occurredAt, path] of commits) {
+    await store.upsertActivity(
+      {
+        sourceId: SRC, externalId: `commit:${n}`, kind: "commit", action: "committed", projectPath: "o/r", targetKind: "commit", target: null, targetIid: null,
+        title: `Commit ${n}`, url: null, actor: "ada", actorKey: `provider-user:${SRC}:ada`, occurredAt, summary: null, details: { sha: sha(n) },
+      },
+      now,
+    );
+    if (withFiles) {
+      await store.upsertCommitFiles(
+        { sourceId: SRC, externalId: `commit:${n}`, projectPath: "o/r", sha: sha(n), state: "ok", truncated: false, files: [{ path, status: "modified", additions: 1, deletions: 0 }] },
+        now,
+      );
+    }
+  }
+  return store;
+}
+
+const topFiles = (env: { commit_file_stats?: { repos: Array<{ scanned: number; top_files: Array<{ path: string }> }> } }) =>
+  env.commit_file_stats?.repos.map((r) => [r.scanned, r.top_files.map((f) => f.path)]);
+
+test("both projections load the stored file rows of exactly the commits they emit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sb-commit-files-"));
+  try {
+    const dbPath = join(dir, "board.db");
+    const store = await seededStore(dbPath, true);
+    const cfg = config(dbPath);
+
+    // The static contract emits a 30-day activity window: the older commit is
+    // outside it, so neither it nor its files are aggregated.
+    const emitted = await buildContractEnvelope(store, cfg, new Date().toISOString());
+    assert.deepEqual(validateContract(emitted), []);
+    assert.deepEqual(topFiles(emitted), [[1, ["src/recent.ts"]]]);
+    await store.close();
+
+    // A range response aggregates the range it was asked for, and only that.
+    const old = await rangeEnvelope(cfg, new URL(`http://board/api/range?from=${day(daysAgo(70))}&to=${day(daysAgo(40))}`));
+    assert.deepEqual(validateContract(old), []);
+    assert.deepEqual(topFiles(old), [[1, ["src/old.ts"]]]);
+    const both = await rangeEnvelope(cfg, new URL(`http://board/api/range?from=${day(daysAgo(70))}&to=${day(daysAgo(0))}`));
+    assert.deepEqual(topFiles(both), [[2, ["src/old.ts", "src/recent.ts"]]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a deployment that collects no files leaves the aggregate out; one that does reports coverage", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sb-commit-files-"));
+  try {
+    const bare = join(dir, "bare.db");
+    const store = await seededStore(bare, false);
+    const range = new URL(`http://board/api/range?from=${day(daysAgo(70))}&to=${day(daysAgo(0))}`);
+    const now = new Date().toISOString();
+
+    // The pass is off and nothing was ever collected: the key is absent, so a
+    // consumer does not promise file data that will never arrive.
+    const off = await buildContractEnvelope(store, config(bare, 0), now);
+    // The pass is on (the default) and has not reached these commits yet.
+    const on = await buildContractEnvelope(store, config(bare), now);
+    await store.close();
+    assert.equal("commit_file_stats" in off, false);
+    assert.equal("commit_file_stats" in (await rangeEnvelope(config(bare, 0), range)), false);
+    assert.deepEqual(topFiles(on), [[0, []]]);
+    assert.deepEqual(topFiles(await rangeEnvelope(config(bare), range)), [[0, []]]);
+
+    // Rows collected before the pass was turned off are real, and still shown.
+    const kept = join(dir, "kept.db");
+    await (await seededStore(kept, true)).close();
+    assert.deepEqual(topFiles(await rangeEnvelope(config(kept, 0), range)), [[2, ["src/old.ts", "src/recent.ts"]]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

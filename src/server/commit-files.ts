@@ -3,20 +3,21 @@
 // never the read-only `api` sidecar, because like /api/token-rate-limits it
 // needs config + token resolution + outbound provider access.
 //
-// WHY THIS IS A READ-THROUGH AND NOT A SYNC FIELD. The sweep can afford the
-// commit TOTALS it already stores: GitHub answers 100 commits in one GraphQL
-// document and GitLab inlines them on the list feed. Per-FILE counts have no
-// such batch on either provider — GitHub's GraphQL commit exposes no file list
-// at all, so it is one REST call per commit, and GitLab only serves a raw
-// unified diff per commit. At ~700 commits a week across 25 repos, with a full
-// sweep every ~30 iterations, that is a different cost class; and because an
-// activity upsert replaces `details` wholesale, any sweep that skipped the
-// enrichment would also ERASE what an earlier one stored. Fetching the one
-// commit the viewer opened costs one provider call and cannot rot.
+// WHY THE SWEEP DOES NOT CARRY FILES. The sweep can afford the commit TOTALS
+// it already stores: GitHub answers 100 commits in one GraphQL document and
+// GitLab inlines them on the list feed. Per-FILE counts have no such batch on
+// either provider — GitHub's GraphQL commit exposes no file list at all, so it
+// is one REST call per commit, and GitLab only serves a raw unified diff per
+// commit. And because an activity upsert replaces `details` wholesale, a sweep
+// that skipped the enrichment would also ERASE what an earlier one stored.
 //
-// The result is therefore NOT contract data: it never enters raw, the canonical
-// store, or contract.json, so no contract_version bump — the same boundary
-// /api/stats and /api/token-rate-limits sit behind.
+// So files reach a consumer two other ways. This route reads the ONE commit a
+// viewer opened, now, whether or not a sync has reached it; its response is not
+// contract data and is cached only in memory. The sync engine's file pass
+// (src/sync-engine.ts, readers in src/sources/commit-files.ts) reads a bounded
+// batch per sweep into a table of its own, and the contract aggregates those
+// rows as `commit_file_stats`. The two share the provider readers and nothing
+// else: this route neither reads nor writes what the pass stored.
 //
 // Provider reads stay read-only (GET), and a request may only name a project
 // this deployment already tracks: the configured project list is the allowlist,
@@ -32,7 +33,7 @@ import { projectPaths, sourceEnabled } from "../config.ts";
 import { createAuthTokenResolver, type AuthTokenResolver } from "../auth.ts";
 import { defaultRestUrl, makeRestClient, type RestClient } from "../sources/rest.ts";
 import type { AuthToken } from "../sources/http.ts";
-import { githubCommitFiles, gitlabCommitFiles } from "../sources/commit-files.ts";
+import { FULL_COMMIT_SHA, githubCommitFiles, gitlabCommitFiles } from "../sources/commit-files.ts";
 import type { CanonicalCommitFile, CommitFileStatus } from "../model/types.ts";
 
 // A viewer is waiting on this, so fail faster than a sweep would.
@@ -114,7 +115,7 @@ export interface CommitFilesDeps {
 // which is both an amplification lever and a way to evict everything real
 // viewers warmed. The UI always sends the full oid (`details.sha`), so nothing
 // legitimate asks for less.
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+const SHA = FULL_COMMIT_SHA;
 
 const defaultRestClientFactory: RestClientFactory = (source, tokens) =>
   makeRestClient(

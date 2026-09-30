@@ -1169,7 +1169,10 @@ the two objections above require.
   `(source_id, external_id)`. An activity upsert never touches it, so nothing a
   later sweep does can erase it. Rows enter the usual way: the source returns a
   `commit_files` raw record, `normalize` turns it into a canonical row, and the
-  store keeps both.
+  store keeps both. The raw record has an external id of its own
+  (`commit_files:<activity id>`) and names the activity in its payload: `raw`
+  holds one payload per `(source_id, external_id)` whatever the entity kind, so
+  sharing the commit's id would replace the commit's own raw record.
 - **A queue, not a sweep.** After each source's sweep commits, the engine asks
   the store for recent commit rows with no answer (`listCommitFileCandidates`:
   newest first, within a one-year lookback) and hands at most
@@ -1178,13 +1181,25 @@ the two objections above require.
   fills in over later sweeps; the cost per sweep is bounded by configuration,
   not by how much history there is.
 - **Every queued commit gets an answer.** A file list (`ok`); a note that the
-  provider no longer has the commit (`unavailable`, from a 404 / 410 / 422, or
-  for a repository that is no longer configured); or a note that the commit is
-  a merge (`merge`, recorded without a request, because a merge's diff is
-  against its first parent). Without the last two the same rows would come
-  back every sweep and starve the rest.
-- **Never the sweep's problem.** A transport or rate-limit failure stops the
-  pass and leaves the unanswered commits queued. It is reported on its own
+  commit cannot be read (`unavailable`: a 404 / 410 / 422, a repository that is
+  no longer configured, or a commit that failed on its own — see the next
+  point); or a note that the commit is a merge (`merge`, recorded without a
+  request, because a merge's diff is against its first parent). Without the
+  last two the same rows would come back every sweep and starve the rest. An
+  answer is final: an `unavailable` commit is not asked for again.
+- **One bad commit does not stall the queue.** A failed request is about the
+  token (401, 429, or a rate-limit response), about that commit (a diff the
+  provider cannot render, a repository the token may not read), or about the
+  provider being down — and the last two look the same from one response. A
+  token failure stops the pass at once. Any other failure sets the commit
+  aside and the pass goes on; the commits set aside are answered `unavailable`
+  only when the provider answered some other commit in the same pass. When
+  nothing was answered, nothing is recorded, and the pass gives up after eight
+  failures. Without this a commit that always fails would head the
+  newest-first queue every sweep and keep every older commit of the source
+  from being read.
+- **Never the sweep's problem.** A stopped pass leaves the unanswered commits
+  queued. It is reported on its own
   (`SyncReport.commitFiles` / `commitFilesError`, and a separate log line) and
   never changes the sweep's status: marking a sweep incomplete over a
   decoration would block the soft-delete pass that only a complete sweep may
@@ -1197,7 +1212,10 @@ The contract projects these rows as `commit_file_stats` (4.9.0): per
 repository, coverage plus the most-changed files and directories of the
 emitted commit window, each with the sha prefixes of the commits that touched
 it. It is an aggregate because per-commit file lists on `activities[]` would
-multiply the payload; see `docs/CONTRACT.md`, Commit File Stats.
+multiply the payload; see `docs/CONTRACT.md`, Commit File Stats. The key is
+left out when the deployment collects nothing — no enabled source runs the
+pass and the store holds no file rows for the window — so a consumer can tell
+"not collected" from "not reached yet".
 
 ## Live Event Stream (Realtime)
 

@@ -2151,7 +2151,11 @@ export function App() {
           followLatest={commitsFollowLatest}
           onFollowLatest={() => setCommitsFollowLatest(true)}
           fileStats={commitFileStats}
-          fileAggregate={visibleEnv.commit_file_stats ?? null}
+          // The aggregate describes the payload's whole commit window. Where
+          // the rows are a client-side sub-range of it (a file or static
+          // contract narrowed by the picker) it would rank commits that are
+          // not on screen, so it is withheld like the other pre-aggregates.
+          fileAggregate={customRange ? null : (visibleEnv.commit_file_stats ?? null)}
           resolveChangeRequestLink={resolveChangeRequestLink}
           mergeCount={windowMergeCount}
           hideMerges={commitsHideMerges}

@@ -7263,6 +7263,10 @@ try {
       chip: (document.querySelector('.commits-path-chip')?.textContent || '').trim(),
       listRepos: [...new Set(rowsEl.map((row) => (row.querySelector('.commit-meta-repo')?.textContent || '').trim()))],
       repoRows: repoRows?.querySelectorAll('.live-rank-item').length ?? -1,
+      // The leading row of the other two facet panes, counts included: each
+      // is ranked over its own source array, so each has to narrow too.
+      authorTop: (document.querySelector('.commits-rail .rail-rank-chart.rank-cols-authors .live-rank-item')?.textContent || '').trim(),
+      branchTop: (document.querySelector('.commits-rail .rail-rank-chart.rank-cols-branches .live-rank-item')?.textContent || '').trim(),
       delta: document.querySelectorAll('.commits-overview .hm-delta').length,
     };
   })()`;
@@ -8052,12 +8056,19 @@ try {
         hotFilesNarrowed.count !== hotFiles.count &&
         /^path: .*SmokeFile\d\.tsx ×$/.test(hotFilesNarrowed.chip || "") &&
         (hotFilesNarrowed.listRepos || []).length === 1 &&
+        hotFiles.repoRows > 1 &&
         hotFilesNarrowed.repoRows === 1 &&
+        !!hotFilesNarrowed.authorTop &&
+        hotFilesNarrowed.authorTop !== hotFiles.authorTop &&
+        !!hotFilesNarrowed.branchTop &&
+        hotFilesNarrowed.branchTop !== hotFiles.branchTop &&
+        hotFilesNarrowed.delta === 0 &&
+        hotFilesCleared.authorTop === hotFiles.authorTop &&
         hotFilesNarrowed.rows === hotFiles.rows &&
         hotFilesCleared.count === hotFiles.count &&
         hotFilesCleared.chip === "" &&
         hotFilesCleared.on === 0,
-      `commits: a hot file row narrows the list and every pane to the commits that touched it, and the toolbar chip clears it (${JSON.stringify({ before: hotFiles.count, narrowed: { count: hotFilesNarrowed.count, chip: hotFilesNarrowed.chip, listRepos: hotFilesNarrowed.listRepos, repoRows: hotFilesNarrowed.repoRows, on: hotFilesNarrowed.on }, cleared: { count: hotFilesCleared.count, chip: hotFilesCleared.chip } })})`,
+      `commits: a hot file row narrows the list and every pane to the commits that touched it, and the toolbar chip clears it (${JSON.stringify({ before: hotFiles.count, narrowed: { count: hotFilesNarrowed.count, chip: hotFilesNarrowed.chip, listRepos: hotFilesNarrowed.listRepos, repoRows: [hotFiles.repoRows, hotFilesNarrowed.repoRows], authorTop: [hotFiles.authorTop, hotFilesNarrowed.authorTop], branchTop: [hotFiles.branchTop, hotFilesNarrowed.branchTop], delta: hotFilesNarrowed.delta, on: hotFilesNarrowed.on }, cleared: { count: hotFilesCleared.count, chip: hotFilesCleared.chip } })})`,
     ],
     [
       hotDirs.title === "Hot directories" &&

@@ -146,18 +146,18 @@ export function CommitsRail({
   wide = false,
   timezone,
   range,
-  fileStats = null,
+  fileAggregate = null,
   fileRepoKeys = null,
   selectedPathKey = null,
   onPath,
 }: {
   // The contract's per-repository file aggregate (4.9.0), the repositories
-  // with rows on screen, and the path the list is narrowed to. `fileStats` is
+  // with rows on screen, and the path the list is narrowed to. `fileAggregate` is
   // null where the aggregate cannot describe the rows on screen — the payload
-  // has none, or an author or branch filter selects a subset of a repository's
-  // commits the pre-computed counts cannot be re-ranked for — and the pane then
-  // shows commit scopes, as it did before.
-  fileStats?: CommitFileStatsDTO | null;
+  // has none, or the rows are a subset the pre-computed counts cannot be
+  // re-ranked for (an author or branch filter, a client-side sub-range) — and
+  // the pane then shows commit scopes, as it did before.
+  fileAggregate?: CommitFileStatsDTO | null;
   fileRepoKeys?: ReadonlySet<string> | null;
   selectedPathKey?: string | null;
   onPath?: (path: HotPath | null) => void;
@@ -234,10 +234,10 @@ export function CommitsRail({
   // question from the diff and from the message, and because the column has no
   // height for three.
   const [where, setWhere] = useState<"files" | "dirs" | "scopes">("files");
-  const whereShown = fileStats ? where : "scopes";
+  const whereShown = fileAggregate ? where : "scopes";
   const hot = useMemo(
-    () => (wide && whereShown !== "scopes" ? hotPaths(fileStats, fileRepoKeys, whereShown, kindLimit) : null),
-    [wide, whereShown, fileStats, fileRepoKeys, kindLimit],
+    () => (wide && whereShown !== "scopes" ? hotPaths(fileAggregate, fileRepoKeys, whereShown, kindLimit) : null),
+    [wide, whereShown, fileAggregate, fileRepoKeys, kindLimit],
   );
   // The share of the range's commits that landed on a default branch, out of
   // the rows that name one (contract 4.8.1). A producer that does not say
@@ -471,7 +471,7 @@ export function CommitsRail({
     <div className="rail-block commit-where">
       <div className="rail-block-head">
         <span className="rail-block-title">{whereTitle}</span>
-        {fileStats ? (
+        {fileAggregate ? (
           <span className="pane-seg" role="group" aria-label="Show where the work landed by">
             {(["files", "dirs", "scopes"] as const).map((option) => (
               <button key={option} type="button" className="pane-seg-option" aria-pressed={whereShown === option} onClick={() => setWhere(option)}>

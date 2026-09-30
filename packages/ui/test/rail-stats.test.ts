@@ -777,7 +777,7 @@ const FILE_STATS: CommitFileStatsDTO = {
   repos: [
     {
       source_id: "gh", project_path: "acme/api", commits: 10, scanned: 8, truncated: 0, files: 40,
-      top_files: [entry("src/app.ts", 6, 100, 20, 2, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]), entry("README.md", 2, 5, 1)],
+      top_files: [entry("src/app.ts", 6, 10, 2, 2, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]), entry("README.md", 2, 5, 1), entry("zeta.ts", 1, 1, 0), entry("alpha.ts", 1, 1, 0)],
       top_dirs: [entry("src/", 7, 120, 30, 2), entry("./", 2, 5, 1)],
     },
     {
@@ -794,16 +794,19 @@ test("hotPaths merges the repositories on screen into one ranking with their cov
   assert.deepEqual(
     all.rows.map((row) => [row.projectPath, row.path, row.commits]),
     [
-      // Six commits each: the larger churn leads, then the path.
-      ["acme/api", "src/app.ts", 6],
+      // Six commits each: the larger churn leads, though its key sorts later.
       ["acme/web", "styles/main.css", 6],
+      ["acme/api", "src/app.ts", 6],
       ["acme/web", "src/app.ts", 3],
       ["acme/api", "README.md", 2],
+      // One commit and one line each: the key decides, not the input order.
+      ["acme/api", "alpha.ts", 1],
+      ["acme/api", "zeta.ts", 1],
     ],
     "the same path in two repositories is two rows: they are two files",
   );
-  assert.equal(all.rows[0]!.key, "gh|acme/api|src/app.ts");
-  assert.deepEqual(all.rows[0]!.shas, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
+  assert.equal(all.rows[1]!.key, "gh|acme/api|src/app.ts");
+  assert.deepEqual(all.rows[1]!.shas, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
   assert.deepEqual({ commits: all.commits, scanned: all.scanned, files: all.files, truncated: all.truncated, repos: all.repos }, { commits: 19, scanned: 12, files: 49, truncated: 1, repos: 3 });
 
   // Narrowed to the repositories that have rows on screen.

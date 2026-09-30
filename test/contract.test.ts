@@ -1577,3 +1577,25 @@ test("buildContract drops edges to a de-configured source whose endpoint item is
   const edgeRefs = filtered.edges.flatMap((e) => [e.from, e.to]);
   assert.ok(!edgeRefs.some((ref) => ref.startsWith("gitlab:gitlab.com|")), "no edge ref exposes the de-configured gitlab source");
 });
+
+test("commit_file_stats is an optional envelope field the schema holds to its shape (4.9.0)", () => {
+  const sources: SourceRow[] = [
+    { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" },
+  ];
+  const env = buildContract({ sources, items: [], labels: [], edges: [], generatedAt: "2026-06-02T00:00:00Z" });
+  assert.equal("commit_file_stats" in env, false, "absent unless the producer was handed file rows");
+  assert.deepEqual(validateContract(env), []);
+
+  const entry = { path: "src/app.ts", commits: 2, additions: 5, deletions: 1, authors: 1, shas: ["0123456789ab", "ba9876543210"] };
+  const repo = { source_id: "github:github.com", project_path: "o/r", commits: 3, scanned: 2, truncated: 0, files: 1, top_files: [entry], top_dirs: [{ ...entry, path: "src/" }] };
+  assert.deepEqual(validateContract({ ...env, commit_file_stats: { repos: [repo] } }), []);
+
+  // A consumer matches `shas` against commit rows and sizes bars from the
+  // counts, so neither may be loose.
+  const rejects = (stats: unknown) => validateContract({ ...env, commit_file_stats: stats }).length > 0;
+  assert.ok(rejects({}), "repos is required");
+  assert.ok(rejects({ repos: [{ ...repo, scanned: undefined }] }), "coverage is required");
+  assert.ok(rejects({ repos: [{ ...repo, top_files: [{ ...entry, commits: -1 }] }] }), "counts are non-negative");
+  assert.ok(rejects({ repos: [{ ...repo, top_files: [{ ...entry, shas: ["not-hex"] }] }] }), "shas are hex prefixes");
+  assert.ok(rejects({ repos: [{ ...repo, top_files: [{ ...entry, patch: "@@" }] }] }), "an entry carries nothing else");
+});

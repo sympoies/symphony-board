@@ -116,6 +116,12 @@ export function commitFilesPerSweep(s: Pick<SourceConfig, "commit_files_per_swee
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : DEFAULT_COMMIT_FILES_PER_SWEEP;
 }
 
+// Whether this deployment collects per-commit files at all: some enabled
+// source runs the file pass.
+export function collectsCommitFiles(cfg: Pick<AppConfig, "sources">): boolean {
+  return cfg.sources.some((s) => sourceEnabled(s) && commitFilesPerSweep(s) > 0);
+}
+
 // A declared person: the provider usernames, commit emails, and raw commit
 // display names that are the same human. The contract's repo-analytics actor
 // grouping (`top_actors[]`) collapses every matching identity into one canonical

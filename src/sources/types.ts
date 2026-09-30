@@ -106,10 +106,11 @@ export interface CommitFilesCandidate {
 
 export interface CommitFilesFetchResult {
   // One record (entityKind "commit_files") per commit that got an ANSWER: its
-  // files, or a note that the provider no longer has it. A commit with no
-  // record stays in the queue.
+  // files, or a note that it cannot be read. A commit with no record stays in
+  // the queue.
   records: RawRecord[];
-  // The failure that stopped the pass early, or null when it ran to the end.
+  // The failure that stopped the pass early or left it with nothing answered,
+  // or null when it ran to the end.
   stopped: string | null;
 }
 
@@ -122,8 +123,8 @@ export interface Source {
   fetchRefresh?(candidates: RefreshCandidate[], opts: FetchOptions): Promise<FetchResult>;
   // Optional impure enrichment: the changed files of commits the store has no
   // answer for. One provider call per commit, so the engine bounds how many it
-  // asks for per sweep. Best effort: a failure stops the pass (`stopped`) and
-  // never fails the sweep it follows.
+  // asks for per sweep. Best effort: a failure may stop the pass (`stopped`)
+  // and never fails the sweep it follows.
   fetchCommitFiles?(candidates: CommitFilesCandidate[]): Promise<CommitFilesFetchResult>;
   // Pure: raw record -> canonical bundle. Returns null to drop a record the
   // source recognizes but does not map (e.g. an entity kind we ignore). MUST be
