@@ -692,7 +692,8 @@ Pages:
   Up to 1399px the two supporting columns hold the plain digest and reach the
   bottom of the list by growing their charts. From 1400px
   (`COMMITS_STACK_MIN_WIDTH_PX`, the laptop tier) they carry the full set of
-  panes described below, stacked one module per column at 36 / 32 / 32, and
+  panes described below, stacked one module per column at 36 / 32 / 32
+  (40 / 30 / 30 from 1960px, where that keeps the list on one-line rows), and
   each column scrolls inside itself; every list in them stops at eight rows,
   Largest commits and Change requests scroll within 320px, and the author
   rows keep share, active days and the per-day line (lines and repos stay in

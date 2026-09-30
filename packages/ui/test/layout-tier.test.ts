@@ -489,7 +489,7 @@ test("the Commits wide-panes tier is published once and mirrored in the styleshe
   assert.match(rail, /rankActors\(authorSource, authorLimit, actorIndex\)/, "the authors pane must use its own bounded limit");
   assert.match(
     rail,
-    /className=\{`rail-rank-chart\$\{wide \? " rank-cols-authors" : ""\}`\}/,
+    /className=\{`rail-rank-chart\$\{hasPanes \? " rank-cols-authors" : ""\}`\}/,
     "the authors chart is not a scroller, which is why its limit is bounded",
   );
   // A sparkline is bounded by its column, not by the calendar.

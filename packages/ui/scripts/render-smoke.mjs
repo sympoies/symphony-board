@@ -6331,8 +6331,12 @@ try {
           const metaHeight = meta ? Math.round(meta.getBoundingClientRect().height) : 0;
           const style = getComputedStyle(card);
           const inner = card.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+          const innerWidth = card.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
           return {
             listWidth: Math.round(list.clientWidth),
+            // The facts under the subject span the card, not the column left
+            // of the sha and its actions.
+            metaSpan: meta ? Math.round(innerWidth - meta.getBoundingClientRect().width) : null,
             rows: cards.length,
             cardHeight: Math.round(card.getBoundingClientRect().height),
             contentHeight: Math.round(main.getBoundingClientRect().height),
@@ -6584,8 +6588,8 @@ try {
   for (const vp of [
     { name: "compact-split", width: 1000, height: 1440 },
     { name: "three-column-boundary", width: 1280, height: 1440 },
-    { name: "three-column", width: 1880, height: 1080 },
-    { name: "rows", width: 2560, height: 1440 },
+    { name: "laptop", width: 1880, height: 1080 },
+    { name: "panes", width: 2560, height: 1440 },
   ]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
@@ -6818,6 +6822,8 @@ try {
       const rail = document.querySelector('.commits-rail:not(.commit-detail)');
       const titles = (root) => [...(root?.querySelectorAll(':scope > .rail-block') || [])].map((b) => (b.querySelector('.rail-block-title, h3')?.textContent || '').trim());
       const scrolls = (el) => !!el && getComputedStyle(el).overflowY === 'auto' && el.scrollHeight > el.clientHeight;
+      const blockOf = (root, title) => [...(root?.querySelectorAll(':scope > .rail-block') || [])].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === title);
+      const visible = (els) => [...els].filter((el) => getComputedStyle(el).display !== 'none');
       const plot = rail?.querySelector('.live-rank-plot');
       const authorHead = [...(rail?.querySelectorAll('.rank-head.rank-cols-authors > span') || [])].filter((el) => getComputedStyle(el).display !== 'none').map((el) => (el.textContent || '').trim());
       const card = list?.querySelector('.commit-row-body');
@@ -6838,6 +6844,13 @@ try {
         railShort: list && rail ? Math.round(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().bottom) : null,
         rankFlow: plot ? getComputedStyle(plot).gridAutoFlow : null,
         authorHead,
+        // The facts a row draws, which must be the columns its head names.
+        authorRowFacts: visible(blockOf(rail, 'Top authors')?.querySelector('.live-rank-extra')?.children || []).length,
+        typeRows: blockOf(rail, 'Commit types')?.querySelectorAll('.live-rank-item').length ?? 0,
+        // A pane wider than its column scrolls the COLUMN sideways, which
+        // neither the pane nor the document shows as overflow.
+        overviewScrollX: overview ? overview.scrollWidth - overview.clientWidth : null,
+        railScrollX: rail ? rail.scrollWidth - rail.clientWidth : null,
         metaSpan: card && meta ? Math.round(cardInner - meta.getBoundingClientRect().width) : null,
         cardHeight: card ? Math.round(card.getBoundingClientRect().height) : null,
         spill,
@@ -8085,9 +8098,14 @@ try {
         commitsStack.rankFlow === "row" &&
         // The authors keep the facts a 430px column has room for.
         JSON.stringify(commitsStack.authorHead) === JSON.stringify(["author", "", "commits", "share", "days", "per day"]) &&
+        commitsStack.authorRowFacts === 3 &&
+        // Eight rows in this tier, where the plain digest draws six.
+        commitsStack.typeRows > 6 &&
+        commitsStack.overviewScrollX <= 1 &&
+        commitsStack.railScrollX <= 1 &&
         // The card's facts use its whole width, not the column left of the sha.
         commitsStack.rowLayout === "stacked" &&
-        commitsStack.metaSpan != null && commitsStack.metaSpan <= 2 &&
+        commitsStack.metaSpan != null && Math.abs(commitsStack.metaSpan) <= 2 &&
         commitsStack.cardHeight <= 124 &&
         (commitsStack.spill || []).length === 0 &&
         commitsStack.pageOverflowX <= 0,
@@ -8137,6 +8155,8 @@ try {
         commitsRailWide.commitCard?.clipped.length === 0 &&
         commitsRailWide.commitCard?.metaHeight >= 40 &&
         commitsRailWide.commitCard?.slack <= 24 &&
+        commitsRailWide.commitCard?.metaSpan != null &&
+        Math.abs(commitsRailWide.commitCard.metaSpan) <= 2 &&
         ["Commits per day", "When", "Commit rhythm", "Top repos", "Top branches", "Commit types", "Top authors"].every((t) => (commitsRailWide.blocks || []).includes(t)),
       `commits: the list leads three ratio columns carrying list, overview and digest rail (${JSON.stringify(commitsRailWide)})`,
     ],
