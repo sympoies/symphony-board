@@ -40,6 +40,7 @@ import {
   filterActivitiesByRange,
   buildActivityHeatmap,
   buildActivityHeatmapFromDaily,
+  commitScopeIsWhole,
   heatmapStreaks,
   previousPeriodCount,
   rangeIsCovered,
@@ -3703,4 +3704,19 @@ test("rangeIsCovered is true only while the visible rows account for the aggrega
   // Nothing to check against is not coverage.
   assert.equal(rangeIsCovered(null, "2026-09-24", "2026-09-30", 0, "commit"), false);
   assert.equal(rangeIsCovered(daily, "2026-09-30", "2026-09-24", 1000, "commit"), false);
+});
+
+test("commitScopeIsWhole is true only with no route filter and nothing hidden", () => {
+  const whole = { source: null, repo: null, branch: null, author: null, hiddenRepos: 0, hiddenSources: 0 };
+  assert.equal(commitScopeIsWhole(whole), true);
+  assert.equal(commitScopeIsWhole({ hiddenRepos: 0, hiddenSources: 0 }), true, "absent filters are no filters");
+  // Each way of narrowing the rows, on its own.
+  assert.equal(commitScopeIsWhole({ ...whole, source: "github:github.com" }), false);
+  assert.equal(commitScopeIsWhole({ ...whole, repo: "acme/api" }), false);
+  assert.equal(commitScopeIsWhole({ ...whole, branch: "main" }), false);
+  assert.equal(commitScopeIsWhole({ ...whole, author: "ada" }), false);
+  // Hidden in Settings: the rows lose them and the full-history aggregate does
+  // not, whether or not they had commits in the selected range.
+  assert.equal(commitScopeIsWhole({ ...whole, hiddenRepos: 1 }), false);
+  assert.equal(commitScopeIsWhole({ ...whole, hiddenSources: 1 }), false);
 });

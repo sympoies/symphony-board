@@ -271,9 +271,9 @@ export function CommitsOverview({
   panelRef?: Ref<HTMLElement>;
   // The wide-panes tier: see the note at the top of this file.
   wide?: boolean;
-  // True when `commits` is the whole range, with no repo / branch / author /
-  // source filter. Only then can the count be set against activity_daily, which
-  // counts every commit.
+  // True when nothing narrows `commits`: no repo / branch / author / source
+  // filter and nothing hidden in Settings (commitScopeIsWhole). Only then can
+  // the count be set against activity_daily, which counts every commit.
   comparable?: boolean;
   // The commit shown in the detail pane, and the way to change it, for the
   // Largest commits rows.
@@ -320,9 +320,8 @@ export function CommitsOverview({
   const sizes = useMemo(() => (wide ? commitSizeSummary(commits) : null), [wide, commits]);
   // The comparison is drawn only when it compares like with like: nothing
   // narrows the list (`comparable`), AND the rows on screen really are the
-  // range the aggregate describes -- which a repo or source hidden in Settings,
-  // or a feed windowed shorter than the range, would make false without the
-  // page's own filters knowing. See rangeIsCovered.
+  // range the aggregate describes -- which a feed windowed shorter than the
+  // range makes false without any filter being set. See rangeIsCovered.
   const previous =
     wide && comparable && rangeIsCovered(activityDaily, range.from, range.to, commits.length, "commit")
       ? previousPeriodCount(activityDaily, range.from, range.to, "commit")

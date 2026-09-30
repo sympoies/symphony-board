@@ -16,7 +16,7 @@ import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useCommitFileStats } from "../useCommitFileStats.ts";
 import { COMMIT_COMPACT_SPLIT_QUERY, COMMITS_PANES_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
-import { sourceDisplayName } from "../model.ts";
+import { commitScopeIsWhole, sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
 import {
   buildCommitRows,
@@ -435,6 +435,8 @@ export function CommitsPage({
   followLatest,
   onFollowLatest,
   fileStats,
+  hiddenRepos = 0,
+  hiddenSources = 0,
   onRepo,
   onBranch,
   onAuthor,
@@ -484,6 +486,11 @@ export function CommitsPage({
   // diffstat, rendered at the head of the digest rail. Off by default, because
   // it is one provider read per commit the pane shows.
   fileStats: boolean;
+  // How many repositories and sources Settings hides. `commits` already has
+  // them removed; the page only needs to know THAT something is, because the
+  // full-history aggregate it compares against does not.
+  hiddenRepos?: number;
+  hiddenSources?: number;
   onRepo: (repo: CommitRepoOption | null) => void;
   onBranch: (branch: string | null) => void;
   onAuthor: (author: string | null) => void;
@@ -938,8 +945,16 @@ export function CommitsPage({
             range={range}
             actorIndex={actorIndex}
             wide={widePanes}
-            // `commits` is the whole range only while nothing narrows it.
-            comparable={activeFilterCount === 0}
+            // `commits` is the whole range only while nothing narrows it: no
+            // route filter and nothing hidden in Settings.
+            comparable={commitScopeIsWhole({
+              source: selectedSource,
+              repo: selectedRepo,
+              branch: selectedBranch,
+              author: selectedAuthor,
+              hiddenRepos,
+              hiddenSources,
+            })}
             selectedKey={selectedKey}
             // A Largest commits row pins, and never toggles: the row is a way
             // INTO a commit, and the pane it opens sits directly above the list

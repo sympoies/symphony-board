@@ -1004,16 +1004,38 @@ export function previousPeriodCount(
   return total;
 }
 
+// Whether the Commits rows are the whole of what the board tracks, with nothing
+// narrowing them: no route filter, and no repository or source hidden in
+// Settings. It is the first half of "may the count be set against
+// activity_daily", which counts every commit of every repository.
+//
+// rangeIsCovered below is the second half and checks the CURRENT window
+// against the data. It cannot stand in for this: a hidden repository that was
+// quiet this week and busy the week before leaves the current window matching
+// the aggregate exactly, while the previous count still includes it.
+export function commitScopeIsWhole(scope: {
+  source?: string | null;
+  repo?: string | null;
+  branch?: string | null;
+  author?: string | null;
+  hiddenRepos: number;
+  hiddenSources: number;
+}): boolean {
+  return !scope.source && !scope.repo && !scope.branch && !scope.author && scope.hiddenRepos === 0 && scope.hiddenSources === 0;
+}
+
 // Whether the rows on screen account for the range the aggregate describes.
 //
 // previousPeriodCount answers for EVERY row in the earlier window. Setting that
 // against the rows on screen is only a comparison of like with like when those
-// rows are every row in the current window too, and there are several ways for
-// them not to be that the page cannot enumerate from its own filters: a repo or
-// a source hidden in Settings, or a static contract whose feed is windowed to
-// fewer days than the range asks for. So the test is on the data rather than on
-// the list of reasons: the aggregate's own count for [from, to] has to match
-// what is visible.
+// rows are every row in the current window too, and they can fail to be that
+// with no filter set at all: a static contract whose feed is windowed to fewer
+// days than the range asks for loads only part of it. So this test is on the
+// data rather than on a list of reasons: the aggregate's own count for
+// [from, to] has to match what is visible. It also catches a hidden repository
+// that was active in the range, but commitScopeIsWhole is what rules hiding
+// out -- a repository quiet in this window and busy in the last one would pass
+// here.
 //
 // Within a tolerance, because the aggregate and the rows arrive in separate
 // payloads and a board that is syncing can have them a few commits apart. Two
