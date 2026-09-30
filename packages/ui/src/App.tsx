@@ -1077,8 +1077,11 @@ export function App() {
   // change so an older response can never replace the current focus. Static/file
   // deployments retain the existing loaded one-hop graph with an explicit cue.
   // A program tracker loads its program scope instead (model loadGraphFocus).
+  // Nothing is requested before a contract is there (`envAuthority` is null
+  // until then): that request could not know whether the focus is a loaded
+  // tracker, and the contract's arrival would abort and repeat it.
   useEffect(() => {
-    if (page !== "graph" || !route.focus || contractDisabled) {
+    if (page !== "graph" || !route.focus || contractDisabled || envAuthority === null) {
       setGraphNeighborhood(null);
       setGraphNeighborhoodStatus("idle");
       setGraphNeighborhoodMessage(null);

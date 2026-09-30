@@ -7660,10 +7660,22 @@ try {
   await clickGraphType("blocks");
   await readGraphOverview("restored");
 
+  // The focus checks below keep the loaded range on the route, because three of
+  // them reload. A cold start without a route range seeds it from the clock,
+  // then re-anchors it to the contract's `generated_at` and loads again; the
+  // sample is months old, so the two loads differ, and a Graph page that mounted
+  // on the first one drops its focus when the second changes the candidate set.
+  // With the range on the route there is one range from the first render on.
+  const graphLoadedRange = (await send("Runtime.evaluate", {
+    expression: "(/range (\\d{4}-\\d{2}-\\d{2}) to (\\d{4}-\\d{2}-\\d{2})/.exec(document.querySelector('.graph-controls > .muted')?.textContent || '') || []).slice(1)",
+    returnByValue: true,
+  })).result.value || [];
+  const programFocusHash = `#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}&from=${graphLoadedRange[0]}&to=${graphLoadedRange[1]}`;
+
   // Program view: focusing the sample tracker draws its children left to right
   // in dependency order, each with its status, with the tracker as the header.
   const graphProgramRequestsBefore = graphNeighborhoodRequestUrls.length;
-  await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}'` });
+  await send("Runtime.evaluate", { expression: `location.hash = '${programFocusHash}'` });
   await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-ready') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
   const graphProgramState = `(() => {
     const tail = (ref) => (ref || '').split('|').pop();
@@ -7704,16 +7716,17 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"]')?.click()" });
   await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && document.querySelector('.graph-focus-load-ready')?.textContent.includes('1/1 hops')");
   const graphProgramNeighborhood = await readGraphProgram();
+  const graphProgramReloadRequestsBefore = graphNeighborhoodRequestUrls.length;
   await send("Page.reload");
-  await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"].toggle-on')");
+  await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && document.querySelector('.graph-focus-load-ready') && document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"].toggle-on')");
   const graphProgramNeighborhoodReloaded = await readGraphProgram();
+  graphProgramNeighborhoodReloaded.requests = graphNeighborhoodRequestUrls.slice(graphProgramReloadRequestsBefore);
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-scope-controls [data-focus-scope=\"program\"]')?.click()" });
   await waitHtml("document.querySelector('.graph-program-head') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 3");
   const graphProgramBack = await readGraphProgram();
 
   // A new focus starts on its default view: activating a node from the
   // tracker's neighbourhood leaves `scope=neighborhood` behind with the old focus.
-  const programFocusHash = `#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}`;
   await send("Runtime.evaluate", { expression: "document.querySelector('.graph-scope-controls [data-focus-scope=\"neighborhood\"]')?.click()" });
   await waitHtml("!document.querySelector('.graph-program-head') && document.querySelector('.rf-node-focus-marker') && /scope=neighborhood/.test(location.hash)");
   const graphRefocusFrom = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
@@ -7757,9 +7770,7 @@ try {
   graphProgramUnloadedOldServer.requests = graphNeighborhoodRequestUrls.slice(graphProgramUnloadedOldServerRequestsBefore);
 
   // The same tracker against a server that knows the scope: the neighbourhood,
-  // then the program, which is what is held. (A reload may issue and abort a
-  // first neighbourhood request before the contract settles, so the checks read
-  // the last two requests.)
+  // then the program, which is what is held.
   await graphNeighborhoodControl();
   const graphProgramUnloadedRequestsBefore = graphNeighborhoodRequestUrls.length;
   await send("Page.reload");
@@ -7771,11 +7782,10 @@ try {
   ws.close();
 
   // --- assertions ---
-  // A tracker found through its neighbourhood: that request, then one for the program.
+  // A tracker found through its neighbourhood: that request, then one for the
+  // program, and nothing else.
   const twoStepProgramLoad = (requests = []) =>
-    requests.filter((url) => /[?&]scope=program(&|$)/.test(url)).length === 1 &&
-    /[?&]scope=program(&|$)/.test(requests.at(-1) || "") &&
-    /[?&]depth=1(&|$)/.test(requests.at(-2) || "") && !/scope=/.test(requests.at(-2) || "");
+    requests.length === 2 && /[?&]depth=1(&|$)/.test(requests[0]) && !/scope=/.test(requests[0]) && /[?&]scope=program(&|$)/.test(requests[1]);
   const graphTypeState = (step) => graphTypeToggleStates.find((state) => state.step === step) || {};
   const graphTypeMentionsOn = graphTypeState("mentions on");
   const graphTypeDefault = graphTypeState("default");
@@ -8566,6 +8576,14 @@ try {
         graphProgramNeighborhood.depthControls === 5 && graphProgramNeighborhood.legend?.includes("parent") && graphProgramNeighborhood.edgeLabels >= 1 &&
         JSON.stringify(graphProgramNeighborhood.scope) === JSON.stringify([["program", false], ["neighborhood", true]]),
       `graph: the view toggle switches a tracker to its route-backed neighbourhood (${JSON.stringify({ hash: graphProgramNeighborhood.hash, nodeIds: graphProgramNeighborhood.nodeIds, scope: graphProgramNeighborhood.scope })})`,
+    ],
+    [
+      graphLoadedRange.length === 2 && (graphProgram.hash || "").includes(`from=${graphLoadedRange[0]}&to=${graphLoadedRange[1]}`),
+      `graph: the focus checks keep the loaded range on the route (${JSON.stringify({ range: graphLoadedRange, hash: graphProgram.hash })})`,
+    ],
+    [
+      graphProgramNeighborhoodReloaded.requests?.length === 1 && /[?&]depth=1(&|$)/.test(graphProgramNeighborhoodReloaded.requests[0]) && !/scope=/.test(graphProgramNeighborhoodReloaded.requests[0]),
+      `graph: a reloaded focus requests its history once, after the contract is there (${JSON.stringify(graphProgramNeighborhoodReloaded.requests)})`,
     ],
     [
       graphProgramNeighborhoodReloaded.hash === graphProgramNeighborhood.hash && graphProgramNeighborhoodReloaded.target === 1 &&
