@@ -230,10 +230,10 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "closes | relates | mentions | blocks | blocked_by | parent | child (open vocabulary). `closes` is the workflow-bearing one."
+          "description": "closes | relates | mentions | blocks | blocked_by | parent | child (open vocabulary). `closes` is the workflow-bearing one. `parent` and `blocks` come from a program tracker's phase table and are emitted in that one direction only, never also as the inverse `child` / `blocked_by`."
         },
-        "from": { "$ref": "#/$defs/ref", "description": "The asserting endpoint. For `closes`, the change request." },
-        "to": { "$ref": "#/$defs/ref", "description": "The target endpoint. For `closes`, the issue." },
+        "from": { "$ref": "#/$defs/ref", "description": "The source endpoint of the relationship. For `closes`, the change request. For `parent`, the tracker issue. For `blocks`, the prerequisite issue (the tracker asserts a `blocks` edge; neither endpoint does)." },
+        "to": { "$ref": "#/$defs/ref", "description": "The target endpoint. For `closes`, the issue. For `parent`, an issue named by a tracker row. For `blocks`, the issue that waits on the prerequisite." },
         "from_state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] },
         "to_state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] },
         "lifecycle": {

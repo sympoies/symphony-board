@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GitHubSource } from "../src/sources/github.ts";
 import { GitLabSource } from "../src/sources/gitlab.ts";
-import type { GqlClient } from "../src/sources/graphql.ts";
+import { GqlResponseError, type GqlClient } from "../src/sources/graphql.ts";
 import type { RestClient } from "../src/sources/rest.ts";
 import type { SourceDescriptor, RawRecord } from "../src/sources/types.ts";
 import { PROVIDER_BODY_MAX_CHARS, PROVIDER_BODY_TRUNCATED_SUFFIX } from "../src/model/text.ts";
@@ -827,6 +827,298 @@ test("normalize emits mentions from non-closing cross-references (source -> self
   assert.equal(m.to.externalId, "I_self");
   assert.equal(m.fromState, "merged");
   assert.equal(m.toState, "open");
+});
+
+// --- program tracker phase table -> parent / blocks edges ---------------------
+
+// A tracker body in the row grammar (docs/DESIGN.md "Relationship Edges"): three
+// issue rows in two tracked repositories, a gate between two of them, three
+// rows whose targets the provider does not resolve, and one row into a
+// repository the board does not track.
+const TRACKER_BODY = [
+  "## Phase table",
+  "",
+  "- [x] **A** First: #2",
+  "- [ ] **B** Second: o/other#7 · after A",
+  "- [ ] **REL** Release containing B · after B",
+  "- [ ] **C** Third: #4 (PR #5) · after REL",
+  "- [ ] **C2** Third, step 2: #4 · after C",
+  "- [ ] **D** Deleted: #404 · after A",
+  "- [ ] **E** Not visible to this token: o/other#403 · after A",
+  "- [ ] **F** Repository gone: o/other#410 · after A",
+  "- [ ] **X** Not a tracked repository: o/elsewhere#1 · after A",
+].join("\n");
+
+const TRACKER_TARGETS: Record<string, { id: string; state: string }> = {
+  "o/r#2": { id: "I_2", state: "CLOSED" },
+  "o/other#7": { id: "I_7", state: "OPEN" },
+  "o/r#4": { id: "I_4", state: "OPEN" },
+};
+
+// What the provider WOULD answer with this token: it can also read an issue in
+// a repository the board does not track.
+const PROVIDER_TARGETS: Record<string, { id: string; state: string }> = {
+  ...TRACKER_TARGETS,
+  "o/elsewhere#1": { id: "I_elsewhere", state: "OPEN" },
+};
+
+function trackerNode(id: string, body: string, over: Record<string, unknown> = {}) {
+  return { ...issueNode(id, "2026-06-10T00:00:00Z"), body, ...over };
+}
+
+function isTrackerRefQuery(query: string): boolean {
+  return query.includes("issueOrPullRequest(");
+}
+
+// Answer the aliased tracker-ref lookup from a table keyed by `owner/repo#N`,
+// the way GitHub does: a target that does not exist, or that the token cannot
+// see, comes back as a null alias PLUS a NOT_FOUND / FORBIDDEN error — which the
+// GraphQL client throws as a GqlResponseError carrying both.
+function trackerRefLookup(query: string, known: Record<string, { id: string; state: string }>): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  const errors: Array<{ type: string; path: string[]; message: string }> = [];
+  for (const m of query.matchAll(/(t\d+): repository\(owner:"([^"]+)", name:"([^"]+)"\) \{ issueOrPullRequest\(number:(\d+)\)/g)) {
+    const [, alias, owner, name, number] = m as unknown as [string, string, string, string, string];
+    const hit = known[`${owner}/${name}#${number}`];
+    if (hit) {
+      data[alias] = { issueOrPullRequest: { __typename: "Issue", ...hit } };
+    } else if (number === "410") {
+      data[alias] = null;
+      errors.push({ type: "NOT_FOUND", path: [alias], message: `Could not resolve to a Repository with the name '${owner}/${name}'.` });
+    } else {
+      data[alias] = { issueOrPullRequest: null };
+      errors.push({
+        type: number === "403" ? "FORBIDDEN" : "NOT_FOUND",
+        path: [alias, "issueOrPullRequest"],
+        message: `Could not resolve to an issue or pull request with the number of ${number}.`,
+      });
+    }
+  }
+  if (errors.length > 0) {
+    throw new GqlResponseError(`GraphQL errors: ${errors.map((e) => e.message).join("; ")}`, 200, null, errors, data);
+  }
+  return data;
+}
+
+function trackerGql(nodes: () => unknown[], lookup: (query: string) => unknown, seen: string[] = []): GqlClient {
+  return (async (query: string) => {
+    if (isTrackerRefQuery(query)) {
+      seen.push(query);
+      return lookup(query);
+    }
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: nodes() } } };
+  }) as GqlClient;
+}
+
+function edgePairs(bundle: { edges: Array<{ type: string; from: { externalId: string }; to: { externalId: string } }> }, type: string): string[] {
+  return bundle.edges.filter((e) => e.type === type).map((e) => `${e.from.externalId}>${e.to.externalId}`);
+}
+
+test("GitHub fetch resolves a tracker's row refs onto the issue raw, in full and incremental sweeps", async () => {
+  const lookups: string[] = [];
+  const projectGql = trackerGql(
+    () => [trackerNode("I_tracker", TRACKER_BODY), issueNode("I_plain", "2026-06-09T00:00:00Z")],
+    (query) => trackerRefLookup(query, PROVIDER_TARGETS),
+    lookups,
+  );
+  const wrongClient = (): never => {
+    throw new Error("the tracker's own project client must serve its ref lookup");
+  };
+  const defaultGql: GqlClient = (async () => wrongClient()) as GqlClient;
+  // The second tracked repository is configured in another letter case than
+  // the rows spell it; it has no issues of its own in this sweep.
+  const otherGql = trackerGql(() => [], wrongClient);
+  const src = new GitHubSource(DESC, defaultGql, ["o/r", "O/Other"], null, {
+    projectClients: new Map([
+      ["o/r", { gql: projectGql, rest: null }],
+      ["O/Other", { gql: otherGql, rest: null }],
+    ]),
+  });
+
+  for (const opts of [{ since: null, full: true }, { since: "2026-03-01T00:00:00Z", full: false }]) {
+    lookups.length = 0;
+    const res = await src.fetch(opts);
+    const mode = opts.full ? "full" : "incremental";
+
+    assert.equal(res.complete, true, `${mode}: NOT_FOUND / FORBIDDEN targets are absent, not a failed sweep`);
+    assert.equal(res.error, null);
+    assert.equal(res.watermark, "2026-06-10T00:00:00Z", `${mode}: the watermark advances normally`);
+    assert.equal(lookups.length, 1, `${mode}: one aliased round trip resolves the tracker`);
+    assert.ok(hasGraphqlCostSelection(lookups[0]!), "the lookup reports its rate-limit cost like every other query");
+    assert.equal(lookups[0]!.match(/issueOrPullRequest\(/g)?.length, 6, "two rows naming one issue are looked up once");
+    assert.doesNotMatch(lookups[0]!, /elsewhere/, "a repository the board does not track is never asked about");
+
+    const tracker = res.records.find((r) => r.externalId === "I_tracker")!;
+    assert.deepEqual((tracker.payload as any).__trackerRefs, TRACKER_TARGETS, `${mode}: the resolved map is stored on the raw payload`);
+    const plain = res.records.find((r) => r.externalId === "I_plain")!;
+    assert.ok(!("__trackerRefs" in (plain.payload as any)), "an issue without a phase table is stored unchanged");
+
+    const bundle = src.normalize(tracker)!;
+    assert.deepEqual(edgePairs(bundle, "parent"), ["I_tracker>I_2", "I_tracker>I_7", "I_tracker>I_4"]);
+    assert.deepEqual(edgePairs(bundle, "blocks"), ["I_2>I_7", "I_7>I_4"], "the REL gate is contracted to its prerequisite");
+  }
+});
+
+test("GitHub tracker-ref lookups are chunked and keep each ref with its own answer", async () => {
+  const rows = Array.from({ length: 120 }, (_, i) => `- [ ] **R${i}** Row ${i}: #${i + 100}`);
+  const known: Record<string, { id: string; state: string }> = {};
+  for (let i = 0; i < 120; i++) known[`o/r#${i + 100}`] = { id: `I_${i + 100}`, state: "OPEN" };
+  const lookups: string[] = [];
+  const src = new GitHubSource(
+    DESC,
+    trackerGql(() => [trackerNode("I_tracker", ["## Phase table", ...rows].join("\n"))], (query) => trackerRefLookup(query, known), lookups),
+    ["o/r"],
+  );
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, true);
+  assert.ok(lookups.length > 1, "a large tracker is split across several small documents");
+  assert.deepEqual((res.records[0]!.payload as any).__trackerRefs, known);
+});
+
+test("GitHub resolves tracker refs only into this source's configured repositories", async () => {
+  // The sync token usually reads more than the board tracks. A row is text any
+  // writer of a tracked repository controls, so resolving whatever it names
+  // would let that writer use the board's token to probe other repositories
+  // (does #N exist, is it open) and publish the answer as an edge.
+  const body = [
+    "## Phase table",
+    "- [ ] **A** In the tracked repository: #2",
+    "- [ ] **B** Spelled out, in another letter case: O/R#4 · after A",
+    "- [ ] **C** A repository this token can read but the board does not track: o/other#7 · after B",
+    "- [ ] **D** And another: o/elsewhere#1 · after C",
+  ].join("\n");
+  const lookups: string[] = [];
+  const readable = { ...PROVIDER_TARGETS, "O/R#4": { id: "I_4", state: "OPEN" } };
+  const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", body)], (query) => trackerRefLookup(query, readable), lookups), ["o/r"]);
+
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(res.complete, true);
+  assert.equal(lookups.length, 1);
+  assert.equal(lookups[0]!.match(/issueOrPullRequest\(/g)?.length, 2, "only the two refs into the configured repository are looked up");
+  assert.doesNotMatch(lookups[0]!, /name:"(other|elsewhere)"/, "the document carries no lookup for another repository");
+  assert.deepEqual((res.records[0]!.payload as any).__trackerRefs, {
+    "o/r#2": { id: "I_2", state: "CLOSED" },
+    "O/R#4": { id: "I_4", state: "OPEN" },
+  });
+  const bundle = src.normalize(res.records[0]!)!;
+  assert.deepEqual(edgePairs(bundle, "parent"), ["I_tracker>I_2", "I_tracker>I_4"], "a row into an untracked repository yields no edge");
+  assert.deepEqual(edgePairs(bundle, "blocks"), ["I_2>I_4"]);
+
+  // A tracker whose rows ALL point elsewhere asks nothing and stores no map.
+  lookups.length = 0;
+  const elsewhere = new GitHubSource(
+    DESC,
+    trackerGql(() => [trackerNode("I_tracker", "## Phase table\n- [ ] **A** Elsewhere: o/elsewhere#1")], (query) => trackerRefLookup(query, readable), lookups),
+    ["o/r"],
+  );
+  const none = await elsewhere.fetch({ since: null, full: true });
+  assert.equal(none.complete, true);
+  assert.equal(lookups.length, 0);
+  assert.ok(!("__trackerRefs" in (none.records[0]!.payload as any)));
+});
+
+test("GitHub looks up at most the first 200 distinct refs of one tracker", async () => {
+  // One body must not buy an unbounded number of round trips from the sync
+  // token's rate budget on every sweep.
+  const rows = Array.from({ length: 3000 }, (_, i) => `- [ ] **R${i}** r: #${i + 100}`);
+  const lookups: string[] = [];
+  const answer = (query: string): Record<string, unknown> => {
+    const data: Record<string, unknown> = {};
+    for (const m of query.matchAll(/(t\d+): repository\(owner:"o", name:"r"\) \{ issueOrPullRequest\(number:(\d+)\)/g)) {
+      data[m[1]!] = { issueOrPullRequest: { __typename: "Issue", id: `I_${m[2]}`, state: "OPEN" } };
+    }
+    return data;
+  };
+  const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", ["## Phase table", ...rows].join("\n"))], answer, lookups), ["o/r"]);
+
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(lookups.length, 4, "200 refs in documents of 50");
+  assert.equal(res.complete, true, "refs beyond the bound are unresolved, not a failed sweep");
+  assert.equal(res.error, null);
+  assert.equal(res.watermark, "2026-06-10T00:00:00Z", "the watermark advances");
+  const refs = Object.keys((res.records[0]!.payload as any).__trackerRefs);
+  assert.equal(refs.length, 200);
+  assert.deepEqual([refs[0], refs.at(-1)], ["o/r#100", "o/r#299"], "the FIRST 200 refs in table order");
+  assert.equal(src.normalize(res.records[0]!)!.edges.filter((e) => e.type === "parent").length, 200, "later rows have no edge");
+});
+
+test("a tracker ref beyond GraphQL's 32-bit Int is never looked up", async () => {
+  // The grammar allows fifteen digits; a number above 2^31-1 names no issue and
+  // would fail the whole document's validation, taking its siblings with it.
+  const body = ["## Phase table", "- [ ] **A** Oversized: #2147483648", "- [ ] **B** Normal: #2 · after A"].join("\n");
+  const lookups: string[] = [];
+  const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", body)], (query) => trackerRefLookup(query, TRACKER_TARGETS), lookups), ["o/r"]);
+
+  const res = await src.fetch({ since: null, full: true });
+  assert.equal(lookups.length, 1);
+  assert.doesNotMatch(lookups[0]!, /2147483648/, "the oversized number is left out of the query");
+  assert.equal(res.complete, true);
+  assert.equal(res.watermark, "2026-06-10T00:00:00Z");
+  assert.deepEqual((res.records[0]!.payload as any).__trackerRefs, { "o/r#2": { id: "I_2", state: "CLOSED" } });
+});
+
+test("a failed GitHub tracker-ref lookup marks the sweep incomplete and keeps the issue", async () => {
+  // Edge soft-delete is per SOURCE: a full + complete sweep tombstones every
+  // intra-source edge it did not re-emit. A tracker whose refs could not be
+  // resolved re-emits none of its edges, so that sweep must not read as complete.
+  const failures: Array<[string, (query: string) => unknown]> = [
+    ["transport", () => { throw new Error("GraphQL HTTP 502: Bad Gateway"); }],
+    ["unknown GraphQL error type", () => {
+      throw new GqlResponseError("GraphQL errors: Something went wrong", 200, null, [{ type: "INTERNAL", path: ["t0"], message: "Something went wrong" }], { t0: null });
+    }],
+    ["one unknown error among expected ones", (query) => {
+      try {
+        return trackerRefLookup(query, TRACKER_TARGETS);
+      } catch (err) {
+        const partial = err as GqlResponseError;
+        throw new GqlResponseError(partial.message, 200, null, [...partial.errors, { message: "timeout" }], partial.data);
+      }
+    }],
+  ];
+  for (const [label, lookup] of failures) {
+    const src = new GitHubSource(DESC, trackerGql(() => [trackerNode("I_tracker", TRACKER_BODY), issueNode("I_plain", "2026-06-09T00:00:00Z")], lookup), ["o/r"]);
+    const res = await src.fetch({ since: null, full: true });
+
+    assert.equal(res.complete, false, `${label}: the sweep is incomplete`);
+    assert.match(res.error ?? "", /^o\/r #1 tracker refs: /, `${label}: the first error names the tracker`);
+    assert.deepEqual(res.records.map((r) => r.externalId), ["I_tracker", "I_plain"], `${label}: the issue and its siblings are still recorded`);
+    assert.equal(res.watermark, null, `${label}: the watermark is held so the next incremental retries the tracker`);
+    const tracker = res.records[0]!;
+    assert.ok(!("__trackerRefs" in (tracker.payload as any)), `${label}: no partial map is stored`);
+    const bundle = src.normalize(tracker)!;
+    assert.deepEqual(bundle.edges.filter((e) => e.type === "parent" || e.type === "blocks"), [], `${label}: no tracker edge is guessed`);
+  }
+});
+
+test("GitHub normalize emits parent and blocks edges from a tracker body and its stored refs", () => {
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const raw = (payload: unknown, entityKind = "issue"): RawRecord => ({
+    entityKind, externalId: "I_tracker", apiVersion: "github.graphql.v4", fetchedAt: "2026-06-01T00:00:00Z", contentHash: "h", payload,
+  });
+
+  const bundle = src.normalize(raw({ ...trackerNode("I_tracker", TRACKER_BODY), __trackerRefs: TRACKER_TARGETS }))!;
+  assert.deepEqual(edgePairs(bundle, "parent"), ["I_tracker>I_2", "I_tracker>I_7", "I_tracker>I_4"], "every resolvable row, once per issue");
+  assert.deepEqual(edgePairs(bundle, "blocks"), ["I_2>I_7", "I_7>I_4"], "prerequisite -> dependent, gate contracted, same-issue step dropped");
+  assert.deepEqual(edgePairs(bundle, "child"), []);
+  assert.deepEqual(edgePairs(bundle, "blocked_by"), [], "one canonical direction only");
+  const parent = bundle.edges.find((e) => e.type === "parent" && e.to.externalId === "I_2")!;
+  assert.deepEqual(parent.from, { sourceId: DESC.sourceId, externalId: "I_tracker" });
+  assert.deepEqual(parent.to, { sourceId: DESC.sourceId, externalId: "I_2" }, "endpoints use the tracker's source on both sides");
+  assert.deepEqual([parent.fromState, parent.toState], ["open", "closed"]);
+  const blocks = bundle.edges.find((e) => e.type === "blocks" && e.from.externalId === "I_2")!;
+  assert.deepEqual([blocks.fromState, blocks.toState], ["closed", "open"]);
+
+  // The `workflow::tracking` label is not what makes a tracker; the phase table is.
+  assert.deepEqual(bundle.labels, []);
+
+  const replayed = src.normalize(raw(trackerNode("I_tracker", TRACKER_BODY)))!;
+  assert.deepEqual(replayed.edges, [], "raw stored before the lookup existed replays with no tracker edges");
+
+  const pr = src.normalize(raw({ ...prNode("I_tracker", "OPEN", "MERGEABLE"), body: TRACKER_BODY, __trackerRefs: TRACKER_TARGETS }, "change_request"))!;
+  assert.deepEqual(pr.edges, [], "only an issue is a tracker");
 });
 
 // --- merge_state is open-only (merged/closed PRs must not show a merge badge) -
@@ -2070,7 +2362,7 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/10");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/11");
   assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/10");
 });
 

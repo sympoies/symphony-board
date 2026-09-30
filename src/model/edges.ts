@@ -11,6 +11,7 @@ import type {
   CanonicalEdge,
   EdgeLifecycle,
   EdgeType,
+  ItemEndpoint,
   ItemState,
 } from "./types.ts";
 import { refOfEndpoint } from "./ref.ts";
@@ -33,10 +34,23 @@ export function deriveLifecycle(
   return "declared";
 }
 
-// A reconciled edge plus bookkeeping the DB layer needs.
+// Which endpoint of an edge the reporting item is. `neither` is a third item
+// asserting a link between two others: a program tracker reports `blocks`
+// between the issues of two of its rows.
+export type EdgeReporter = "from" | "to" | "neither";
+
+export function reporterSide(edge: CanonicalEdge, reporter: ItemEndpoint): EdgeReporter {
+  const self = refOfEndpoint(reporter);
+  if (refOfEndpoint(edge.from) === self) return "from";
+  if (refOfEndpoint(edge.to) === self) return "to";
+  return "neither";
+}
+
+// A reconciled edge plus bookkeeping the DB layer needs. `discoveredFrom` is
+// which ENDPOINTS reported it: `neither` when only third items did.
 export interface ReconciledEdge extends CanonicalEdge {
   lifecycle: EdgeLifecycle | null;
-  discoveredFrom: "from" | "to" | "both";
+  discoveredFrom: EdgeReporter | "both";
 }
 
 // Collision-proof composite key as a JSON tuple (the same convention as the UI
@@ -45,15 +59,15 @@ export interface ReconciledEdge extends CanonicalEdge {
 const keyOf = (e: CanonicalEdge): string =>
   JSON.stringify([e.type, refOfEndpoint(e.from), refOfEndpoint(e.to)]);
 
-// Merge a batch of edges discovered this run (from any number of endpoints) into
-// one reconciled edge per (type, from, to). `sideOf` tells us which endpoint
-// reported a given edge, so we can record provenance and converge endpoint
-// states: a non-null state always wins over null; when both sides report a
-// state, the later one (by the endpoint's own item) is resolved by the caller —
-// here we take the first non-null and let a second non-null override only if the
-// first was null. (The DB upsert refreshes states from the item table too.)
+// Merge a batch of edges discovered this run (from any number of reporters) into
+// one reconciled edge per (type, from, to). `side` says what the reporting item
+// is to the edge — one of its endpoints, or a third item (`neither`) — so we
+// can record provenance and converge endpoint states: a non-null state always
+// wins over null; when two reports carry a state, the later one (by the
+// endpoint's own item) is resolved by the caller — here we take the first
+// non-null and let a second non-null override only if the first was null.
 export function reconcileEdges(
-  discovered: Array<{ edge: CanonicalEdge; side: "from" | "to" }>,
+  discovered: Array<{ edge: CanonicalEdge; side: EdgeReporter }>,
 ): ReconciledEdge[] {
   const byKey = new Map<string, ReconciledEdge>();
   for (const { edge, side } of discovered) {
@@ -73,7 +87,9 @@ export function reconcileEdges(
     existing.fromState = fromState;
     existing.toState = toState;
     existing.lifecycle = deriveLifecycle(existing.type, fromState, toState);
-    if (existing.discoveredFrom !== side) existing.discoveredFrom = "both";
+    // A non-endpoint report adds no side; two different endpoints make "both".
+    if (existing.discoveredFrom === "neither") existing.discoveredFrom = side;
+    else if (side !== "neither" && existing.discoveredFrom !== side) existing.discoveredFrom = "both";
   }
   return [...byKey.values()];
 }

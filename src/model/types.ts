@@ -41,7 +41,7 @@ export interface ItemEndpoint {
 
 export interface CanonicalEdge {
   type: EdgeType;
-  from: ItemEndpoint; // asserting side (for `closes`, the change request)
+  from: ItemEndpoint; // source side (for `closes`, the change request; for `blocks`, the prerequisite)
   to: ItemEndpoint; // target side (for `closes`, the issue)
   // Endpoint states the source reported at discovery; reconciliation refines
   // these and derives lifecycle. Null when the source did not report it.
@@ -145,8 +145,10 @@ export interface CanonicalReviewThread {
 }
 
 // What normalizing one raw record yields: the item, its labels, and any edges
-// it asserts (from either endpoint's point of view), plus any activity records
-// derived from that raw. Activity-only raw records set item to null.
+// it asserts (from either endpoint's point of view, or as a third item — a
+// program tracker reports `blocks` between two of its rows' issues), plus any
+// activity records derived from that raw. Activity-only raw records set item to
+// null.
 export interface NormalizedBundle {
   item: CanonicalItem | null;
   labels: CanonicalLabel[];

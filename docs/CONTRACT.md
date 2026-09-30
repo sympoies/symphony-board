@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.7.2`.
+Current emitted version: `4.7.3`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.7.3` | clarification | `parent` / `blocks` edges from program tracker phase tables | Edges |
 | `4.7.2` | clarification | `details.actor_avatar_url` on supported activity rows | Activities |
 | `4.7.1` | clarification | `details.additions` / `details.deletions` on commit activity rows | Activities |
 | `4.7.0` | additive | optional top-level `actor_directory` | Activities |
@@ -38,7 +39,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.7.2",
+  "contract_version": "4.7.3",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -365,8 +366,42 @@ normative validation surface.
 Non-`closes` edge types, such as `mentions` and `relates`, have
 `lifecycle: null`.
 
+A program tracker — an issue whose body has a `## Phase table` section with at
+least one valid row — reports the program's structure as two more types:
+
+- `parent`: `from` is the tracker issue, `to` is an issue named by a
+  phase-table row. Two rows that name the same issue give one edge.
+- `blocks`: `from` is the prerequisite issue, `to` is the issue that waits on
+  it, one edge per `· after` dependency between two rows. A row without an
+  issue ref is a gate (a release, a deploy, a decision): it is not an item, so a
+  dependency on a gate is emitted as a dependency on that gate's own
+  prerequisites, transitively.
+
+Both have `lifecycle: null`, and each relationship is emitted in that one
+direction only: the producer never also emits the inverse `child` or
+`blocked_by`. `from_state` / `to_state` are the endpoint states observed when
+the tracker was last synced; read an endpoint's current state from its
+`items[]` row. `from` is the source endpoint of the relationship, not
+necessarily the item that declared it: the tracker declares a `blocks` edge and
+is neither of its endpoints.
+
+A row produces no edge when the producer does not resolve its ref: the target
+does not exist, the sync token cannot read it, or it is in a repository the
+board does not track — only refs into the source's configured repositories are
+resolved. The producer also bounds one tracker: the first 500 rows of its phase
+table are read, its first 200 distinct refs are resolved, and it emits at most
+1,000 `blocks` edges, all in table order; anything beyond a bound is left out.
+A row removed from the tracker loses its edges at the next full sweep like any
+other relationship that disappeared.
+
 Edge type is an open string so providers can add relationship vocabulary without
 changing the major version when the shape stays the same.
+
+Version `4.7.3` is a clarification + producer-behavior patch: the GitHub
+producer now emits `parent` and `blocks` edges from program tracker phase
+tables. The shape is unchanged — edge `type` was already an open string — so v4
+consumers need no change; a consumer that draws unknown edge types generically
+starts showing them.
 
 In contract v2, `edges[]` is emitted for relationships touching the primary item
 window. The producer also includes tracked endpoint item rows for those edges so

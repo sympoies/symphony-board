@@ -103,8 +103,75 @@ Additional edge types are open vocabulary. Today the sources also populate:
 
 - `mentions`: cross-reference events/notes that do not duplicate `closes`
 - `relates`: GitLab issue links parsed from system notes
+- `parent` / `blocks`: program structure read from a tracker issue's phase
+  table (GitHub), described below
 
 Non-`closes` edges have `lifecycle: null`.
+
+### Program Tracker Edges
+
+A program tracker is an issue whose body has a `## Phase table` section with at
+least one valid row; the `workflow::tracking` label is not required. The row
+grammar is owned by `agent-runtime-kit`
+(`core/skills/issue/issue-follow-up/references/tracker-row-grammar.md`) and its
+conformance corpus is vendored unchanged under
+`test/fixtures/tracker-row-grammar/`. `src/model/tracker.ts` is a pure,
+provider-neutral, lenient consumer of that grammar: it never throws, a malformed
+row contributes nothing, and it reports no findings.
+
+The tracker is the reporter of both edge types, in one canonical direction each
+(never also `child` or `blocked_by`):
+
+- `parent`: tracker -> each row's issue, once per issue.
+- `blocks`: prerequisite row's issue -> dependent row's issue, per `· after`
+  dependency. A row without a ref is a gate and is contracted: a dependency on a
+  gate becomes a dependency on that gate's own prerequisites, transitively, with
+  a guard against gate cycles. Unknown ids, self-edges (two rows of one issue
+  included), and repeats are dropped; an id used twice means its first row.
+
+A row names its issue as text (`owner/repo#N`, or `#N` for the tracker's own
+repository), so the node id has to be looked up — and `normalize` must stay
+pure. The GitHub `fetch` therefore resolves a tracker's refs with one aliased
+GraphQL lookup per 50 refs, through the same client as the tracker's project,
+and stores the result on the issue's raw payload as `__trackerRefs` (canonical
+ref text -> node id and state); `normalize` reads only the body and that map,
+so tracker edges replay from stored raw. This is the same split as GitLab's
+note references (`__mentions` / `__relates`). Issue raw is written by one
+fetch path (full and incremental alike; the by-number and CI-refresh paths are
+pull-request only), so every stored tracker payload carries the map.
+
+A tracker body is text that anyone who can write an issue in a tracked
+repository controls, so what one body can make the sync do is bounded. Every
+bound cuts in table order and silently; a ref or dependency beyond one is
+unresolved, never a failed sweep.
+
+| Bound | Value | Why |
+| --- | --- | --- |
+| Repositories a ref may be resolved into | this source's configured projects (case-insensitive), plus the tracker's own repository | The sync token usually reads more than the board tracks. Resolving whatever a row names would let a writer probe other repositories through it and publish the answer as an edge. A row into a repository the board does not track is never looked up and yields no edge. |
+| Rows read per phase table | 500 | Gate contraction multiplies rows into edges. |
+| Refs looked up per tracker | 200 distinct, applied after the repository rule | One body must not buy unbounded round trips from the token's rate budget on every sweep. |
+| `blocks` edges per tracker | 1,000 | K rows, one gate after all of them, and D rows after the gate is K x D edges: over a million from one 64 KB body without the bound. |
+
+Gate expansion also visits each prerequisite once per dependent and resolves
+each row ref once, so dense gate structures stay linear in what they emit.
+
+- A target that does not exist, or that the token cannot read (GraphQL
+  `NOT_FOUND` / `FORBIDDEN`), is absent from the map and yields no edge. That
+  is not a failed sweep.
+- Any other failure of the lookup makes the source partial and keeps the
+  watermark unchanged, so the next incremental re-reads the tracker. Edge
+  soft-delete is per source, not per type: a tracker whose refs were not
+  resolved re-emits none of its edges, so that sweep must not count as complete.
+- A `blocks` edge is reported by an item that is neither of its endpoints.
+  Reconciliation records that provenance as `neither`, never as a side, and
+  endpoint states are still refined from the items seen in the same run. The
+  `edge.discovered_from` column therefore holds one of `from`, `to`, `both`,
+  or `neither`: which endpoints reported the edge this run, `neither` when only
+  a third item did.
+
+Endpoints use the tracker's `source_id` on both sides, so tracker edges are
+intra-source and follow the disappearance rule below: a row removed from a
+tracker loses its edges only at the next full and complete sweep.
 
 ## Activity Records
 
@@ -229,6 +296,7 @@ payload remains in the raw store.
 | state | `OPEN`, `CLOSED`, `MERGED` | `opened`, `closed`, `merged`, `locked` | `open`, `closed`, `merged` |
 | closing edge | PR and issue endpoints | issue-side `relatedMergeRequests` | `closes` |
 | cross-reference | `CrossReferencedEvent` | parsed system notes | `mentions` / `relates` |
+| program structure | tracker phase table, refs resolved at fetch | not read yet | `parent` / `blocks` |
 | labels | flat names | scoped labels are meaningful | verbatim `name` plus parsed `scope` |
 | review | `reviewDecision` | approval fields | nullable `review_state` |
 | CI | `statusCheckRollup` | `headPipeline.status` | nullable `ci_state` |
@@ -250,7 +318,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.7.2`.
+Current major: v4. Current emitted version: `4.7.3`.
 
 Version `1.1.0` added display metadata:
 

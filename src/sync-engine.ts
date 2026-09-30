@@ -4,7 +4,7 @@
 
 import type { FetchResult, RawRecord, RefreshCandidate, Source } from "./sources/types.ts";
 import type { ItemState, CanonicalEdge, NormalizedBundle } from "./model/types.ts";
-import { reconcileEdges, deriveLifecycle, type ReconciledEdge } from "./model/edges.ts";
+import { reconcileEdges, deriveLifecycle, reporterSide, type EdgeReporter, type ReconciledEdge } from "./model/edges.ts";
 import { refOf } from "./model/ref.ts";
 import type { CiRefreshCandidateRow, Store } from "./db/store.ts";
 
@@ -185,15 +185,12 @@ export async function syncSource(
       stateByRef.set(refOf(b.item.sourceId, b.item.externalId), b.item.state);
     }
 
-    // collect edges with the side that reported them (the bundle's own item)
-    const discovered: Array<{ edge: CanonicalEdge; side: "from" | "to" }> = [];
+    // collect edges with the side that reported them (the bundle's own item,
+    // which is neither endpoint of a tracker's `blocks` edge)
+    const discovered: Array<{ edge: CanonicalEdge; side: EdgeReporter }> = [];
     for (const b of bundles) {
       if (b.item === null) continue;
-      const self = refOf(b.item.sourceId, b.item.externalId);
-      for (const edge of b.edges) {
-        const side = refOf(edge.from.sourceId, edge.from.externalId) === self ? "from" : "to";
-        discovered.push({ edge, side });
-      }
+      for (const edge of b.edges) discovered.push({ edge, side: reporterSide(edge, b.item) });
     }
     edges = reconcileEdges(discovered);
     // Refine endpoint states from items we actually saw this run, then re-derive.

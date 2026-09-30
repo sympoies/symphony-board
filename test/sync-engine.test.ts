@@ -2,6 +2,10 @@ import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { openSqliteStore } from "../src/db/sqlite.ts";
 import { syncSource } from "../src/sync-engine.ts";
+import { GitHubSource } from "../src/sources/github.ts";
+import type { GqlClient } from "../src/sources/graphql.ts";
+import { buildContractEnvelope } from "../src/contract/emit.ts";
+import { validateContract } from "../src/contract/validate.ts";
 import type { Source, SourceDescriptor, FetchOptions, FetchResult, RawRecord } from "../src/sources/types.ts";
 import type { NormalizedBundle, CanonicalActivity, CanonicalItem, CanonicalEdge } from "../src/model/types.ts";
 
@@ -378,5 +382,162 @@ test("a dry-run normalize() throw reports error but writes nothing", async () =>
   assert.equal(rep.status, "error");
   assert.match(rep.error ?? "", /normalize: bad payload shape/);
   assert.equal(await db.getWatermark("fake:test"), null, "dry-run never touches sync_state");
+  await db.close();
+});
+
+// --- program tracker edges through the real GitHub source ---------------------
+//
+// A tracker issue reports `parent` (tracker -> row issue) and `blocks`
+// (prerequisite -> dependent) from its phase table. They are ordinary
+// intra-source edges, so the disappearance rule above governs them: a row
+// removed from the tracker is "an edge not re-emitted", and only a full +
+// complete sweep may read that as gone.
+
+const GH_DESC: SourceDescriptor = { sourceId: "github:github.com", kind: "github", host: "github.com", displayName: null };
+
+function ghIssue(id: string, number: number, state: "OPEN" | "CLOSED", body: string) {
+  return {
+    __typename: "Issue", id, number, title: id, body, url: `https://x/${id}`, state,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-06-10T00:00:00Z", closedAt: null, stateReason: null,
+    author: { login: "a" }, repository: { nameWithOwner: "o/r" },
+    labels: { nodes: [] }, comments: { totalCount: 0 }, reactions: { totalCount: 0 },
+    closedByPullRequestsReferences: { nodes: [] },
+  };
+}
+
+test("a row removed from a tracker tombstones its edges only on a full + complete sweep", async () => {
+  const db = await openSqliteStore(":memory:");
+  const twoRows = "## Phase table\n\n- [x] **A** First: #2\n- [ ] **B** Second: #3 · after A\n";
+  const oneRow = "## Phase table\n\n- [x] **A** First: #2\n";
+  let body = twoRows;
+  let failLookup = false;
+  const gql: GqlClient = (async (query: string) => {
+    if (query.includes("issueOrPullRequest(")) {
+      if (failLookup) throw new Error("GraphQL HTTP 502: Bad Gateway");
+      const data: Record<string, unknown> = {};
+      for (const m of query.matchAll(/(t\d+): repository\(owner:"o", name:"r"\) \{ issueOrPullRequest\(number:(\d+)\)/g)) {
+        // The lookup's own state snapshot says OPEN for both; #2 is CLOSED on
+        // the item this same sweep fetched.
+        data[m[1]!] = { issueOrPullRequest: { __typename: "Issue", id: `I_${m[2]}`, state: "OPEN" } };
+      }
+      return data;
+    }
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return {
+      repository: {
+        issues: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [ghIssue("I_tracker", 1, "OPEN", body), ghIssue("I_2", 2, "CLOSED", "first"), ghIssue("I_3", 3, "OPEN", "second")],
+        },
+      },
+    };
+  }) as GqlClient;
+  const source = new GitHubSource(GH_DESC, gql, ["o/r"]);
+  const live = async () =>
+    (await db.listLiveEdges()).map((e) => `${e.type}:${e.from_external_id}>${e.to_external_id}`).sort();
+  const ALL = ["blocks:I_2>I_3", "parent:I_tracker>I_2", "parent:I_tracker>I_3"];
+
+  const seed = await syncSource(db, source, null, { full: true, dryRun: false });
+  assert.equal(seed.status, "ok");
+  assert.equal(seed.edgesSeen, 3);
+  assert.deepEqual(await live(), ALL);
+  const blocks = (await db.listLiveEdges()).find((e) => e.type === "blocks")!;
+  assert.equal(blocks.from_source_id, "github:github.com");
+  assert.equal(blocks.to_source_id, "github:github.com", "tracker edges are intra-source, so the sweep rule covers them");
+  assert.deepEqual(
+    [blocks.from_state, blocks.to_state, blocks.lifecycle],
+    ["closed", "open", null],
+    "an edge the tracker reports between two OTHER items takes their states from the items seen this run",
+  );
+
+  // Store -> contract: they are emitted as ordinary open-vocabulary edges.
+  const env = await buildContractEnvelope(
+    db,
+    { db_path: "unused.db", sources: [{ source_id: "github:github.com", kind: "github", host: "github.com", token_env: "T", graphql_url: "http://x", projects: ["o/r"] }] },
+    "2026-06-11T00:00:00.000Z",
+    { itemWindow: "full" },
+  );
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(
+    env.edges.map((e) => [e.type, e.from, e.to, e.from_state, e.to_state, e.lifecycle]).sort(),
+    [
+      ["blocks", "github:github.com|I_2", "github:github.com|I_3", "closed", "open", null],
+      ["parent", "github:github.com|I_tracker", "github:github.com|I_2", "open", "closed", null],
+      ["parent", "github:github.com|I_tracker", "github:github.com|I_3", "open", "open", null],
+    ],
+  );
+
+  await tick(); // ensure later sweeps start strictly after the seed's last_seen_at
+  body = oneRow; // row B leaves the tracker: parent ->I_3 and blocks I_2->I_3 are no longer reported
+
+  const incr = await syncSource(db, source, "2026-03-01T00:00:00Z", { full: false, dryRun: false });
+  assert.equal(incr.status, "ok");
+  assert.equal(incr.softDeletedEdges, 0);
+  assert.deepEqual(await live(), ALL, "an incremental sweep never tombstones a removed row's edges");
+
+  failLookup = true;
+  const partial = await syncSource(db, source, null, { full: true, dryRun: false });
+  assert.equal(partial.status, "partial", "a failed ref lookup leaves the full sweep incomplete");
+  assert.equal(partial.softDeletedEdges, 0);
+  assert.deepEqual(await live(), ALL, "a tracker whose refs could not be resolved never tombstones its edges");
+  failLookup = false;
+
+  await tick();
+  const full = await syncSource(db, source, null, { full: true, dryRun: false });
+  assert.equal(full.status, "ok");
+  assert.equal(full.softDeletedEdges, 2);
+  assert.deepEqual(await live(), ["parent:I_tracker>I_2"], "a full + complete sweep tombstones the removed row's edges");
+
+  body = twoRows;
+  const back = await syncSource(db, source, null, { full: true, dryRun: false });
+  assert.equal(back.softDeletedEdges, 0);
+  assert.deepEqual(await live(), ALL, "a re-added row revives its edges");
+  await db.close();
+});
+
+test("a tracker whose rows name a repository the board does not track adds nothing to store, payload, or aggregates", async () => {
+  // Tracker refs are resolved only into the source's configured repositories,
+  // so the contract never has to account for a tracker edge between two items
+  // it cannot emit: the payload and the aggregate counts agree on "none".
+  const db = await openSqliteStore(":memory:");
+  const body = "## Phase table\n\n- [x] **A** First: o/elsewhere#2\n- [ ] **B** Second: o/elsewhere#3 · after A\n";
+  const lookups: string[] = [];
+  const gql: GqlClient = (async (query: string) => {
+    if (query.includes("issueOrPullRequest(")) {
+      // The sync token could read them; the board must not ask.
+      lookups.push(query);
+      const data: Record<string, unknown> = {};
+      for (const m of query.matchAll(/(t\d+): repository\([^)]*\) \{ issueOrPullRequest\(number:(\d+)\)/g)) {
+        data[m[1]!] = { issueOrPullRequest: { __typename: "Issue", id: `I_elsewhere_${m[2]}`, state: "OPEN" } };
+      }
+      return data;
+    }
+    if (query.includes("pullRequests(")) {
+      return { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    }
+    return { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [ghIssue("I_tracker", 1, "OPEN", body)] } } };
+  }) as GqlClient;
+
+  const rep = await syncSource(db, new GitHubSource(GH_DESC, gql, ["o/r"]), null, { full: true, dryRun: false });
+  assert.equal(rep.status, "ok");
+  assert.deepEqual(lookups, [], "no lookup leaves for a repository outside the source's projects");
+  assert.equal(rep.edgesSeen, 0);
+  assert.deepEqual(await db.listLiveEdges(), []);
+
+  const env = await buildContractEnvelope(
+    db,
+    { db_path: "unused.db", sources: [{ source_id: "github:github.com", kind: "github", host: "github.com", token_env: "T", graphql_url: "http://x", projects: ["o/r"] }] },
+    "2026-06-11T00:00:00.000Z",
+    { itemWindow: "full" },
+  );
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(env.items.map((item) => item.external_id), ["I_tracker"]);
+  assert.deepEqual(env.edges, []);
+  assert.ok((env.aggregates ?? []).length > 0);
+  for (const aggregate of env.aggregates ?? []) {
+    assert.deepEqual(aggregate.stats.by_lifecycle, {}, `${aggregate.scope} ${aggregate.window.kind} counts no edge the payload does not carry`);
+  }
   await db.close();
 });

@@ -1,7 +1,8 @@
 // GitHub source. Reads issues and pull requests from configured repos via the
 // GraphQL v4 API and normalizes them into the canonical model. The issue<->PR
 // `closes` edge is read from BOTH endpoints (issue.closedByPullRequestsReferences
-// and pr.closingIssuesReferences) so reconcileEdges converges them.
+// and pr.closingIssuesReferences) so reconcileEdges converges them. A program
+// tracker issue additionally reports `parent` / `blocks` from its phase table.
 
 import { createHash } from "node:crypto";
 import type { Source, SourceDescriptor, SourceOptions, FetchOptions, FetchResult, RawRecord, RefreshCandidate, ResolveOutcome } from "./types.ts";
@@ -20,8 +21,9 @@ import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
 import { commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
+import { parseTrackerRows, trackerEdges, trackerRefKey } from "../model/tracker.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
-import type { GqlClient } from "./graphql.ts";
+import { GqlResponseError, type GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
 import { log } from "../log.ts";
@@ -169,6 +171,93 @@ ${lookups}
 }`;
 }
 
+// A program tracker names its rows' issues as text (`owner/repo#N`), so their
+// node ids and states take one more lookup. Like the commit stats above, the
+// targets are aliased into one document (`t0`, `t1`, …) and interpolated rather
+// than passed as variables — hence the shape guard: it is the row grammar's own
+// ref alphabet, so nothing an issue body carries can alter the query. The
+// number is capped at GraphQL's 32-bit Int; a larger one names no issue and
+// would fail the whole document's validation.
+//
+// A body is text any writer of a tracked repository controls, so what one issue
+// can make the sync token do is bounded twice:
+//   - only refs into THIS SOURCE'S CONFIGURED REPOSITORIES are looked up. The
+//     token usually reads more than the board tracks; resolving whatever a row
+//     names would let that writer probe other repositories through it (does #N
+//     exist, is it open) and publish the answer as an edge.
+//   - at most TRACKER_REF_MAX distinct refs per issue, the first in table order,
+//     so one body cannot buy an unbounded number of round trips on every sweep.
+// A ref outside either bound is simply unresolved: no lookup, no edge.
+const TRACKER_REF_MAX = 200;
+const TRACKER_REF_BATCH = 50;
+const TRACKER_REF_KEY = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)#([1-9][0-9]*)$/;
+const GRAPHQL_INT_MAX = 2_147_483_647;
+
+interface TrackerRefTarget {
+  key: string; // canonical ref text, `owner/repo#N`
+  owner: string;
+  name: string;
+  number: number;
+}
+
+// What `fetch` stores on a tracker issue's raw payload as `__trackerRefs`:
+// canonical ref text -> the target's node id and provider state.
+type TrackerRefs = Record<string, { id: string; state: string | null }>;
+
+function trackerRefsQuery(targets: readonly TrackerRefTarget[]): string {
+  const lookups = targets
+    .map(
+      (t, i) =>
+        `  t${i}: repository(owner:"${t.owner}", name:"${t.name}") { issueOrPullRequest(number:${t.number}) { __typename ... on Issue { id state } ... on PullRequest { id state } } }`,
+    )
+    .join("\n");
+  return `query TrackerRefs {
+  rateLimit { cost remaining used resetAt }
+${lookups}
+}`;
+}
+
+// The distinct row refs of an issue body that may be looked up, in table order:
+// those into a configured repository (`tracked` holds the lower-cased project
+// paths; GitHub names are case-insensitive), up to TRACKER_REF_MAX. Empty for an
+// issue that is not a tracker. `#N` resolves against the issue's own
+// repository, which is tracked by definition — it is the one being swept — even
+// when the provider reports it under another spelling than the config.
+function trackerRefTargets(node: any, tracked: ReadonlySet<string>): TrackerRefTarget[] {
+  const ownProject = cleanText(node?.repository?.nameWithOwner);
+  const own = ownProject?.toLowerCase();
+  const targets = new Map<string, TrackerRefTarget>();
+  for (const row of parseTrackerRows(node?.body)) {
+    if (targets.size >= TRACKER_REF_MAX) break;
+    const key = row.ref ? trackerRefKey(row.ref, ownProject) : null;
+    const m = key ? TRACKER_REF_KEY.exec(key) : null;
+    if (!key || !m || Number(m[3]) > GRAPHQL_INT_MAX) continue;
+    const repo = `${m[1]}/${m[2]}`.toLowerCase();
+    if (repo !== own && !tracked.has(repo)) continue;
+    targets.set(key, { key, owner: m[1]!, name: m[2]!, number: Number(m[3]) });
+  }
+  return [...targets.values()];
+}
+
+// GitHub answers a lookup of a target that does not exist (NOT_FOUND), or that
+// the token may not read (FORBIDDEN), with a null field plus an error entry —
+// and the client fails any response that carries error entries. When EVERY
+// entry is one of those two, the partial data IS the answer: those targets are
+// simply unresolved. Anything else (transport, rate limit, an error type we do
+// not know) stays a failure.
+const UNRESOLVABLE_TARGET = new Set(["NOT_FOUND", "FORBIDDEN"]);
+
+async function gqlAllowingUnresolvable(gql: GqlClient, query: string): Promise<any> {
+  try {
+    return await gql(query);
+  } catch (err) {
+    if (err instanceof GqlResponseError && err.errors.length > 0 && err.errors.every((e) => UNRESOLVABLE_TARGET.has(String(e?.type)))) {
+      return err.data;
+    }
+    throw err;
+  }
+}
+
 const hash = (s: string): string => createHash("sha256").update(s).digest("hex");
 
 export class GitHubSource implements Source {
@@ -180,9 +269,12 @@ export class GitHubSource implements Source {
   // github/8: legacy PR raw without totalCommentsCount replays comment_total as unknown.
   // github/9: commit activity details carry additions/deletions (never for merges).
   // github/10: provider actor photos are retained in activity details.
-  readonly normalizerVersion = "github/10";
+  // github/11: tracker issues emit parent/blocks edges from their phase table.
+  readonly normalizerVersion = "github/11";
   private gql: GqlClient;
   private projects: string[];
+  // Lower-cased `projects`: the repositories a tracker row may be resolved into.
+  private trackedProjects: ReadonlySet<string>;
   private rest: RestClient | null;
   private commitBranches: "all" | "default";
   private projectClients: ReadonlyMap<string, { gql: GqlClient; rest: RestClient | null }>;
@@ -192,6 +284,7 @@ export class GitHubSource implements Source {
     this.descriptor = descriptor;
     this.gql = gql;
     this.projects = projects;
+    this.trackedProjects = new Set(projects.map((project) => project.toLowerCase()));
     this.rest = rest;
     this.commitBranches = opts.commitBranches ?? "all";
     this.projectClients = opts.projectClients ?? new Map();
@@ -210,6 +303,7 @@ export class GitHubSource implements Source {
     let complete = this.partialReason === null;
     let firstError: string | null = this.partialReason;
     let incrementalPrIncomplete = false;
+    let trackerRefsIncomplete = false;
     if (this.partialReason) {
       log.warn(`[${this.descriptor.sourceId}] ${this.partialReason}; marking sweep partial so unseen projects are not tombstoned`);
     }
@@ -246,6 +340,15 @@ export class GitHubSource implements Source {
               }
               if (!latest || node.updatedAt > latest) latest = node.updatedAt;
               if (kind === "change_request") await this.completeReviewThreads(gql, owner, name, node);
+              // This loop is the only path that writes an issue's raw (full and
+              // incremental alike; the by-number detail and CI refresh paths are
+              // PR-only), so resolving here covers every tracker payload stored.
+              const refsError = kind === "issue" ? await this.resolveTrackerRefs(gql, project, node) : null;
+              if (refsError) {
+                trackerRefsIncomplete = true;
+                complete = false;
+                firstError ??= refsError;
+              }
               const payload = JSON.stringify(node);
               records.push({
                 entityKind: kind,
@@ -295,9 +398,44 @@ export class GitHubSource implements Source {
     // watermark and the next incremental re-reads from where it was. Other
     // partial runs normally advance when no configured project was omitted.
     // Incremental PR discovery is the exception: a failed older candidate can
-    // sit behind a successful newer one, so advancing would skip its retry.
-    const watermark = this.partialReason || incrementalPrIncomplete ? null : latest;
+    // sit behind a successful newer one, so advancing would skip its retry. A
+    // tracker whose refs could not be resolved is the same case: its record was
+    // stored without them, and only re-reading it retries the lookup.
+    const watermark = this.partialReason || incrementalPrIncomplete || trackerRefsIncomplete ? null : latest;
     return { records, watermark, complete, error: firstError };
+  }
+
+  // Resolve a tracker issue's row refs to node ids + states and store them on
+  // the raw payload as `__trackerRefs` — the only thing besides the body that
+  // `normalize` reads for tracker edges, so it stays pure and replays from
+  // stored raw. An issue without row refs into a configured repository is left
+  // untouched. A target that does not exist or that this token cannot see, and a
+  // ref beyond the per-issue bound, is absent from the map.
+  //
+  // Returns the error when the lookup itself failed (the payload then carries
+  // no map). The caller must mark the sweep incomplete: such a tracker re-emits
+  // none of its edges, and a full + complete sweep tombstones every intra-source
+  // edge it did not see.
+  private async resolveTrackerRefs(gql: GqlClient, project: string, node: any): Promise<string | null> {
+    const targets = trackerRefTargets(node, this.trackedProjects);
+    if (targets.length === 0) return null;
+    const resolved: TrackerRefs = {};
+    try {
+      for (let i = 0; i < targets.length; i += TRACKER_REF_BATCH) {
+        const batch = targets.slice(i, i + TRACKER_REF_BATCH);
+        const data = await gqlAllowingUnresolvable(gql, trackerRefsQuery(batch));
+        for (let j = 0; j < batch.length; j++) {
+          const hit = data?.[`t${j}`]?.issueOrPullRequest;
+          if (typeof hit?.id !== "string" || !hit.id) continue;
+          resolved[batch[j]!.key] = { id: hit.id, state: typeof hit.state === "string" ? hit.state : null };
+        }
+      }
+    } catch (err) {
+      log.warn(`[${this.descriptor.sourceId}] project ${project}: issue #${node?.number} tracker refs failed: ${(err as Error).message}`);
+      return `${project} #${node?.number} tracker refs: ${(err as Error).message}`;
+    }
+    node.__trackerRefs = resolved;
+    return null;
   }
 
   private async fetchIncrementalPullRequests(
@@ -486,6 +624,7 @@ export class GitHubSource implements Source {
         });
       }
       edges.push(...this.mentionEdges(p, self, selfState));
+      edges.push(...this.trackerEdges(p, self, selfState));
       const item: CanonicalItem = {
         ...this.commonItem(p, "issue"),
         stateReason: p.stateReason ? String(p.stateReason).toLowerCase() : null,
@@ -985,6 +1124,23 @@ export class GitHubSource implements Source {
       });
     }
     return out;
+  }
+
+  // Program tracker phase table → `parent` (tracker -> row issue) and `blocks`
+  // (prerequisite -> dependent) edges. Pure: the rows come from the body and
+  // their targets from the `__trackerRefs` map `fetch` stored beside it; a
+  // payload without the map (stored before the lookup existed, or whose lookup
+  // failed) yields none.
+  private trackerEdges(p: any, self: { sourceId: string; externalId: string }, selfState: ItemState): CanonicalEdge[] {
+    const refs = p.__trackerRefs as TrackerRefs | undefined;
+    if (!refs || typeof refs !== "object") return [];
+    const ownProject = cleanText(p.repository?.nameWithOwner);
+    return trackerEdges(parseTrackerRows(p.body), self, selfState, (ref) => {
+      const key = trackerRefKey(ref, ownProject);
+      const hit = key ? refs[key] : undefined;
+      if (typeof hit?.id !== "string" || !hit.id) return null;
+      return { externalId: hit.id, state: typeof hit.state === "string" ? mapState(hit.state) : null };
+    });
   }
 
   private commonItem(p: any, kind: "issue" | "change_request"): Omit<CanonicalItem, "stateReason" | "isDraft" | "mergedAt" | "reviewState" | "ciState" | "mergeState" | "openReviewThreads" | "totalReviewThreads"> {
