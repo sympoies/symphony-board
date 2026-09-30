@@ -163,6 +163,9 @@ let graphNeighborhoodForcedLimitReason = null;
 // A server that predates `scope=program`: it ignores the parameter and answers
 // the ordinary neighbourhood.
 let graphNeighborhoodIgnoreScope = false;
+// Answer from tracked items only: the sample tracker then has no untracked
+// child, which no visibility choice could hide.
+let graphNeighborhoodTrackedOnly = false;
 const MENTION_ONLY_FOCUS_REF = "github:github.com|ISSUE_e";
 const PROGRAM_TRACKER_REF = "github:github.com|ISSUE_c";
 let activityDailyRequestCount = 0;
@@ -748,14 +751,15 @@ function graphNeighborhoodProjection(rawBody, reqUrl) {
   // `blocks` edge into a child, and every `closes` edge into a child. Its
   // ordinary scope returns every direct edge, which is what tells the UI that
   // the focus is a tracker at all.
-  const parentEdges = env.edges.filter((edge) => edge.type === "parent" && edge.from === focusRef && edge.to !== focusRef);
+  const envEdges = graphNeighborhoodTrackedOnly ? env.edges.filter((edge) => byId.has(edge.from) && byId.has(edge.to)) : env.edges;
+  const parentEdges = envEdges.filter((edge) => edge.type === "parent" && edge.from === focusRef && edge.to !== focusRef);
   const programScope = !graphNeighborhoodIgnoreScope && url.searchParams.get("scope") === "program";
   if (programScope || parentEdges.length > 0) {
     const program = programScope;
     const children = new Set(parentEdges.map((edge) => edge.to));
     const edges = program
-      ? [...parentEdges, ...env.edges.filter((edge) => (edge.type === "blocks" || edge.type === "closes") && children.has(edge.to))]
-      : env.edges.filter((edge) => edge.from === focusRef || edge.to === focusRef);
+      ? [...parentEdges, ...envEdges.filter((edge) => (edge.type === "blocks" || edge.type === "closes") && children.has(edge.to))]
+      : envEdges.filter((edge) => edge.from === focusRef || edge.to === focusRef);
     const hopOf = (ref) => (ref === focusRef ? 0 : !program || children.has(ref) ? 1 : 2);
     const nodes = [...new Set([focusRef, ...edges.flatMap((edge) => [edge.from, edge.to])])]
       .map((ref) => ({ ref, hop: hopOf(ref), item: byId.get(ref) ?? null }))
@@ -965,12 +969,14 @@ async function handleSmokeRequest(req, res) {
       graphNeighborhoodDelayMs = nextDelayMs;
       graphNeighborhoodForcedLimitReason = ["depth", "nodes", "edges"].includes(url.searchParams.get("limit")) ? url.searchParams.get("limit") : null;
       graphNeighborhoodIgnoreScope = url.searchParams.get("oldServer") === "1";
+      graphNeighborhoodTrackedOnly = url.searchParams.get("trackedOnly") === "1";
       res.writeHead(200, JSON_HEADERS).end(JSON.stringify({
         graphNeighborhoodFailOnce,
         graphNeighborhoodDelayDepth,
         graphNeighborhoodDelayMs,
         graphNeighborhoodForcedLimitReason,
         graphNeighborhoodIgnoreScope,
+        graphNeighborhoodTrackedOnly,
       }));
       return;
     }
@@ -1717,6 +1723,23 @@ try {
     returnByValue: true,
   })).result.value || {};
   fileGraphProgram.requestDelta = graphNeighborhoodRequestCount - fileGraphRequestBefore;
+  // Item facets do not apply to a program read from the loaded edges either.
+  // `closed` matches one child only; the facet goes on before the focus, so the
+  // change of the side-list candidates does not clear it. (The header is the
+  // check: how many columns the fitted canvas leaves in the viewport varies.)
+  await send("Runtime.evaluate", { expression: "location.hash = '#/graph?istate=closed'" });
+  await waitHtml("document.querySelector('.graph-list-kinds') && !document.querySelector('.graph-list-back')");
+  await send("Runtime.evaluate", { expression: `location.hash = '#/graph?focus=${encodeURIComponent(PROGRAM_TRACKER_REF)}&istate=closed'` });
+  await waitHtml("document.querySelector('.graph-program-head')?.textContent.includes('item filters do not apply') && document.querySelector('.graph-focus-load-fallback') && document.querySelector('.react-flow__node [data-program-status]')");
+  const fileGraphProgramFaceted = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      hash: location.hash,
+      head: document.querySelector('.graph-program-head')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      load: document.querySelector('.graph-focus-load-fallback')?.textContent || '',
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  fileGraphProgramFaceted.requestDelta = graphNeighborhoodRequestCount - fileGraphRequestBefore;
   await send("Emulation.clearDeviceMetricsOverride");
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
@@ -7777,6 +7800,25 @@ try {
   await waitHtml("document.querySelector('.graph-program-head') && document.querySelector('.graph-focus-load-ready') && document.querySelectorAll('.react-flow__node [data-program-status]').length === 1");
   const graphProgramUnloaded = await readGraphProgram();
   graphProgramUnloaded.requests = graphNeighborhoodRequestUrls.slice(graphProgramUnloadedRequestsBefore);
+
+  // A tracker whose children are all hidden has no program for this viewer.
+  // Without the untracked child (which nothing can hide) every child is in the
+  // hidden repo: the neighbourhood answer shows no visible child, so no program
+  // is requested and the focus opens as an ordinary neighbourhood whose depth
+  // buttons work. (Nothing visible relates to it, so the canvas has no link to
+  // draw; the side list holds the focused item.)
+  await graphNeighborhoodControl("trackedOnly=1");
+  const graphHiddenChildrenRequestsBefore = graphNeighborhoodRequestUrls.length;
+  await send("Page.reload");
+  await waitHtml("document.querySelector('.graph-list-card.active') && document.querySelector('.graph-focus-load-ready')?.textContent.includes('/1 hops')");
+  const graphHiddenChildren = await readGraphProgram();
+  graphHiddenChildren.requests = graphNeighborhoodRequestUrls.slice(graphHiddenChildrenRequestsBefore);
+  graphHiddenChildren.focusedCard = (await send("Runtime.evaluate", { expression: "document.querySelector('.graph-list-card.active .card-title')?.textContent?.trim() || ''", returnByValue: true })).result.value || "";
+  await clickGraphDepth(2);
+  await waitHtml("document.querySelector('.graph-list-card.active') && document.querySelector('.graph-focus-load-ready')?.textContent.includes('/2 hops')");
+  const graphHiddenChildrenDeeper = await readGraphProgram();
+  graphHiddenChildrenDeeper.requests = graphNeighborhoodRequestUrls.slice(graphHiddenChildrenRequestsBefore + graphHiddenChildren.requests.length);
+  await graphNeighborhoodControl();
   await send("Runtime.evaluate", { expression: "localStorage.removeItem('symphony-board:hidden-repos')" });
 
   ws.close();
@@ -8620,10 +8662,27 @@ try {
       `graph: a tracker outside the loaded window loads its program after its neighbourhood shows its children (${JSON.stringify({ requests: graphProgramUnloaded.requests, load: graphProgramUnloaded.load, head: graphProgramUnloaded.head })})`,
     ],
     [
+      graphHiddenChildren.requests?.length === 1 && /[?&]depth=1(&|$)/.test(graphHiddenChildren.requests[0]) && !/scope=/.test(graphHiddenChildren.requests[0]) &&
+        graphHiddenChildren.head === "" && graphHiddenChildren.depthControls === 5 && graphHiddenChildren.scope?.length === 0 &&
+        graphHiddenChildren.focusedCard === "Add incremental sync cadence" && /^1\/1 hops · 1 nodes · 0 links/.test(graphHiddenChildren.load || ""),
+      `graph: a tracker whose children are all hidden opens as an ordinary neighbourhood, with one request (${JSON.stringify({ requests: graphHiddenChildren.requests, head: graphHiddenChildren.head, focusedCard: graphHiddenChildren.focusedCard, depthControls: graphHiddenChildren.depthControls, scope: graphHiddenChildren.scope, load: graphHiddenChildren.load })})`,
+    ],
+    [
+      graphHiddenChildrenDeeper.requests?.length === 1 && /[?&]depth=2(&|$)/.test(graphHiddenChildrenDeeper.requests[0]) && !/scope=/.test(graphHiddenChildrenDeeper.requests[0]) &&
+        /[?&]depth=2(&|$)/.test(graphHiddenChildrenDeeper.hash || "") && graphHiddenChildrenDeeper.head === "" && /\/2 hops · /.test(graphHiddenChildrenDeeper.load || ""),
+      `graph: its depth buttons load the neighbourhood at the chosen depth (${JSON.stringify({ requests: graphHiddenChildrenDeeper.requests, hash: graphHiddenChildrenDeeper.hash, load: graphHiddenChildrenDeeper.load })})`,
+    ],
+    [
       fileGraphProgram.requestDelta === 0 && fileGraphProgram.head?.includes("1/3 done") && fileGraphProgram.attached === 2 &&
         JSON.stringify(fileGraphProgram.children) === JSON.stringify(["ISSUE_a:done", "ISSUE_e:ready", "ISSUE_UNTRACKED_99:blocked"]) &&
         fileGraphProgram.load?.includes("showing the program from loaded items"),
       `graph: without a server the program view is drawn from the loaded edges (${JSON.stringify(fileGraphProgram)})`,
+    ],
+    [
+      /[?&]istate=closed(&|$)/.test(fileGraphProgramFaceted.hash || "") && fileGraphProgramFaceted.requestDelta === 0 && fileGraphProgramFaceted.head?.includes("1/3 done") &&
+        fileGraphProgramFaceted.head?.includes("1 → ready") && fileGraphProgramFaceted.head?.includes("1 × blocked") && fileGraphProgramFaceted.head?.includes("item filters do not apply to a program") &&
+        fileGraphProgramFaceted.load?.includes("showing the program from loaded items") && !fileGraphProgram.head?.includes("item filters do not apply"),
+      `graph: an item facet does not change a program read from the loaded edges (${JSON.stringify(fileGraphProgramFaceted)})`,
     ],
     // graph side list: enriched cards + click-to-focus related view
     [graphCards >= 2, `graph: side-list cards rendered (${graphCards} >= 2)`],

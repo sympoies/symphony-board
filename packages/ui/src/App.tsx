@@ -34,6 +34,7 @@ import {
   itemMatches,
   focusNeighborhoodNodes,
   graphFocusIsTracker,
+  graphResponseIsTracker,
   loadGraphFocus,
   visibleGraphNeighborhood,
   reviewActivityIsUnresolved,
@@ -1106,7 +1107,7 @@ export function App() {
       {
         scope: graphFocusScope,
         loadedTracker: focusIsLoadedTracker,
-        isTracker: (response) => graphFocusIsTracker(visibleGraphNeighborhood(response, hidden, hiddenSources).edges.map((re) => re.edge), focus),
+        isTracker: (response) => graphResponseIsTracker(response, hidden, hiddenSources),
       },
       (scope) =>
         scope === "program"

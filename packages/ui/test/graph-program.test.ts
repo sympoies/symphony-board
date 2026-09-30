@@ -9,6 +9,7 @@ import {
   graphEdgeTypes,
   graphFocusIsTracker,
   graphNodeRelatedTitle,
+  graphResponseIsTracker,
   graphOverviewVisibility,
   graphProgramView,
   loadGraphFocus,
@@ -452,9 +453,10 @@ test("a tracker whose children are all hidden loads and draws as an ordinary nei
   assert.deepEqual(visible.nodes.map((node) => short(node.ref)), ["T", "PR"], "a hidden item leaves; the focus stays");
   assert.deepEqual(edgeText(visible.edges), ["closes PR>T"], "and takes its edges with it");
   assert.equal(visible.edges[0]!.from?.id, ref("PR"));
-  const visibleTracker = (response: GraphNeighborhoodResponse): boolean =>
-    graphFocusIsTracker(visibleGraphNeighborhood(response, hiddenRepos, hiddenSources).edges.map((re) => re.edge), response.focus_ref);
+  // The predicate the app hands to loadGraphFocus.
+  const visibleTracker = (response: GraphNeighborhoodResponse): boolean => graphResponseIsTracker(response, hiddenRepos, hiddenSources);
   assert.equal(visibleTracker(answer), false);
+  assert.equal(graphResponseIsTracker(answer, new Set()), true, "with nothing hidden the same response is a tracker's");
   assert.equal(programRollups(new Map(), visible.edges.map((re) => re.edge)).has(focus), false, "the Graph page would draw no program from these edges");
 
   const { requests, fetchScope } = focusFetcher({ neighborhood: answer, program: neighborhood("T", 2, items, parents) });
@@ -464,7 +466,7 @@ test("a tracker whose children are all hidden loads and draws as an ordinary nei
 
   // One visible child is enough: both sides then agree it is a program.
   const onlyRepoHidden = visibleGraphNeighborhood(answer, hiddenRepos);
-  assert.equal(graphFocusIsTracker(onlyRepoHidden.edges.map((re) => re.edge), focus), true);
+  assert.equal(graphResponseIsTracker(answer, hiddenRepos), true);
   assert.equal(programRollups(new Map(), onlyRepoHidden.edges.map((re) => re.edge)).get(focus)?.total, 1);
   assert.equal(graphFocusIsTracker(applyVisibility(env, hiddenRepos).edges, focus), true);
 });

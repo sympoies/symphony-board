@@ -2321,12 +2321,24 @@ export function visibleGraphNeighborhood(
   return { nodes, edges };
 }
 
+// graphFocusIsTracker for a server response: its focus, over the edges the
+// viewer can see. A tracker whose children are all in hidden repos or sources
+// is not one here, whatever the response holds.
+export function graphResponseIsTracker(
+  response: GraphNeighborhoodResponse,
+  hiddenRepos: ReadonlySet<string>,
+  hiddenSources: ReadonlySet<string> = new Set(),
+): boolean {
+  const visible = visibleGraphNeighborhood(response, hiddenRepos, hiddenSources);
+  return graphFocusIsTracker(visible.edges.map((re) => re.edge), response.focus_ref);
+}
+
 export interface GraphFocusRequest {
   // The view the route asks for; only a tracker has a program to show.
   scope: GraphFocusScope;
   // The loaded window already shows the focus as a tracker.
   loadedTracker: boolean;
-  // graphFocusIsTracker over the edges of a response the viewer can see.
+  // graphResponseIsTracker under the viewer's visibility choices.
   isTracker: (response: GraphNeighborhoodResponse) => boolean;
 }
 
