@@ -678,6 +678,9 @@ export function filterActivitiesByRange(activities: ActivityDTO[], range: TimeRa
 
 const DAY_MS = 86_400_000;
 export const HEATMAP_WEEKS = 53;
+// Columns a month label needs before the next one may start: three-letter text
+// at the calendar's 10px type is about 19px, and a column is 11px.
+const HEATMAP_MONTH_LABEL_MIN_COLS = 3;
 const HEATMAP_MONTH_LABELS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -841,6 +844,16 @@ function assembleHeatmap(
       column.push(cell);
     }
     weeks.push(column);
+  }
+
+  // A label gives way when the NEXT month opens within three columns of it.
+  // Months are at least four columns wide, so this only ever fires on the first
+  // one: a window that opens on the last week of a month labelled both that
+  // month and the next, one column (11px) apart, and they rendered as "SeOct".
+  // The partial month is the one dropped -- the full month beside it is what a
+  // reader navigates by.
+  for (let i = monthLabels.length - 2; i >= 0; i -= 1) {
+    if (monthLabels[i + 1]!.col - monthLabels[i]!.col < HEATMAP_MONTH_LABEL_MIN_COLS) monthLabels.splice(i, 1);
   }
 
   const byKind = [...kindCounts.entries()]

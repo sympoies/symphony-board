@@ -3559,3 +3559,28 @@ test("isSourceTokenSet is true when the primary OR any fallback env secret is se
   // No fallback configured: only the primary counts.
   assert.equal(isSourceTokenSet({ token_env: "GH_TOKEN" }, { GH_BACKUP: true }), false);
 });
+
+test("heatmap month labels never sit closer than three columns", () => {
+  // Anchored on a Wednesday whose window opens on the LAST Sunday of a month:
+  // column 0 is 2025-09-28 and column 1 is already October. Labelling both put
+  // "Sep" and "Oct" 11px apart, which rendered as "SeOct". The partial month
+  // gives way, because it is the full one a reader navigates by.
+  const daily: ActivityDailyDTO = {
+    timezone: "UTC",
+    from: "2025-09-01",
+    to: "2026-09-30",
+    total: 1,
+    by_kind: { commit: 1 },
+    days: [{ date: "2026-09-30", count: 1, by_kind: { commit: 1 } }],
+  };
+
+  const hm = buildActivityHeatmapFromDaily(daily);
+  assert.equal(hm.from, "2025-09-28", "the window opens on the last Sunday of September");
+  assert.deepEqual(hm.monthLabels[0], { col: 1, label: "Oct" }, "the one-column September gives way to October");
+  const cols = hm.monthLabels.map((m) => m.col);
+  for (let i = 1; i < cols.length; i += 1) {
+    assert.ok(cols[i]! - cols[i - 1]! >= 3, `labels at columns ${cols[i - 1]} and ${cols[i]} would overlap`);
+  }
+  assert.equal(hm.monthLabels.at(-1)?.label, "Sep", "the current month keeps its label");
+  assert.equal(hm.monthLabels.length, 12, "every full month is still named");
+});

@@ -4,7 +4,7 @@ import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo } from "react";
 import { RankChart } from "./RankChart.tsx";
 import { EMPTY_ACTOR_INDEX, rankActors, rankBranches, rankCommitTypes, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
-import type { CommitRepoOption } from "../model.ts";
+import { pluralize, type CommitRepoOption } from "../model.ts";
 import type { CommitFileStatsState } from "../useCommitFileStats.ts";
 import { CommitFileList } from "./CommitFileList.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
@@ -171,10 +171,10 @@ export function CommitsRail({
       <div className="rail-block">
         <div className="rail-block-head">
           <span className="rail-block-title">Commit types</span>
-          <span className="rail-block-meta">{typeTotal} kinds</span>
+          <span className="rail-block-meta">{typeTotal} {pluralize(typeTotal, "kind")}</span>
         </div>
         <RankChart
-          className="rail-rank-chart"
+          className="live-rank-chart-labels rail-rank-chart"
           ariaLabel="Conventional-commit types in the selected range"
           empty="no commits in range"
           countLabel={commitCountLabel}
@@ -199,7 +199,7 @@ export function CommitsRail({
           <span className="rail-block-meta">{branchTotal} total</span>
         </div>
         <RankChart
-          className="rail-rank-chart"
+          className="live-rank-chart-labels rail-rank-chart"
           ariaLabel="Branches with the most commits in the selected range"
           empty="no branch refs in range"
           countLabel={commitCountLabel}

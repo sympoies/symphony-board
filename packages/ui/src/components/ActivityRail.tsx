@@ -6,6 +6,7 @@ import { RankChart } from "./RankChart.tsx";
 import { HourProfile } from "./HourProfile.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
 import { EMPTY_ACTOR_INDEX, rankActions, rankActors, rankKinds, rankRepos, shortRepoLabel, type ActorIndex } from "../rail-stats.ts";
+import { pluralize } from "../model.ts";
 
 // The Activity "who / where / when / what / how" rail.
 //
@@ -123,10 +124,10 @@ export function ActivityRail({
       <div className="rail-block">
         <div className="rail-block-head">
           <span className="rail-block-title">What</span>
-          <span className="rail-block-meta">{kindTotal} kinds</span>
+          <span className="rail-block-meta">{kindTotal} {pluralize(kindTotal, "kind")}</span>
         </div>
         <RankChart
-          className="rail-rank-chart"
+          className="live-rank-chart-labels rail-rank-chart"
           ariaLabel="Activity kinds in the selected range"
           empty="no activity in range"
           countLabel={eventCountLabel}
@@ -146,10 +147,10 @@ export function ActivityRail({
       <div className="rail-block">
         <div className="rail-block-head">
           <span className="rail-block-title">How</span>
-          <span className="rail-block-meta">{actionTotal} actions</span>
+          <span className="rail-block-meta">{actionTotal} {pluralize(actionTotal, "action")}</span>
         </div>
         <RankChart
-          className="rail-rank-chart"
+          className="live-rank-chart-labels rail-rank-chart"
           ariaLabel="Activity actions in the selected range"
           empty="no activity in range"
           countLabel={eventCountLabel}

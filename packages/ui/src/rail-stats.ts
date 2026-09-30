@@ -201,6 +201,28 @@ export function countsByDay(
   return days.map((date) => ({ date, count: counts.get(date) ?? 0 }));
 }
 
+// Which bars of the per-day strip carry a date under them.
+//
+// A week gets one label per bar. Past that the labels are wider than the bars
+// they name and would run into each other, so only the ends and the middle
+// stay -- enough to read the span and its direction, with the rest on hover.
+// `index` is the bar's position, so the caller can put the label under the
+// right one without re-deriving it from the date.
+export type DayAxisTick = {
+  index: number;
+  // `MM-DD`. The year is the range's, which the overview head already states.
+  label: string;
+};
+
+const DAY_AXIS_EVERY_MAX = 10;
+
+export function dayAxisTicks(days: readonly DayBucket[]): DayAxisTick[] {
+  const tick = (index: number): DayAxisTick => ({ index, label: days[index]!.date.slice(5) });
+  if (days.length <= DAY_AXIS_EVERY_MAX) return days.map((_, index) => tick(index));
+  const last = days.length - 1;
+  return [tick(0), tick(Math.floor(last / 2)), tick(last)];
+}
+
 // Walk the span in UTC whole days. The endpoints are already zoned date strings,
 // so this is pure calendar arithmetic on them and never re-crosses a zone — which
 // is what keeps a DST day from being skipped or doubled.

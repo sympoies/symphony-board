@@ -1615,9 +1615,19 @@ a.rf-node-title:hover { color: var(--accent); }
     height: 26px;
   }
   /* The label is the footer slot, which the column layout puts UNDER the bar.
-     A row wants it first. */
+     A row wants it first.
+
+     The repos chart is named twice on purpose. `.live-rank-chart-repos` gives
+     its vertical-bar form a 34px two-line footer and a 14px bar, in rules that
+     sit LATER in this file at the same specificity as the plain rail selectors
+     here -- so they won, and every repo row drew a 14px stub whatever its count,
+     under a name a line above it. The longer selector is what outranks them. */
   .commits-rail .live-rank-footer,
-  .activity-rail .live-rank-footer {
+  .activity-rail .live-rank-footer,
+  .commits-rail .live-rank-chart-repos .live-rank-footer,
+  .activity-rail .live-rank-chart-repos .live-rank-footer,
+  .commits-rail .live-rank-chart-labels .live-rank-footer,
+  .activity-rail .live-rank-chart-labels .live-rank-footer {
     order: -1;
     width: auto;
     height: auto;
@@ -1642,7 +1652,7 @@ a.rf-node-title:hover { color: var(--accent); }
     text-overflow: ellipsis;
     white-space: nowrap;
     color: color-mix(in srgb, var(--text) 84%, var(--muted));
-    font-size: 11px;
+    font-size: 12px;
   }
   .commits-rail .live-rank-name,
   .activity-rail .live-rank-name {
@@ -1650,7 +1660,7 @@ a.rf-node-title:hover { color: var(--accent); }
     text-align: left;
     -webkit-line-clamp: 1;
     line-clamp: 1;
-    font-size: 11px;
+    font-size: 12px;
   }
   /* The tip STAYS. The label column is 13rem, so a long repository or branch
      name still clips here -- fewer of them than before, which is not the same as
@@ -1672,7 +1682,11 @@ a.rf-node-title:hover { color: var(--accent); }
     gap: 8px;
   }
   .commits-rail .live-rank-bar,
-  .activity-rail .live-rank-bar {
+  .activity-rail .live-rank-bar,
+  .commits-rail .live-rank-chart-repos .live-rank-bar,
+  .activity-rail .live-rank-chart-repos .live-rank-bar,
+  .commits-rail .live-rank-chart-labels .live-rank-bar,
+  .activity-rail .live-rank-chart-labels .live-rank-bar {
     width: var(--rank-h);
     height: 10px;
     min-height: 0;
@@ -1681,7 +1695,9 @@ a.rf-node-title:hover { color: var(--accent); }
     flex: none;
   }
   /* The count stops being a hover tip and becomes a permanent column at the row
-     end -- the axis it used to be read against is gone. */
+     end -- the axis it used to be read against is gone. It is therefore body
+     text, not chrome: 10px in --muted measured 3.3:1 against the panel, which is
+     a hover tip's budget and not a column a reader scans. */
   .commits-rail .live-rank-tooltip,
   .activity-rail .live-rank-tooltip {
     position: static;
@@ -1694,7 +1710,8 @@ a.rf-node-title:hover { color: var(--accent); }
     background: none;
     box-shadow: none;
     min-width: 0;
-    color: var(--muted);
+    color: color-mix(in srgb, var(--text) 84%, var(--muted));
+    font-size: 11px;
     transition: none;
   }
 }
@@ -2005,6 +2022,9 @@ a.rf-node-title:hover { color: var(--accent); }
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  /* A size container so the calendar inside can size its cells from the room
+     it is actually given (see --hm-cell below). */
+  container-type: inline-size;
 }
 .hm-calendar-scroll::-webkit-scrollbar { display: none; }
 /* One GitHub-style year grid: weekday labels down the left, months across the
@@ -2026,6 +2046,27 @@ a.rf-node-title:hover { color: var(--accent); }
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+/* The cells grow with the card once it is wider than the 620px minimum.
+
+   At a fixed 9px the grid is 609px wide whatever holds it, so on a wide panel
+   it sat at the left of its card with the rest empty: 107px of a Commits
+   overview at 2560px, 269px of one at 3008px. The 53 columns now share the
+   scroller's width, a whole pixel at a time so the columns stay even, from the
+   same 9px floor up to 16px. Below the minimum the clamp returns 9px and
+   nothing changes: the grid still overflows, scrolls, and opens on the latest
+   week.
+
+   Guarded rather than declared outright, because a custom property is not
+   validated when it is parsed. Without round() the token would be accepted and
+   only fail where it is USED -- `width: var(--hm-cell)` invalid at
+   computed-value time, which is the zero-size grid described above. */
+@supports (width: round(down, 1px, 1px)) {
+  .hm-calendar {
+    /* 53 cells and 52 gaps beside the weekday column: the last column has no
+       gap after it, which is the `+ gap` in the numerator. */
+    --hm-cell: clamp(9px, round(down, calc((100cqw - var(--hm-weekday-w) + var(--hm-gap)) / 53 - var(--hm-gap)), 1px), 16px);
+  }
 }
 .hm-months {
   position: relative; height: 13px; margin-left: var(--hm-weekday-w);
@@ -2067,9 +2108,18 @@ a.rf-node-title:hover { color: var(--accent); }
 .hm-cell[data-in-range][data-level="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--panel)); }
 .hm-cell[data-in-range][data-level="4"] { background: var(--accent); }
 .hm-cell-empty { background: transparent; }
+/* Sticky for the same reason the weekday column is. The calendar opens pinned
+   to its latest week, so in a track narrower than the grid everything to the
+   left is scrolled away, and the legend went with it: the card read "More"
+   with no "Less" and no ramp. It is a key to the figure rather than part of
+   it, so it holds its place beside the weekday labels while the grid moves.
+   `align-self` is what makes that possible: a stretched flex child is as wide
+   as the calendar and has nowhere to stick. */
 .hm-legend {
   display: flex; align-items: center; gap: 4px; margin-left: var(--hm-weekday-w); margin-top: 6px;
   font-size: 10px; color: var(--muted);
+  align-self: flex-start;
+  position: sticky; left: var(--hm-weekday-w);
 }
 .hm-legend .hm-cell { border-radius: 2px; }
 .hm-trend {
@@ -2757,7 +2807,12 @@ a.rf-node-title:hover { color: var(--accent); }
 }
 .commit-ref-chip {
   flex: none;
-  max-width: 150px;
+  /* A share of the meta row rather than a constant. 150px is the floor, and is
+     what a list at its narrowest inline width still resolves to; a wide list
+     has hundreds of pixels after the actor, and stopping at 150px there cut
+     `gh-readonly-queue/main/pr-1960-...` to its first twenty characters beside
+     empty space. Two chips can take at most 56% of the row between them. */
+  max-width: clamp(150px, 28%, 360px);
   /* Stay a single ellipsized line even where the meta row allows wrapping
      (narrow/portrait sets `white-space: normal`). A long branch name wrapping to
      two lines would push the row body past the fixed virtualized row height and
@@ -4394,7 +4449,14 @@ a.rf-node-title:hover { color: var(--accent); }
   height: 76px;
   margin-top: 7px;
 }
-.live-rank-chart-repos {
+/* The text-label variant: a chart whose footer holds a NAME rather than an
+   avatar. `-repos` is the original and is still what the repo charts carry,
+   because the render smoke and the facet rows address repos by it; `-labels` is
+   the same treatment for every other chart that draws words under its bars
+   (commit types, branches, activity kinds and actions). Without it those sat in
+   the 24px avatar slot and wrapped mid-word: "chore" read "chor / e". */
+.live-rank-chart-repos,
+.live-rank-chart-labels {
   --rank-footer-h: 34px;
   grid-template-columns: 25px minmax(0, 1fr);
   height: 84px;
@@ -4429,7 +4491,8 @@ a.rf-node-title:hover { color: var(--accent); }
   column-gap: 8px;
   align-items: stretch;
 }
-.live-rank-chart-repos .live-rank-plot {
+.live-rank-chart-repos .live-rank-plot,
+.live-rank-chart-labels .live-rank-plot {
   grid-auto-columns: minmax(34px, 1fr);
   column-gap: 10px;
 }
@@ -4514,7 +4577,8 @@ a.rf-node-title:hover { color: var(--accent); }
   outline: 2px solid var(--link);
   outline-offset: 1px;
 }
-.live-rank-chart-repos .live-rank-bar { width: 14px; }
+.live-rank-chart-repos .live-rank-bar,
+.live-rank-chart-labels .live-rank-bar { width: 14px; }
 .live-rank-footer {
   width: 24px;
   height: 24px;
@@ -4543,7 +4607,8 @@ span.live-avatar { cursor: default; }
   max-width: 19px;
   font-size: 9px;
 }
-.live-rank-chart-repos .live-rank-footer {
+.live-rank-chart-repos .live-rank-footer,
+.live-rank-chart-labels .live-rank-footer {
   width: 100%;
   height: 34px;
   align-items: start;
@@ -5161,6 +5226,35 @@ span.live-avatar { cursor: default; }
   font-size: 10px;
   color: var(--muted);
 }
+/* The per-day strip's date axis. Every bar has a slot here, the same width and
+   gap as the bar above it, so a label sits under its own bar whether all of
+   them are labelled (a short range) or only the ends (a long one). The text may
+   be wider than one slot, so it is centred on the slot and allowed to overhang
+   it; the first and last labels anchor to their own edge instead, where an
+   overhang would leave the card. */
+.rail-days-axis {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.rail-days-axis > i {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 13px;
+}
+.rail-days-axis > i > span {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.rail-days-axis > i:first-child > span { left: 0; transform: none; }
+.rail-days-axis > i:last-child > span { left: auto; right: 0; transform: none; }
 
 /* A selectable rank row is a <button> inside its own listitem wrapper (the role
    and the button cannot share an element without discarding aria-pressed), so

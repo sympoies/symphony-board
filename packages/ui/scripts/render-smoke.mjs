@@ -5943,6 +5943,29 @@ try {
         overviewBlocks: overview.children.length,
         overviewCards: overview.querySelectorAll(':scope > .rail-block').length,
         dayBars: overview.querySelectorAll('.rail-daybar').length,
+        // The strip used to be bars with no axis at all: no dates under them and
+        // no scale beside them, so it could only be read by hovering each one.
+        dayAxis: [...overview.querySelectorAll('.rail-days-axis span')].map((el) => (el.textContent || '').trim()),
+        dayPeak: (overview.querySelector('.rail-block:has(.rail-daybars) .rail-block-meta')?.textContent || '').trim(),
+        // The calendar opens pinned to its latest week, and at this width the
+        // track is narrower than the grid, so everything left of the visible
+        // columns is scrolled away -- including the first half of the legend,
+        // which read "More" with no "Less" and no ramp before it.
+        rhythmLegendClipPx: (() => {
+          const scroll = overview.querySelector('.hm-calendar-scroll');
+          const first = scroll?.querySelector('.hm-legend > span');
+          if (!scroll || !first) return null;
+          return Math.round(scroll.getBoundingClientRect().left - first.getBoundingClientRect().left);
+        })(),
+        // A text label under a vertical bar. The footer slot is 24px wide because
+        // it was built for an avatar, so a bare word wrapped inside it mid-word:
+        // "chore" read "chor / e" and "committed" was cut to "com / mi...".
+        // Measured on short single tokens, which have no legitimate break.
+        brokenNames: [...rail.querySelectorAll('.live-rank-name')]
+          .filter((el) => /^[a-z0-9]{1,9}$/i.test((el.textContent || '').trim()))
+          .filter((el) => el.getBoundingClientRect().height > parseFloat(getComputedStyle(el).fontSize) * 1.6 || el.scrollWidth > el.clientWidth + 1)
+          .map((el) => (el.textContent || '').trim()),
+        shortNames: [...rail.querySelectorAll('.live-rank-name')].filter((el) => /^[a-z0-9]{1,9}$/i.test((el.textContent || '').trim())).length,
         hourBars: overview.querySelectorAll('.rail-hourbar').length,
         summaryTiles: overview.querySelectorAll('.hm-summary > div').length,
         // The trailing-12-month commit calendar. Unlike every other block in
@@ -6882,6 +6905,42 @@ try {
           overflowing,
           overflowingCounts,
           fullBarCountOverflow,
+          // The repos facet in the row layout. Its chart carries an extra class
+          // whose vertical-bar rules (a fixed 14px bar, a 34px two-line footer)
+          // sit later in the stylesheet at the same specificity as the row
+          // relayout, so they won: every repo drew the same 14px stub whatever
+          // its count, under a name sitting a line above it.
+          repoBars: [...(rail.querySelector('.live-rank-chart-repos')?.querySelectorAll('.live-rank-item') || [])].map((item) => {
+            const bar = item.querySelector('.live-rank-bar')?.getBoundingClientRect();
+            const name = item.querySelector('.live-rank-name')?.getBoundingClientRect();
+            return {
+              count: Number((item.querySelector('.live-rank-tooltip')?.textContent || '').replace(/,/g, '')),
+              barPx: bar ? Math.round(bar.width) : 0,
+              offCentre: bar && name ? Math.round(Math.abs((name.top + name.height / 2) - (bar.top + bar.height / 2))) : null,
+            };
+          }),
+          // The count is a permanent column here, not a hover tip, so it has to
+          // be read at a glance: 10px in the secondary ink was neither.
+          countFontPx: parseFloat(getComputedStyle(rail.querySelector('.live-rank-tooltip') || rail).fontSize),
+          nameFontPx: parseFloat(getComputedStyle(rail.querySelector('.live-rank-name') || rail).fontSize),
+          // How much of its card the year calendar leaves empty on its right. At
+          // a fixed 9px cell the grid is 609px wide whatever the card is.
+          calendarSlack: (() => {
+            const scroll = document.querySelector('.hm-calendar-scroll');
+            const grid = scroll?.querySelector('.hm-grid');
+            if (!scroll || !grid) return null;
+            return Math.round(scroll.getBoundingClientRect().right - grid.getBoundingClientRect().right);
+          })(),
+          // A branch chip given a long name, in a row with width to spare.
+          chipWidePx: (() => {
+            const chip = document.querySelector('.commit-list[data-row-layout="inline"] .commit-ref-chip');
+            if (!chip) return null;
+            const original = chip.textContent;
+            chip.textContent = 'feature/a-deliberately-long-branch-name-for-the-smoke';
+            const width = Math.round(chip.getBoundingClientRect().width);
+            chip.textContent = original;
+            return width;
+          })(),
         };
       })()`,
       returnByValue: true,
@@ -7355,6 +7414,51 @@ try {
           railTwoUp.find((r) => r.page === "activity")?.actorRows &&
         railTwoUp.find((r) => r.page === "commits")?.columns === 1,
       `rails: Activity flows two-up with visible actor accounts at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
+    ],
+    [
+      railTwoUp.length === 2 &&
+        railTwoUp.every((r) => {
+          const bars = r.repoBars || [];
+          const counts = new Set(bars.map((b) => b.count));
+          return (
+            bars.length > 0 &&
+            bars.every((b) => b.offCentre != null && b.offCentre <= 3) &&
+            // Ranked, so widths never increase down the list...
+            bars.every((b, i) => i === 0 || b.barPx <= bars[i - 1].barPx) &&
+            // ...and different counts must not all draw the same bar.
+            (counts.size < 2 || new Set(bars.map((b) => b.barPx)).size > 1)
+          );
+        }),
+      `rails: repo rows draw bars in proportion to their counts, level with their names (${JSON.stringify(railTwoUp.map((r) => ({ page: r.page, repoBars: r.repoBars })))})`,
+    ],
+    [
+      railTwoUp.length === 2 && railTwoUp.every((r) => r.countFontPx >= 11 && r.nameFontPx >= 12),
+      `rails: row labels and counts are legible at the rows tier (${JSON.stringify(railTwoUp.map((r) => ({ page: r.page, count: r.countFontPx, name: r.nameFontPx })))})`,
+    ],
+    [
+      // Under one pixel per column: the cells grow a whole pixel at a time so
+      // the 53 columns stay even at any device pixel ratio, which leaves at most
+      // 52px unclaimed. It was 107px and 227px at a fixed 9px cell.
+      railTwoUp.length === 2 && railTwoUp.every((r) => r.calendarSlack != null && r.calendarSlack >= 0 && r.calendarSlack < 53),
+      `rhythm: the year calendar fills a card wider than its minimum (${JSON.stringify(railTwoUp.map((r) => ({ page: r.page, slack: r.calendarSlack })))})`,
+    ],
+    [
+      (railTwoUp.find((r) => r.page === "commits")?.chipWidePx ?? 0) > 150,
+      `commits: a long branch name uses the row's spare width instead of stopping at 150px (${railTwoUp.find((r) => r.page === "commits")?.chipWidePx}px)`,
+    ],
+    [
+      (commitsRailWide.dayAxis || []).length >= 2 &&
+        (commitsRailWide.dayAxis || []).every((label) => /^\d{2}-\d{2}$/.test(label)) &&
+        /peak/.test(commitsRailWide.dayPeak || ""),
+      `commits: the per-day strip carries a date axis and names its peak (axis=${JSON.stringify(commitsRailWide.dayAxis)}, meta=${JSON.stringify(commitsRailWide.dayPeak)})`,
+    ],
+    [
+      commitsRailWide.rhythmLegendClipPx != null && commitsRailWide.rhythmLegendClipPx <= 0,
+      `rhythm: the Less/More legend stays in view when the calendar is scrolled to its latest week (${commitsRailWide.rhythmLegendClipPx}px cut off)`,
+    ],
+    [
+      commitsRailWide.shortNames > 0 && (commitsRailWide.brokenNames || []).length === 0,
+      `rails: a one-word label under a vertical bar is not wrapped or clipped mid-word (${JSON.stringify(commitsRailWide.brokenNames)} of ${commitsRailWide.shortNames})`,
     ],
     [
       itemsMountedEmpty === true &&

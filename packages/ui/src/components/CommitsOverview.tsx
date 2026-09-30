@@ -1,6 +1,6 @@
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
-import { EMPTY_ACTOR_INDEX, countsByDay, rankActors, rankBranches, rankRepos, type ActorIndex, type DayBucket } from "../rail-stats.ts";
+import { EMPTY_ACTOR_INDEX, countsByDay, dayAxisTicks, rankActors, rankBranches, rankRepos, type ActorIndex, type DayBucket } from "../rail-stats.ts";
 import { HourProfile } from "./HourProfile.tsx";
 import { HeatmapCalendar, type HeatmapTip } from "./HeatmapCalendar.tsx";
 import { buildActivityHeatmapFromDaily, pluralize } from "../model.ts";
@@ -41,11 +41,18 @@ function DayBars({ days, range }: { days: readonly DayBucket[]; range: TimeRange
   const max = Math.max(1, ...days.map((d) => d.count));
   const axisMax = niceAxisMax(max);
   const total = days.reduce((sum, d) => sum + d.count, 0);
+  // The strip had no text of its own: no dates under the bars and nothing to
+  // read their height against, so it could only be read by hovering each bar.
+  // The axis names the days; the peak in the head is the scale, since the
+  // tallest bar is that count.
+  const ticks = new Map(dayAxisTicks(days).map((tick) => [tick.index, tick.label]));
   return (
     <div className="rail-block">
       <div className="rail-block-head">
         <span className="rail-block-title">Commits per day</span>
-        <span className="rail-block-meta">{commitCountLabel(total)}</span>
+        <span className="rail-block-meta">
+          {total > 0 ? `peak ${max.toLocaleString("en-US")} · ${commitCountLabel(total)}` : commitCountLabel(total)}
+        </span>
       </div>
       <div className="rail-daybars" role="img" aria-label={`Commits per day, ${range.from} to ${range.to}: ${commitCountLabel(total)}`}>
         {days.map((day) => (
@@ -58,6 +65,11 @@ function DayBars({ days, range }: { days: readonly DayBucket[]; range: TimeRange
             <span className="rail-daybar-tip">{`${day.date} · ${commitCountLabel(day.count)}`}</span>
             <span className="rail-daybar-fill" />
           </span>
+        ))}
+      </div>
+      <div className="rail-days-axis" aria-hidden="true">
+        {days.map((day, index) => (
+          <i key={day.date}>{ticks.has(index) ? <span>{ticks.get(index)}</span> : null}</i>
         ))}
       </div>
     </div>
