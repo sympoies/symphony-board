@@ -2846,6 +2846,28 @@ export function graphOverviewVisibility(
   };
 }
 
+// What the Graph's focus reset compares from one render to the next: the
+// focus, the viewer's lens (graphFocusLens), and the overview candidates.
+export type GraphFocusResetState = { focus: string | null; lens: string; candidateIds: ReadonlySet<string> };
+
+// The route fields a viewer edits to change which items the Graph overview
+// lists: the range and the shared item facets.
+export function graphFocusLens(route: Pick<HashRoute, "from" | "to" | "isource" | "istate" | "ikind" | "ireview" | "irepo">): string {
+  return JSON.stringify([route.from, route.to, route.isource, route.istate, route.ikind, route.ireview, route.irepo]);
+}
+
+// Drop the focus when the viewer changed the range or an item facet under the
+// same focus and that changed which items the overview lists. The app's own
+// loads — the cold start's range re-anchored to the contract's generated_at, a
+// background refresh — change the candidates without touching the lens, and a
+// focus that arrives with the route (link, reload, back/forward, click) starts
+// a new baseline, so neither drops it (#761). Candidates are compared by
+// content: a reload rebuilds every set with the same ids.
+export function graphFocusDropped(prev: GraphFocusResetState, next: GraphFocusResetState): boolean {
+  if (next.focus === null || prev.focus !== next.focus || prev.lens === next.lens) return false;
+  return !(prev.candidateIds.size === next.candidateIds.size && [...next.candidateIds].every((id) => prev.candidateIds.has(id)));
+}
+
 // Why the OVERVIEW canvas is empty while the side list still lists candidates —
 // the diagnosis that turns the dead-end "No relationships are drawn" message
 // into a one-click recovery. `hiddenLinks` is how many in-range relationships

@@ -36,6 +36,7 @@ import {
   graphFocusIsTracker,
   graphResponseIsTracker,
   loadGraphFocus,
+  graphFocusLens,
   visibleGraphNeighborhood,
   reviewActivityIsUnresolved,
   repoMetricMatches,
@@ -2258,6 +2259,7 @@ export function App() {
             colorOf={colorOf}
             focusRef={route.focus}
             onFocusChange={setRouteFocus}
+            focusLens={graphFocusLens(route)}
             focusDepth={graphFocusDepthValue}
             onFocusDepthChange={setRouteFocusDepth}
             focusExpanded={graphFocusExpanded}
