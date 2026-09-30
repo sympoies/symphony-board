@@ -16,16 +16,22 @@ dependencies and the Vite + React build.
 
 ## Pages
 
-### Board (`#/`)
+### Board (`#/board`)
 
-The primary board is a 6-column surface:
+The primary board is a 5-column surface, in this order:
 
-- status columns: `Open`, `In Progress`, `Trailing`, `Closed`
-- Spotlight lanes: `Follow-up`, `PR`
+- `Trackers` (Spotlight lane): issues labeled `workflow::tracking`. Open
+  trackers come first; closed ones sit behind a `Closed (N)` toggle, folded by
+  default.
+- `Open`, `Closed` (status columns): the item's own state, with merged counted
+  as closed.
+- `Follow-up` (Spotlight lane): issues labeled `workflow::follow-up`, any
+  state.
+- `Change requests` (Spotlight lane): open change requests.
 
-Status is derived from item state plus relationship edges. Spotlight lanes are
-cross-cuts based on label/kind conventions, so their counts do not sum to the
-item total.
+Spotlight lanes are cross-cuts based on label/kind/state conventions, so their
+counts do not sum to the item total. On a phone the Board shows one column at a
+time and opens on `Trackers`.
 
 The Board uses the shared URL-backed date range with quick presets: calendar
 `today`, `yesterday`, `this week`, `last week` and rolling `1w`, `1mo`, `3mo`,

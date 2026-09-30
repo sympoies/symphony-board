@@ -534,8 +534,8 @@ export class SqliteStore implements Store {
          -- (created_at as a last resort). merged_at MUST be in the COALESCE: GitLab
          -- carries merged_at (NOT closed_at) for a merged MR, so keying on closed_at
          -- alone — or floating closed_at-IS-NULL rows to the top — would scatter every
-         -- GitLab merged MR ahead of dated items in the board's Closed/Trailing
-         -- columns (the UI partitions this order without re-sorting).
+         -- GitLab merged MR ahead of dated items in the board's Closed column
+         -- (the UI partitions this order without re-sorting).
          ORDER BY COALESCE(closed_at, merged_at, updated_at, created_at) DESC, item_id DESC`,
       )
       .all() as unknown as Array<Omit<ItemRow, "is_draft"> & { is_draft: number | null }>;

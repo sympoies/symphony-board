@@ -1639,7 +1639,7 @@ try {
   await sleep(100);
   await send("Runtime.evaluate", { expression: "location.hash = '#/board'" });
   await sleep(300);
-  // Page 1 — the full-bleed 6-column board.
+  // Page 1 — the full-bleed 5-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-lanes .card')");
   await captureTitleLinkHitTarget("board card", ".board-lanes .card-title[href]", ".card");
   const boardKindLabelSummary = (await send("Runtime.evaluate", {
@@ -1655,10 +1655,41 @@ try {
       return {
         label,
         sub: lane?.querySelector('.col-sub')?.textContent?.trim() || '',
+        states: Array.from(lane?.querySelectorAll('.card .card-head .badge:first-child') || [])
+          .map((el) => el.textContent?.trim() || ''),
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Column order, and the Trackers lane: open trackers show, closed ones sit
+  // behind the "Closed (N)" toggle until it is clicked.
+  const boardTrackerStates = `Array.from(document.querySelectorAll('.board-lanes .col-lane-trackers .card .card-head .badge:first-child')).map((el) => el.textContent?.trim() || '')`;
+  const boardTrackersLane = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const fold = document.querySelector('.board-lanes .col-lane-trackers .col-fold');
+      const summary = {
+        order: Array.from(document.querySelectorAll('.board-lanes > .col'))
+          .map((el) => Array.from(el.classList).find((name) => /^col-(open|closed|lane-)/.test(name)) || ''),
+        sub: document.querySelector('.board-lanes .col-lane-trackers .col-sub')?.textContent?.trim() || '',
+        fold: fold?.textContent?.trim() || '',
+        foldExpanded: fold?.getAttribute('aria-expanded') || '',
+        foldedStates: ${boardTrackerStates},
+      };
+      fold?.click();
+      return summary;
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await sleep(100);
+  boardTrackersLane.unfoldedStates = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const states = ${boardTrackerStates};
+      document.querySelector('.board-lanes .col-lane-trackers .col-fold')?.click();
+      return states;
+    })()`,
+    returnByValue: true,
+  })).result.value || [];
+  await sleep(100);
   const boardPaneLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
       const board = document.querySelector('.board-lanes');
@@ -7408,14 +7439,18 @@ try {
     [headerRefresh.hasIdleAppIcon === true && headerRefresh.idleIconTag === "svg" && headerRefresh.idleIconViewBox === "0 0 1024 1024", `app: header refresh idles as the app SVG mark (${JSON.stringify(headerRefresh)})`],
     [headerRefresh.hasBusyRefreshGlyph === true && headerRefresh.restoredAppIcon === true, `app: header refresh shows glyph while loading then restores app icon (${JSON.stringify(headerRefresh)})`],
     [headerRefresh.clicked === true && headerRefresh.requestsAfter > headerRefresh.requestsBefore && headerRefresh.hashAfter === headerRefresh.hashBefore, `app: header refresh reloads data in place (${JSON.stringify(headerRefresh)})`],
-    // page 1: the primary board fuses 4 status + 2 spotlight lanes into 6 columns
+    // page 1: the primary board fuses 2 status + 3 spotlight lanes into 5 columns
     [boardCards >= 5, `board: item cards rendered (${boardCards} >= 5)`],
     [boardKindIcons >= boardCards, `board: item kind renders as shared SVG icons (${boardKindIcons} icons for ${boardCards} cards)`],
-    [has(boardHtml, "board-lanes"), "board: 6-column board rendered"],
-    [boardCols >= 6, `board: >= 6 columns rendered (${boardCols})`],
-    [has(boardHtml, "col-in_progress"), "board: In Progress status column present"],
+    [has(boardHtml, "board-lanes"), "board: 5-column board rendered"],
+    [boardCols >= 5, `board: >= 5 columns rendered (${boardCols})`],
+    [JSON.stringify(boardTrackersLane.order) === JSON.stringify(["col-lane-trackers", "col-open", "col-closed", "col-lane-follow-up", "col-lane-pr"]), `board: columns run Trackers, Open, Closed, Follow-up, Change requests (${JSON.stringify(boardTrackersLane.order)})`],
+    [!has(boardHtml, "col-in_progress") && !has(boardHtml, "col-trailing"), "board: retired In Progress / Trailing status columns are gone"],
+    [boardTrackersLane.sub === "issues labeled workflow::tracking" && boardTrackersLane.foldedStates?.length >= 1 && boardTrackersLane.foldedStates.every((state) => state === "open"), `board: Trackers lane opens on open trackers only (${JSON.stringify(boardTrackersLane)})`],
+    [/^Closed \([1-9]\d*\)$/.test(boardTrackersLane.fold || "") && boardTrackersLane.foldExpanded === "false" && boardTrackersLane.unfoldedStates?.length > boardTrackersLane.foldedStates?.length && boardTrackersLane.unfoldedStates.slice(boardTrackersLane.foldedStates.length).every((state) => state !== "open"), `board: closed trackers stay folded behind a count until toggled (${JSON.stringify(boardTrackersLane)})`],
     [has(boardHtml, "col-lane-pr"), "board: change request spotlight lane present"],
-    [boardKindLabelSummary.label === "Change requests" && boardKindLabelSummary.sub === "change requests, any state", `board: change request spotlight lane uses neutral visible label and hint (${JSON.stringify(boardKindLabelSummary)})`],
+    [boardKindLabelSummary.label === "Change requests" && boardKindLabelSummary.sub === "open change requests", `board: change request spotlight lane uses neutral visible label and hint (${JSON.stringify(boardKindLabelSummary)})`],
+    [boardKindLabelSummary.states?.length >= 1 && boardKindLabelSummary.states.every((state) => state === "open"), `board: change request spotlight lane lists open change requests only (${JSON.stringify(boardKindLabelSummary.states)})`],
     [!has(boardHtml, "PR/MR"), "board: no PR/MR label remains in board markup"],
     [boardPaneLayout.fillsViewport === true, `board: lane height fills to the same viewport bottom gutter as list tabs (${JSON.stringify(boardPaneLayout)})`],
     [boardPaneLayout.readableColumns === true, `board: full board keeps readable column widths whether or not all lanes fit (${JSON.stringify(boardPaneLayout)})`],

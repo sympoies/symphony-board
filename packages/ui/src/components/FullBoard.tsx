@@ -6,8 +6,10 @@ import { StatsBar } from "./StatsBar.tsx";
 import {
   anchorId,
   columnCollapsed,
+  columnSlices,
   computeBoardWindowStats,
   findContractScopedStats,
+  initialMobileColumn,
   STATUS_ORDER,
   STATUS_LABEL,
   STATUS_DESC,
@@ -22,15 +24,18 @@ import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 // A column renders at most `cap` cards (the list arrives already sorted, newest
 // first). The header ALWAYS shows the true total (items.length); when the cap
 // hides some, a "+N more" footer marks what was trimmed — so the count never
-// lies. Omit `cap` to render the whole column. A `collapsed` column renders
-// instead as a slim rail (dot + count + vertical label); clicking either the
-// rail or the header caret flips it via `onToggle`.
+// lies. Omit `cap` to render the whole column. A `foldClosed` column arrives
+// open-items-first and tucks the closed rest behind a "Closed (N)" toggle, folded
+// by default. A `collapsed` column renders instead as a slim rail (dot + count +
+// vertical label); clicking either the rail or the header caret flips it via
+// `onToggle`.
 function Column({
   kind,
   label,
   sub,
   items,
   cap,
+  foldClosed = false,
   collapsed,
   onToggle,
   sourceKind,
@@ -44,6 +49,7 @@ function Column({
   sub: string;
   items: ItemDTO[];
   cap?: number;
+  foldClosed?: boolean;
   collapsed: boolean;
   onToggle: () => void;
   sourceKind: Map<string, string>;
@@ -52,6 +58,7 @@ function Column({
   lens?: ItemRouteFields;
   mobileActive?: boolean;
 }) {
+  const [showClosed, setShowClosed] = useState(false);
   // Collapsed: a slim, full-height rail — dot, count, vertical label — where the
   // whole rail is the expand button. Empty columns arrive here automatically (see
   // model.columnCollapsed); the labelled rail keeps the "this lane is empty"
@@ -73,8 +80,19 @@ function Column({
       </div>
     );
   }
-  const shown = cap != null ? items.slice(0, cap) : items;
-  const hidden = items.length - shown.length;
+  const { lead, folded, rest, hidden } = columnSlices(items, { cap, foldClosed, showClosed });
+  const card = (it: ItemDTO) => (
+    <ItemCard
+      key={it.id}
+      item={it}
+      anchorId={anchorId(it.id)}
+      sourceKind={sourceKind.get(it.source_id)}
+      accentColor={colorOf(it.source_id, it.project_path)}
+      related={relationCounts.get(it.id) ?? null}
+      graphLink
+      lens={lens}
+    />
+  );
   return (
     <div className={`col col-${kind}${mobileActive ? " col-mobile-active" : ""}`}>
       <h3 className="col-head" title={sub}>
@@ -92,37 +110,44 @@ function Column({
         <span className="col-sub">{sub}</span>
       </h3>
       <div className="col-cards">
-        {shown.map((it) => (
-          <ItemCard
-            key={it.id}
-            item={it}
-            anchorId={anchorId(it.id)}
-            sourceKind={sourceKind.get(it.source_id)}
-            accentColor={colorOf(it.source_id, it.project_path)}
-            related={relationCounts.get(it.id) ?? null}
-            graphLink
-            lens={lens}
-          />
-        ))}
+        {lead.map(card)}
+        {folded > 0 && (
+          <button type="button" className="col-fold muted" aria-expanded={showClosed} onClick={() => setShowClosed((v) => !v)}>
+            Closed ({folded})
+          </button>
+        )}
+        {rest.map(card)}
         {hidden > 0 && <div className="col-more muted">+{hidden} more</div>}
       </div>
     </div>
   );
 }
 
-// Per-column render cap (newest first). Applied to the Closed / Trailing status
-// columns and every Spotlight lane — those grow without bound as history piles
-// up. Open / In Progress stay uncapped: they are the actionable columns and small
-// in practice. The header still reports the true total either way.
+// Per-column render cap (newest first). Applied to the Closed status column and
+// every Spotlight lane — those grow without bound as history piles up. Open
+// stays uncapped: it is the actionable column and small in practice. The header
+// still reports the true total either way.
 const COLUMN_CAP = 100;
-const CAPPED_STATUS: ReadonlySet<ItemStatus> = new Set<ItemStatus>(["trailing", "closed"]);
+const CAPPED_STATUS: ReadonlySet<ItemStatus> = new Set<ItemStatus>(["closed"]);
 
-// The primary, full-bleed board (GitHub-Projects style): the 4 status columns
-// and the 3 Spotlight lanes fused into one 7-column row.
+// One rendered column: a status column (kind = the status key) or a Spotlight
+// lane (kind = `lane-<key>`).
+interface BoardColumn {
+  kind: string;
+  label: string;
+  sub: string;
+  items: ItemDTO[];
+  cap?: number;
+  foldClosed: boolean;
+}
+
+// The primary, full-bleed board (GitHub-Projects style): the 2 status columns
+// and the 3 Spotlight lanes fused into one 5-column row — Trackers, Open,
+// Closed, Follow-up, Change requests.
 //
-// NB: this is NOT a 7-way partition. The status columns partition items by
+// NB: this is NOT a 5-way partition. The status columns partition items by
 // lifecycle (each item lands in exactly one); the Spotlight lanes are a SEPARATE
-// cross-cut (by label/kind, any state, latest N), so an item can appear in both
+// cross-cut (by label/kind/state, latest N), so an item can appear in both
 // a status column AND a lane. Intentional — it puts the predecessor's two views
 // on one surface. The column counts therefore won't sum to the item total.
 export function FullBoard({
@@ -154,7 +179,6 @@ export function FullBoard({
   range: TimeRange;
   lens?: ItemRouteFields;
 }) {
-  const [mobileKind, setMobileKind] = useState<string>("open");
   const boardItems = items;
   const contractBoardStats = useMemo(
     () => findContractScopedStats(aggregates, { scope: "boardWindow", since: range.from }),
@@ -164,9 +188,33 @@ export function FullBoard({
     () => contractBoardStats ?? computeBoardWindowStats(boardItems, edges),
     [contractBoardStats, boardItems, edges],
   );
-  const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], in_progress: [], trailing: [], closed: [] };
+  const statusCols: Record<ItemStatus, ItemDTO[]> = { open: [], closed: [] };
   for (const it of boardItems) statusCols[statuses.get(it.id) ?? "open"].push(it);
   const lanes = spotlight(boardItems);
+  const laneColumn = ({ lane, items: laneItems }: (typeof lanes)[number]): BoardColumn => ({
+    kind: `lane-${lane.key}`,
+    label: lane.label,
+    sub: lane.hint,
+    items: laneItems,
+    cap: COLUMN_CAP,
+    foldClosed: lane.foldClosed,
+  });
+  // Column order: the leading lanes (Trackers), the status columns, then the
+  // remaining lanes. The phone selector and the lane row both follow it.
+  const columns: BoardColumn[] = [
+    ...lanes.filter(({ lane }) => lane.lead).map(laneColumn),
+    ...STATUS_ORDER.map((s) => ({
+      kind: s,
+      label: STATUS_LABEL[s],
+      sub: STATUS_DESC[s],
+      items: statusCols[s],
+      cap: CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined,
+      foldClosed: false,
+    })),
+    ...lanes.filter(({ lane }) => !lane.lead).map(laneColumn),
+  ];
+  // A phone shows one column at a time (see model.initialMobileColumn).
+  const [mobileKind, setMobileKind] = useState<string>(() => initialMobileColumn(columns));
   const { paneRef: boardPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLElement>([
     boardItems.length,
     lanes.length,
@@ -174,10 +222,6 @@ export function FullBoard({
     peeked.size,
     mobileKind,
   ]);
-  const mobileColumns = [
-    ...STATUS_ORDER.map((kind) => ({ kind, label: STATUS_LABEL[kind], count: statusCols[kind].length })),
-    ...lanes.map(({ lane, items: laneItems }) => ({ kind: `lane-${lane.key}`, label: lane.label, count: laneItems.length })),
-  ];
   return (
     <>
       <div className="board-controls">
@@ -188,7 +232,7 @@ export function FullBoard({
       </div>
       <StatsBar scoped={boardStats} />
       <div className="board-mobile-selector" aria-label="Board lanes">
-        {mobileColumns.map((column) => (
+        {columns.map((column) => (
           <button
             key={column.kind}
             type="button"
@@ -196,48 +240,29 @@ export function FullBoard({
             onClick={() => setMobileKind(column.kind)}
           >
             <span>{column.label}</span>
-            <span className="count">{column.count}</span>
+            <span className="count">{column.items.length}</span>
           </button>
         ))}
       </div>
       <section className="board-lanes" ref={boardPaneRef} style={paneHeightStyle}>
-        {STATUS_ORDER.map((s) => (
+        {columns.map((column) => (
           <Column
-            key={s}
-            kind={s}
-            label={STATUS_LABEL[s]}
-            sub={STATUS_DESC[s]}
-            items={statusCols[s]}
-            cap={CAPPED_STATUS.has(s) ? COLUMN_CAP : undefined}
-            collapsed={columnCollapsed(s, statusCols[s].length === 0, collapsed, peeked)}
-            onToggle={() => onToggleCollapse(s, statusCols[s].length === 0)}
+            key={column.kind}
+            kind={column.kind}
+            label={column.label}
+            sub={column.sub}
+            items={column.items}
+            cap={column.cap}
+            foldClosed={column.foldClosed}
+            collapsed={columnCollapsed(column.kind, column.items.length === 0, collapsed, peeked)}
+            onToggle={() => onToggleCollapse(column.kind, column.items.length === 0)}
             sourceKind={sourceKind}
             colorOf={colorOf}
             relationCounts={relationCounts}
             lens={lens}
-            mobileActive={mobileKind === s}
+            mobileActive={mobileKind === column.kind}
           />
         ))}
-        {lanes.map(({ lane, items: laneItems }) => {
-          const laneKind = `lane-${lane.key}`;
-          return (
-            <Column
-              key={lane.key}
-              kind={laneKind}
-              label={lane.label}
-              sub={lane.hint}
-              items={laneItems}
-              cap={COLUMN_CAP}
-              collapsed={columnCollapsed(laneKind, laneItems.length === 0, collapsed, peeked)}
-              onToggle={() => onToggleCollapse(laneKind, laneItems.length === 0)}
-              sourceKind={sourceKind}
-              colorOf={colorOf}
-              relationCounts={relationCounts}
-              lens={lens}
-              mobileActive={mobileKind === laneKind}
-            />
-          );
-        })}
       </section>
     </>
   );

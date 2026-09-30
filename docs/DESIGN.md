@@ -420,15 +420,19 @@ Pages:
   is definitely unavailable, so a slow snapshot seed can still be opened and
   retried. Its detail supports left/right swipes; Settings owns preview lines
   and hidden event types.
-- **Board**: 6 columns. Four status columns (`Open`, `In Progress`, `Trailing`,
-  `Closed`) plus two Spotlight lanes (`Follow-up`, `PR`).
-  Status is derived from item state and relationship edges. Spotlight lanes are
-  cross-cuts, so their counts do not sum to the item total. The Board uses the
-  shared date range and filters primary cards by item `updated_at`. For the
-  default static window it can consume a matching `boardWindow` aggregate when
-  no viewer-local filters are active. For custom `/api/range` responses and
-  viewer-local filters, it computes scoped summary stats locally from the
-  returned window.
+- **Board**: 5 columns, in order `Trackers`, `Open`, `Closed`, `Follow-up`,
+  `Change requests`. `Open` and `Closed` are the status columns: status is the
+  item's own state (open, or closed/merged), not derived from relationship
+  edges. The other three are Spotlight lanes. `Trackers` leads the board with
+  issues labeled `workflow::tracking`: open trackers first, closed ones folded
+  behind a `Closed (N)` toggle. `Follow-up` keeps issues labeled
+  `workflow::follow-up` in any state, and `Change requests` lists open change
+  requests only. Spotlight lanes are cross-cuts, so their counts do not sum to
+  the item total. The Board uses the shared date range and filters primary
+  cards by item `updated_at`. For the default static window it can consume a
+  matching `boardWindow` aggregate when no viewer-local filters are active. For
+  custom `/api/range` responses and viewer-local filters, it computes scoped
+  summary stats locally from the returned window.
 - **Graph**: relationship view built from edge-connected items. It supports the
   shared date range, mention toggles, side-list search, focus subgraphs, and
   board-card deep-links like `#/graph?focus=<ref>` (the `focus` ref alone drives
