@@ -270,6 +270,7 @@ export class GitHubSource implements Source {
   // github/9: commit activity details carry additions/deletions (never for merges).
   // github/10: provider actor photos are retained in activity details.
   // github/11: tracker issues emit parent/blocks edges from their phase table.
+  // github/12: commit activity details carry merge and default_branch.
   readonly normalizerVersion = "github/12";
   private gql: GqlClient;
   private projects: string[];

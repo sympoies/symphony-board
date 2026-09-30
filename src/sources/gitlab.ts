@@ -183,6 +183,7 @@ export class GitLabSource implements Source {
   // gitlab/8: items carry provider-native note/comment totals.
   // gitlab/9: commit activity details carry additions/deletions (never for merges).
   // gitlab/10: project-event author photos are retained in activity details.
+  // gitlab/11: commit activity details carry merge and default_branch.
   readonly normalizerVersion = "gitlab/11";
   private gql: GqlClient;
   private projects: string[];
