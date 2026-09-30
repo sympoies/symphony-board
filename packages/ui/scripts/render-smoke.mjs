@@ -494,6 +494,9 @@ function fail(msg) {
   process.exitCode = 1;
 }
 
+const SMOKE_COMMIT_TYPES = ["fix", "feat", "docs", "chore", "test", "refactor", "ci"];
+const SMOKE_COMMIT_SCOPES = ["ui", "api", "sync", "contract", "db"];
+
 function inflateActivityContract(body) {
   const env = withSmokeHeaderSources(JSON.parse(body.toString("utf8")));
   if (!Array.isArray(env.activities) || env.activities.length === 0) return JSON.stringify(env);
@@ -506,7 +509,13 @@ function inflateActivityContract(body) {
     return {
       ...a,
       external_id: `${a.external_id}:smoke:${i}`,
-      title: `${a.title || `${a.action} ${a.kind}`} smoke ${i}`,
+      // Three commit rows in four carry a conventional-commit prefix, so the
+      // type and scope panes have a vocabulary to chart; the fourth keeps the
+      // bare subject, which is the honest "other" every real repository has.
+      title:
+        a.kind === "commit" && i % 4 !== 0
+          ? `${SMOKE_COMMIT_TYPES[i % SMOKE_COMMIT_TYPES.length]}(${SMOKE_COMMIT_SCOPES[i % SMOKE_COMMIT_SCOPES.length]}): ${a.title || "commit"} smoke ${i}`
+          : `${a.title || `${a.action} ${a.kind}`} smoke ${i}`,
       occurred_at: new Date(baseTime - i * 60_000).toISOString(),
       details: {
         ...(a.details && typeof a.details === "object" && !Array.isArray(a.details) ? a.details : {}),
@@ -6324,7 +6333,7 @@ try {
         hasDetail: !!detail,
         // Detail participates in normal flow before the overview, so the range
         // context moves down instead of sitting underneath the selected card.
-        hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
+        hasDigest: !!document.querySelector('.commits-overview .rail-daybars, .commits-overview .stack-cols'),
         sharesContext: !!detail?.closest('.commits-context')?.contains(overview),
         overviewStartsAfterDetail: !!detailRect && !!overviewRect && overviewRect.top >= detailRect.bottom,
         navigationHidden: !navigationRect,
@@ -6350,7 +6359,7 @@ try {
   const commitDetailToggledOff = (await send("Runtime.evaluate", {
     expression: `(() => ({
       hasDetail: !!document.querySelector('.commit-detail-card'),
-      hasDigest: !!document.querySelector('.commits-overview .rail-daybars'),
+      hasDigest: !!document.querySelector('.commits-overview .rail-daybars, .commits-overview .stack-cols'),
       railStillThere: !!document.querySelector('.commits-rail .rail-block'),
     }))()`,
     returnByValue: true,
@@ -6388,7 +6397,7 @@ try {
         const contextGap = Math.round(parseFloat(getComputedStyle(context).rowGap) || 0);
         return {
           found: true,
-          hasDigest: !!overview.querySelector('.rail-daybars'),
+          hasDigest: !!overview.querySelector('.rail-daybars, .stack-cols'),
           sharesContext: detail.closest('.commits-context') === context && overview.closest('.commits-context') === context,
           overviewHidden: getComputedStyle(overview).display === "none",
           overviewStartsAfterDetail: overviewRect.top >= detailRect.bottom,
@@ -6530,10 +6539,11 @@ try {
   // The Commits fill rule across the tiers it is bounded by, not just the one it
   // was designed at. Filling the columns at 1880 says nothing about 1280, where
   // the overview and the rail share a column and a pane height each would make
-  // the page two viewports tall, or about 2560, where the rail's charts relayout
-  // to fixed rows that a grown chart cannot fill.
+  // the page two viewports tall, or about 2300, where the rail's charts relayout
+  // to fixed rows that a grown chart cannot fill, or about 2560, where the
+  // columns stop growing charts at all and fill with list rows instead.
   const commitsFillTiers = [];
-  for (const vp of [{ name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1600, height: 1080 }, { name: "three-column", width: 1880, height: 1080 }, { name: "rows", width: 2560, height: 1440 }]) {
+  for (const vp of [{ name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1600, height: 1080 }, { name: "three-column", width: 1880, height: 1080 }, { name: "rows", width: 2300, height: 1440 }, { name: "panes", width: 2560, height: 1440 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
     await sleep(400);
@@ -6582,6 +6592,10 @@ try {
     })).result.value || {};
     commitsFillTiers.push({ tier: vp.name, width: vp.width, ...r });
   }
+  // What the document already overflows by below the wide tier, so the wide
+  // tier is held to "no worse" rather than to a number this fixture's header
+  // decides.
+  const commitsPageOverflowBaseline = commitsFillTiers.find((t) => t.width === 1880)?.pageOverflow ?? 0;
   // Selecting a commit swaps the middle column for the detail card, whose root
   // carries the same class the fill rule targets.
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
@@ -6990,6 +7004,151 @@ try {
     })).result.value || { found: false };
     railTwoUp.push({ page: page.name, ...r });
   }
+  // --- Commits wide panes ---------------------------------------------------
+  // From COMMITS_PANES_MIN_WIDTH_PX the two supporting columns stop being one
+  // stack each and lay their panes out two-up. What used to fill the spare
+  // height was the CHARTS: every plot was a flex-grown box, so on a tall panel
+  // seven day bars became seven 120x370px slabs that said nothing more than
+  // they did at 56px. Here the charts keep a designed height and the height
+  // that is left over goes to lists, which answer it with more rows.
+  await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(500);
+  await waitHtml("document.querySelector('.commits-page .commit-list .commit-row')");
+  const commitsWidePanes = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const split = document.querySelector('.commits-split');
+      const list = document.querySelector('.commit-list');
+      const context = document.querySelector('.commits-context');
+      const overview = document.querySelector('.commits-overview');
+      const rail = document.querySelector('.commits-rail');
+      if (!split || !list || !context || !overview || !rail) return { found: false };
+      const rect = (el) => el.getBoundingClientRect();
+      const blocks = (root) => [...root.querySelectorAll(':scope > .rail-block')];
+      const titleOf = (b) => (b.querySelector('.rail-block-title, .hm-overview-head h3')?.textContent || '').trim();
+      const columns = (root) => new Set(blocks(root).map((b) => Math.round(rect(b).left))).size;
+      const widest = (sel) => Math.round(Math.max(0, ...[...document.querySelectorAll(sel)].map((n) => rect(n).width)));
+      const block = (root, title) => blocks(root).find((b) => titleOf(b) === title);
+      const rows = (root, title) => block(root, title)?.querySelectorAll('.live-rank-item').length ?? -1;
+      const doc = document.documentElement;
+      const authors = block(rail, 'Top authors');
+      const headCells = authors ? [...authors.querySelectorAll('.rank-head > span')] : [];
+      const rowCells = authors ? [...(authors.querySelector('.live-rank-item')?.querySelectorAll('.live-rank-extra > *') || [])] : [];
+      // A pane whose content runs past its own right edge. None of these cards
+      // clips, so a spill here lands on the pane beside it.
+      const spilling = [...blocks(overview), ...blocks(rail)].filter((b) => {
+        const box = rect(b).right - parseFloat(getComputedStyle(b).paddingRight);
+        return [...b.querySelectorAll('.stack-col, .churn-col, .punch-cell, .live-rank-extra, .pane-row-commit')]
+          .some((n) => rect(n).right > box + 2);
+      }).map(titleOf);
+      return {
+        found: true,
+        tracks: [list, context, rail].map((el) => Math.round(rect(el).width)),
+        rowLayout: list.dataset.rowLayout || null,
+        overviewTitles: blocks(overview).map(titleOf),
+        railTitles: blocks(rail).map(titleOf),
+        overviewColumns: columns(overview),
+        railColumns: columns(rail),
+        tiles: overview.querySelectorAll('.hm-summary > div').length,
+        rhythmFacts: overview.querySelectorAll('.hm-facts > div').length,
+        // The flex-grown strips this tier replaces.
+        legacyStrips: overview.querySelectorAll('.rail-daybars, .rail-hours').length,
+        dayColumns: overview.querySelectorAll('.stack-col').length,
+        daySeries: [...overview.querySelectorAll('.stack-legend-item')].map((el) => (el.firstElementChild?.nextSibling?.textContent || '').trim()),
+        dayPlotPx: Math.round(rect(overview.querySelector('.stack-cols') || overview).height),
+        dayBarWidthPx: widest('.commits-overview .stack-bar'),
+        dayAxis: [...overview.querySelectorAll('.commit-day-chart .rail-days-axis span')].map((el) => (el.textContent || '').trim()),
+        dayScale: [...overview.querySelectorAll('.commit-day-chart .stack-yaxis > span')].map((el) => (el.textContent || '').trim()),
+        churnBars: overview.querySelectorAll('.churn-add, .churn-del').length,
+        churnPlotPx: Math.round(rect(overview.querySelector('.churn-cols') || overview).height),
+        punchRows: overview.querySelectorAll('.punch-row-label').length,
+        punchCells: overview.querySelectorAll('.punch-cell').length,
+        largestRows: overview.querySelectorAll('.pane-row-commit').length,
+        overviewShort: Math.round(rect(list).bottom - rect(overview).bottom),
+        railShort: Math.round(rect(list).bottom - rect(rail).bottom),
+        // The column BOXES have a definite height in this tier, so their edges
+        // line up with the list whatever is inside them. What says the spare
+        // height went to a list is the contents: the column does not scroll,
+        // its lowest pane ends at its bottom edge, and the list inside that
+        // pane is what scrolls.
+        overviewSelfScroll: Math.round(overview.scrollHeight - overview.clientHeight),
+        railSelfScroll: Math.round(rail.scrollHeight - rail.clientHeight),
+        overviewPaneShort: Math.round(rect(overview).bottom - Math.max(...blocks(overview).map((b) => rect(b).bottom))),
+        railPaneShort: Math.round(rect(rail).bottom - Math.max(...blocks(rail).map((b) => rect(b).bottom))),
+        largestScrollsInside: (() => {
+          const rows = overview.querySelector('.largest-commits .pane-rows');
+          return rows ? rows.scrollHeight > rows.clientHeight + 1 : null;
+        })(),
+        pageOverflow: Math.round(doc.scrollHeight - doc.clientHeight),
+        pageOverflowX: Math.round(doc.scrollWidth - doc.clientWidth),
+        authorExtras: rowCells.length,
+        // The header names the row's columns only if it sits over them. Two
+        // edges, because the two columns align differently: the numbers end
+        // together, and the sparkline starts where its heading starts.
+        authorHeadDrift: headCells.length >= 2 && rowCells.length >= 2
+          ? Math.max(
+              Math.round(Math.abs(rect(headCells[headCells.length - 2]).right - rect(rowCells[rowCells.length - 2]).right)),
+              Math.round(Math.abs(rect(headCells[headCells.length - 1]).left - rect(rowCells[rowCells.length - 1]).left)),
+            )
+          : null,
+        // The same for a list that scrolls: its head is outside the scroller,
+        // so a scrollbar gutter on one and not the other would shift them apart.
+        repoHeadDrift: (() => {
+          const repos = block(rail, 'Top repos');
+          const head = repos ? [...repos.querySelectorAll('.rank-head > span')] : [];
+          const cells = repos ? [...(repos.querySelector('.live-rank-item')?.querySelectorAll('.live-rank-extra > *') || [])] : [];
+          return head.length && cells.length
+            ? Math.round(Math.abs(rect(head[head.length - 1]).right - rect(cells[cells.length - 1]).right))
+            : null;
+        })(),
+        repoRows: rows(rail, 'Top repos'),
+        branchRows: rows(rail, 'Top branches'),
+        typeRows: rows(rail, 'Commit types'),
+        scopeRows: rows(rail, 'Commit scopes'),
+        spilling,
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || { found: false };
+  // The split control re-cuts the same days by another dimension.
+  await send("Runtime.evaluate", {
+    expression: "[...document.querySelectorAll('.commits-overview .pane-seg-option')].find((b) => (b.textContent || '').trim() === 'repo')?.click()",
+  });
+  await sleep(200);
+  const commitsWideSplitByRepo = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      pressed: [...document.querySelectorAll('.commits-overview .pane-seg-option[aria-pressed="true"]')].map((b) => (b.textContent || '').trim()),
+      series: [...document.querySelectorAll('.commits-overview .stack-legend-item')].map((el) => (el.firstElementChild?.nextSibling?.textContent || '').trim()),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  // A row of Largest commits is a way INTO that commit: it pins the detail pane.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-overview .pane-row-commit')?.click()" });
+  await sleep(350);
+  const commitsWideLargestPin = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const list = document.querySelector('.commit-list');
+      const overview = document.querySelector('.commits-overview');
+      const context = document.querySelector('.commits-context');
+      const detail = document.querySelector('.commits-context .commit-detail-card');
+      const doc = document.documentElement;
+      return {
+        hasDetail: !!detail,
+        pressedRows: document.querySelectorAll('.commits-overview .pane-row-commit[aria-pressed="true"]').length,
+        // With the detail card above it the overview has less height than its
+        // panes need. It scrolls inside its column; it does not squeeze them and
+        // it does not push the page.
+        overviewScrolls: overview ? overview.scrollHeight > overview.clientHeight + 1 : null,
+        contextShort: list && context ? Math.round(list.getBoundingClientRect().bottom - context.getBoundingClientRect().bottom) : null,
+        dayPlotPx: Math.round((overview?.querySelector('.stack-cols') || document.body).getBoundingClientRect().height),
+        pageOverflow: Math.round(doc.scrollHeight - doc.clientHeight),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await sleep(200);
+
   // --- Diagnostics fill-height tabs (Sync runs, Daemon log) ----------------
   // These two #/debug tabs size to the viewport and scroll INTERNALLY (the log
   // no longer caps at 420px; a short runs table no longer leaves dead space).
@@ -7212,7 +7371,7 @@ try {
     // would make the page two screens tall; above, the charts relayout to fixed
     // rows a grown box cannot fill.
     [
-      commitsFillTiers.length === 5 &&
+      commitsFillTiers.length === 6 &&
         commitsFillTiers.every((t) =>
           t.tier === "three-column" || t.tier === "rows"
             ? t.minHeightPx > 0 &&
@@ -7224,10 +7383,21 @@ try {
               t.overviewTail <= 8 &&
               t.railTail <= 8 &&
               t.chartTail <= 12
-            : t.minHeightPx <= 0 &&
-              t.overviewDisplay === "grid" &&
-              t.dayBlockGrow === 0 &&
-              t.dayStripGrow === 0,
+            : t.tier === "panes"
+              ? // The same invariant -- both columns end with the list -- reached
+                // another way: a grid whose last row takes the spare height, and
+                // no strip left to grow. The tails are not asserted here. Panes
+                // sit side by side in this tier, and the shorter of a pair is
+                // allowed to end above its neighbour.
+                t.overviewDisplay === "grid" &&
+                t.dayBlockGrow === null &&
+                t.dayStripGrow === null &&
+                Math.abs(t.overviewShort) <= 2 &&
+                Math.abs(t.railShort) <= 2
+              : t.minHeightPx <= 0 &&
+                t.overviewDisplay === "grid" &&
+                t.dayBlockGrow === 0 &&
+                t.dayStripGrow === 0,
         ),
       `commits: the supporting columns fill at every three-column width (${JSON.stringify(commitsFillTiers)})`,
     ],
@@ -7455,8 +7625,8 @@ try {
         railTwoUp.find((r) => r.page === "activity")?.actorRows > 1 &&
         railTwoUp.find((r) => r.page === "activity")?.visibleActorNames ===
           railTwoUp.find((r) => r.page === "activity")?.actorRows &&
-        railTwoUp.find((r) => r.page === "commits")?.columns === 1,
-      `rails: Activity flows two-up with visible actor accounts at 2560px and Commits stays a stacked sidebar, neither overflowing (${JSON.stringify(railTwoUp)})`,
+        railTwoUp.find((r) => r.page === "commits")?.columns === 2,
+      `rails: both rails flow two-up at 2560px, Activity with visible actor accounts, neither overflowing (${JSON.stringify(railTwoUp)})`,
     ],
     [
       railTwoUp.length === 2 &&
@@ -7492,6 +7662,82 @@ try {
     [
       (railTwoUp.find((r) => r.page === "commits")?.chipWidePx ?? 0) > 150,
       `commits: a long branch name uses the row's spare width instead of stopping at 150px (${railTwoUp.find((r) => r.page === "commits")?.chipWidePx}px)`,
+    ],
+    [
+      commitsWidePanes.found === true &&
+        commitsWidePanes.rowLayout === "inline" &&
+        commitsWidePanes.tracks[0] > 760 &&
+        Math.abs(commitsWidePanes.tracks[1] - commitsWidePanes.tracks[2]) <= 2 &&
+        commitsWidePanes.tracks[1] >= 800 &&
+        commitsWidePanes.overviewColumns === 2 &&
+        commitsWidePanes.railColumns === 2 &&
+        JSON.stringify(commitsWidePanes.overviewTitles) ===
+          JSON.stringify(["Commit overview", "Commit rhythm", "Commits per day", "Lines changed per day", "When", "Largest commits"]) &&
+        JSON.stringify(commitsWidePanes.railTitles) ===
+          JSON.stringify(["Top authors", "Top repos", "Top branches", "Commit types", "Commit scopes"]) &&
+        commitsWidePanes.spilling.length === 0 &&
+        commitsWidePanes.pageOverflowX <= 0,
+      `commits: from the wide-panes tier the list keeps its inline rows beside two supporting columns of two modules each (${JSON.stringify({ tracks: commitsWidePanes.tracks, rowLayout: commitsWidePanes.rowLayout, overview: commitsWidePanes.overviewTitles, rail: commitsWidePanes.railTitles, cols: [commitsWidePanes.overviewColumns, commitsWidePanes.railColumns], spilling: commitsWidePanes.spilling })})`,
+    ],
+    [
+      commitsWidePanes.legacyStrips === 0 &&
+        commitsWidePanes.dayColumns > 0 &&
+        commitsWidePanes.daySeries.length >= 2 &&
+        commitsWidePanes.dayPlotPx > 0 &&
+        commitsWidePanes.dayPlotPx <= 200 &&
+        commitsWidePanes.dayBarWidthPx > 0 &&
+        commitsWidePanes.dayBarWidthPx <= 28 &&
+        commitsWidePanes.dayAxis.length >= 1 &&
+        commitsWidePanes.dayScale.length === 3 &&
+        commitsWidePanes.churnBars > 0 &&
+        commitsWidePanes.churnPlotPx <= 200 &&
+        commitsWidePanes.punchRows > 0 &&
+        commitsWidePanes.punchCells === commitsWidePanes.punchRows * 24,
+      `commits: wide-tier charts keep a designed height and thin marks instead of growing with the pane (${JSON.stringify({ legacy: commitsWidePanes.legacyStrips, plot: commitsWidePanes.dayPlotPx, bar: commitsWidePanes.dayBarWidthPx, series: commitsWidePanes.daySeries, axis: commitsWidePanes.dayAxis, scale: commitsWidePanes.dayScale, churn: [commitsWidePanes.churnBars, commitsWidePanes.churnPlotPx], punch: [commitsWidePanes.punchRows, commitsWidePanes.punchCells] })})`,
+    ],
+    [
+      Math.abs(commitsWidePanes.overviewShort) <= 2 &&
+        Math.abs(commitsWidePanes.railShort) <= 2 &&
+        // No taller than the page already is at the tier below: the columns are
+        // scrollers now, and a scroller that grew with its content instead
+        // would push the document.
+        commitsWidePanes.pageOverflow <= commitsPageOverflowBaseline &&
+        commitsWidePanes.overviewSelfScroll <= 1 &&
+        commitsWidePanes.railSelfScroll <= 1 &&
+        Math.abs(commitsWidePanes.overviewPaneShort) <= 2 &&
+        Math.abs(commitsWidePanes.railPaneShort) <= 2 &&
+        commitsWidePanes.largestScrollsInside === true &&
+        commitsWidePanes.largestRows > 0 &&
+        commitsWidePanes.repoRows > 0 &&
+        commitsWidePanes.branchRows > 0,
+      `commits: the spare height goes to lists, and both columns still end with the list beside them (${JSON.stringify({ overviewShort: commitsWidePanes.overviewShort, railShort: commitsWidePanes.railShort, selfScroll: [commitsWidePanes.overviewSelfScroll, commitsWidePanes.railSelfScroll], paneShort: [commitsWidePanes.overviewPaneShort, commitsWidePanes.railPaneShort], largestScrollsInside: commitsWidePanes.largestScrollsInside, pageOverflow: commitsWidePanes.pageOverflow, largest: commitsWidePanes.largestRows, repos: commitsWidePanes.repoRows, branches: commitsWidePanes.branchRows })})`,
+    ],
+    [
+      commitsWidePanes.tiles === 8 &&
+        commitsWidePanes.rhythmFacts >= 4 &&
+        commitsWidePanes.authorExtras === 5 &&
+        commitsWidePanes.authorHeadDrift != null &&
+        commitsWidePanes.authorHeadDrift <= 2 &&
+        commitsWidePanes.repoHeadDrift != null &&
+        commitsWidePanes.repoHeadDrift <= 2 &&
+        commitsWidePanes.typeRows > 1 &&
+        commitsWidePanes.scopeRows > 1,
+      `commits: the wide tier adds facts the narrow one has no room for (${JSON.stringify({ tiles: commitsWidePanes.tiles, facts: commitsWidePanes.rhythmFacts, authorExtras: commitsWidePanes.authorExtras, headDrift: [commitsWidePanes.authorHeadDrift, commitsWidePanes.repoHeadDrift], types: commitsWidePanes.typeRows, scopes: commitsWidePanes.scopeRows })})`,
+    ],
+    [
+      JSON.stringify(commitsWideSplitByRepo.pressed) === JSON.stringify(["repo"]) &&
+        (commitsWideSplitByRepo.series || []).length >= 2 &&
+        JSON.stringify(commitsWideSplitByRepo.series) !== JSON.stringify(commitsWidePanes.daySeries),
+      `commits: the per-day chart re-cuts by repo on request (${JSON.stringify(commitsWideSplitByRepo)} from ${JSON.stringify(commitsWidePanes.daySeries)})`,
+    ],
+    [
+      commitsWideLargestPin.hasDetail === true &&
+        commitsWideLargestPin.pressedRows === 1 &&
+        commitsWideLargestPin.overviewScrolls === true &&
+        Math.abs(commitsWideLargestPin.contextShort) <= 2 &&
+        commitsWideLargestPin.dayPlotPx === commitsWidePanes.dayPlotPx &&
+        commitsWideLargestPin.pageOverflow <= commitsPageOverflowBaseline,
+      `commits: a Largest commits row pins that commit, and the overview scrolls under the detail rather than squeezing (${JSON.stringify(commitsWideLargestPin)})`,
     ],
     [
       (commitsRailWide.dayAxis || []).length >= 2 &&

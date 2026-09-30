@@ -1,10 +1,25 @@
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
-import { EMPTY_ACTOR_INDEX, countsByDay, dayAxisTicks, rankActors, rankBranches, rankRepos, type ActorIndex, type DayBucket } from "../rail-stats.ts";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import {
+  EMPTY_ACTOR_INDEX,
+  churnByDay,
+  commitSizeSummary,
+  countsByDay,
+  dayAxisTicks,
+  rankActors,
+  rankBranches,
+  rankRepos,
+  type ActorIndex,
+  type DayBucket,
+} from "../rail-stats.ts";
 import { HourProfile } from "./HourProfile.tsx";
 import { HeatmapCalendar, type HeatmapTip } from "./HeatmapCalendar.tsx";
-import { buildActivityHeatmapFromDaily, pluralize } from "../model.ts";
-import { niceAxisMax, rankBarHeight } from "../rank-scale.ts";
+import { CommitDayChart } from "./CommitDayChart.tsx";
+import { CommitChurn } from "./CommitChurn.tsx";
+import { CommitPunchCard } from "./CommitPunchCard.tsx";
+import { LargestCommits } from "./LargestCommits.tsx";
+import { buildActivityHeatmapFromDaily, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
+import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
 
 // The Commits overview column: the SHAPE of the selected range over time.
@@ -23,6 +38,15 @@ import type { TimeRange } from "../model.ts";
 //
 // Everything derives from the same rows the list renders, so this can never
 // disagree with the commits beside it and needs no fetch of its own.
+//
+// From the wide-panes tier (`wide`, COMMITS_PANES_MIN_WIDTH_PX) the column is a
+// two-up grid with room for more than four panes, and what it does with spare
+// height changes. Below the tier the two strips grow to fill the pane; on a
+// tall, wide panel that turned seven day bars into seven 120x370px slabs that
+// said nothing more than they did at 56px. Here the charts keep a designed
+// height -- the per-day strip becomes a stacked chart, the hour strip a
+// day-by-hour grid, and lines changed gets a pane of its own -- and the height
+// left over goes to a list, Largest commits, which answers it with more rows.
 
 function commitCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
@@ -88,10 +112,15 @@ function CommitRhythm({
   activityDaily,
   range,
   onTip,
+  facts = false,
 }: {
   activityDaily: ActivityDailyDTO | null;
   range: TimeRange;
   onTip: (tip: HeatmapTip | null) => void;
+  // The wide tier's summary of the year under the calendar. Activity states
+  // these above its own calendar; this column's tiles are about the selected
+  // range, so the year had no figures of its own here at all.
+  facts?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const heatmap = useMemo(
@@ -141,8 +170,9 @@ function CommitRhythm({
   if (!heatmap || heatmap.total === 0) return null;
 
   const hasRange = Boolean(range.from) && Boolean(range.to) && range.from <= range.to;
+  const streaks = facts ? heatmapStreaks(heatmap) : null;
   return (
-    <div className="rail-block">
+    <div className="rail-block pane-span">
       <div className="rail-block-head">
         <span className="rail-block-title">Commit rhythm</span>
         <span className="rail-block-meta">{`last 12 months · ${heatmap.total.toLocaleString("en-US")} commits`}</span>
@@ -156,7 +186,60 @@ function CommitRhythm({
           onTip={onTip}
         />
       </div>
+      {streaks ? (
+        <dl className="hm-facts">
+          <div>
+            <dt>daily average</dt>
+            <dd>{Math.round(heatmap.total / Math.max(1, heatmap.dayCount)).toLocaleString("en-US")}</dd>
+          </div>
+          <div>
+            <dt>active days</dt>
+            <dd>
+              {heatmap.activeDays.toLocaleString("en-US")} <small>{`of ${heatmap.dayCount}`}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>current streak</dt>
+            <dd>
+              {streaks.current.toLocaleString("en-US")} <small>{pluralize(streaks.current, "day")}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>longest streak</dt>
+            <dd>
+              {streaks.longest.toLocaleString("en-US")} <small>{pluralize(streaks.longest, "day")}</small>
+            </dd>
+          </div>
+          {heatmap.busiest ? (
+            <div>
+              <dt>busiest day</dt>
+              <dd>
+                {heatmap.busiest.count.toLocaleString("en-US")} <small>{heatmap.busiest.date}</small>
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
     </div>
+  );
+}
+
+// How the range compares with the same number of days before it, as a chip
+// beside the commit count. Null when there is nothing honest to say: the
+// aggregate does not reach back that far, or the list is filtered -- the
+// aggregate counts every commit, so a filtered count beside it would compare a
+// part with a whole.
+function PeriodDelta({ current, previous }: { current: number; previous: number | null }) {
+  if (previous === null) return null;
+  if (previous === 0) {
+    return current > 0 ? <span className="hm-delta" data-dir="up">new</span> : null;
+  }
+  const change = Math.round(((current - previous) / previous) * 100);
+  const dir = change > 0 ? "up" : change < 0 ? "down" : "flat";
+  return (
+    <span className="hm-delta" data-dir={dir} title={`${previous.toLocaleString("en-US")} in the period before`}>
+      {dir === "up" ? "▲" : dir === "down" ? "▼" : "="} {Math.abs(change).toLocaleString("en-US")}%
+    </span>
   );
 }
 
@@ -167,6 +250,10 @@ export function CommitsOverview({
   range,
   actorIndex = EMPTY_ACTOR_INDEX,
   panelRef,
+  wide = false,
+  comparable = false,
+  selectedKey = null,
+  onSelectCommit,
 }: {
   // The rows currently on screen — every block here describes exactly these,
   // EXCEPT the rhythm calendar below, which is deliberately the full history.
@@ -182,6 +269,16 @@ export function CommitsOverview({
   // merged, bots dropped) rather than raw actor strings.
   actorIndex?: ActorIndex;
   panelRef?: Ref<HTMLElement>;
+  // The wide-panes tier: see the note at the top of this file.
+  wide?: boolean;
+  // True when nothing narrows `commits`: no repo / branch / author / source
+  // filter and nothing hidden in Settings (commitScopeIsWhole). Only then can
+  // the count be set against activity_daily, which counts every commit.
+  comparable?: boolean;
+  // The commit shown in the detail pane, and the way to change it, for the
+  // Largest commits rows.
+  selectedKey?: string | null;
+  onSelectCommit?: (commit: ActivityDTO) => void;
 }) {
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   const days = useMemo(
@@ -202,8 +299,65 @@ export function CommitsOverview({
   );
   const activeDays = days.filter((d) => d.count > 0).length;
 
-  const summary = [
-    { label: "commits", value: commits.length.toLocaleString("en-US"), detail: "in range" },
+  // The wide tier's extra figures. Each is a pass over every row, so none of
+  // them is computed for a layout that has no tile to put it in, and each is
+  // computed once: the per-day churn feeds both its tile here and the Lines
+  // changed pane below, which takes the array rather than deriving its own.
+  const churnDays = useMemo(
+    () => (wide ? churnByDay(commits, timezone, range.from, range.to) : null),
+    [wide, commits, timezone, range.from, range.to],
+  );
+  const churn = useMemo(
+    () =>
+      churnDays
+        ? churnDays.reduce(
+            (sum, day) => ({ additions: sum.additions + day.additions, deletions: sum.deletions + day.deletions, counted: sum.counted + day.counted }),
+            { additions: 0, deletions: 0, counted: 0 },
+          )
+        : null,
+    [churnDays],
+  );
+  const sizes = useMemo(() => (wide ? commitSizeSummary(commits) : null), [wide, commits]);
+  // The comparison is drawn only when it compares like with like: nothing
+  // narrows the list (`comparable`), AND the rows on screen really are the
+  // range the aggregate describes -- which a feed windowed shorter than the
+  // range makes false without any filter being set. See rangeIsCovered.
+  const previous =
+    wide && comparable && rangeIsCovered(activityDaily, range.from, range.to, commits.length, "commit")
+      ? previousPeriodCount(activityDaily, range.from, range.to, "commit")
+      : null;
+
+  const summary: { label: string; value: ReactNode; detail: string }[] = [
+    {
+      label: "commits",
+      value: (
+        <>
+          {commits.length.toLocaleString("en-US")}
+          <PeriodDelta current={commits.length} previous={previous} />
+        </>
+      ),
+      detail:
+        previous !== null
+          ? `in range · ${previous.toLocaleString("en-US")} in the ${days.length} ${pluralize(days.length, "day")} before`
+          : "in range",
+    },
+    ...(churn
+      ? [
+          {
+            label: "lines changed",
+            value:
+              churn.counted > 0 ? (
+                <>
+                  <span className="commit-diffstat-add">+{formatAxisValue(churn.additions)}</span>{" "}
+                  <span className="commit-diffstat-del">-{formatAxisValue(churn.deletions)}</span>
+                </>
+              ) : (
+                "—"
+              ),
+            detail: `${churn.counted.toLocaleString("en-US")} of ${commits.length.toLocaleString("en-US")} commits counted`,
+          },
+        ]
+      : []),
     ...(busiest ? [{ label: "busiest day", value: busiest.count.toLocaleString("en-US"), detail: busiest.date }] : []),
     ...(days.length > 0
       ? [{ label: "active days", value: activeDays.toLocaleString("en-US"), detail: `of ${days.length} days` }]
@@ -216,16 +370,30 @@ export function CommitsOverview({
     { label: "repos", value: repoCount.toLocaleString("en-US"), detail: "with commits" },
     { label: "authors", value: authorCount.toLocaleString("en-US"), detail: "with commits" },
     { label: "branches", value: branchCount.toLocaleString("en-US"), detail: "with commits" },
+    ...(wide
+      ? [
+          {
+            label: "median commit",
+            value: sizes?.median != null ? sizes.median.toLocaleString("en-US") : "—",
+            detail: sizes?.largest != null ? `lines · largest ${sizes.largest.toLocaleString("en-US")}` : "no line counts",
+          },
+        ]
+      : []),
   ];
 
   return (
-    <aside ref={panelRef} className="commits-overview" aria-label="Commit range overview">
+    <aside
+      ref={panelRef}
+      className={`commits-overview${wide ? " pane-scroll" : ""}`}
+      data-panes={wide ? "wide" : undefined}
+      aria-label="Commit range overview"
+    >
       {/* A .rail-block like every other panel in this column and the rail beside
           it. Activity can leave its head and summary unwrapped because its whole
           overview is one .activity-heatmap card; this column is a stack of
           cards, so an unwrapped block sits bare on the page background while
           everything around it has a surface. */}
-      <div className="rail-block">
+      <div className="rail-block pane-span">
         <div className="hm-overview-head">
           <h3>Commit overview</h3>
           <small>{`${range.from} to ${range.to}`}</small>
@@ -233,7 +401,7 @@ export function CommitsOverview({
 
         <dl className="hm-summary">
           {summary.map((item) => (
-            <div key={`${item.label}-${item.detail}`}>
+            <div key={item.label}>
               <dt>{item.label}</dt>
               <dd>
                 {item.value}
@@ -249,9 +417,20 @@ export function CommitsOverview({
           count has no scale on its own: 1,810 commits is the week's whole story
           only next to the year it came out of. The two range-shaped strips that
           follow then say when inside the range those commits landed. */}
-      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} />
-      <DayBars days={days} range={range} />
-      <HourProfile rows={commits} subject="Commits" timezone={timezone} countLabel={commitCountLabel} />
+      <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} facts={wide} />
+      {wide ? (
+        <>
+          <CommitDayChart commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
+          {churnDays ? <CommitChurn days={churnDays} range={range} /> : null}
+          <CommitPunchCard commits={commits} timezone={timezone} range={range} />
+          <LargestCommits commits={commits} selectedKey={selectedKey} onSelect={onSelectCommit ?? (() => {})} />
+        </>
+      ) : (
+        <>
+          <DayBars days={days} range={range} />
+          <HourProfile rows={commits} subject="Commits" timezone={timezone} countLabel={commitCountLabel} />
+        </>
+      )}
 
       {tip ? (
         <div className="hm-tip" role="status" style={{ left: tip.x, top: tip.y } as CSSProperties}>

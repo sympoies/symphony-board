@@ -944,6 +944,122 @@ export function buildActivityHeatmapFromDaily(daily: ActivityDailyDTO, kind?: st
   return assembleHeatmap(countByDay, kindCounts, total, startKey, today);
 }
 
+// The running and the longest run of active days in the calendar's window.
+//
+// "Current" counts back from the anchor day, and a quiet anchor does not end
+// it: that day is not over, so a run that reached yesterday still stands until
+// a whole day has passed empty. This is the convention a contribution calendar
+// uses, and the alternative reads as a lost streak every morning.
+export interface HeatmapStreaks {
+  current: number;
+  longest: number;
+}
+
+export function heatmapStreaks(heatmap: ActivityHeatmap): HeatmapStreaks {
+  // Column-major weeks flatten to date order; nulls pad the first and last week.
+  const counts = heatmap.weeks.flat().filter((cell): cell is HeatmapCell => cell !== null).map((cell) => cell.count);
+  let longest = 0;
+  let run = 0;
+  for (const count of counts) {
+    run = count > 0 ? run + 1 : 0;
+    if (run > longest) longest = run;
+  }
+  let end = counts.length - 1;
+  if (end >= 0 && counts[end] === 0) end -= 1;
+  let current = 0;
+  while (end >= 0 && counts[end]! > 0) {
+    current += 1;
+    end -= 1;
+  }
+  return { current, longest };
+}
+
+// The count over the window of the same length immediately before [from, to],
+// for a "compared with the N days before" figure. `kind` narrows it the way
+// buildActivityHeatmapFromDaily does.
+//
+// Returns null rather than 0 when the aggregate cannot vouch for that window:
+// absent, an inverted range, or a window that starts before the aggregate's
+// own first day. The last case is the important one. A range projection's
+// aggregate covers only its window, and a young board's history starts late,
+// so "0 before" there would read as a quiet period rather than as history that
+// is not loaded.
+export function previousPeriodCount(
+  daily: ActivityDailyDTO | null | undefined,
+  from: string,
+  to: string,
+  kind?: string,
+): number | null {
+  if (!daily || !from || !to || to < from) return null;
+  const span = daysBetween(from, to) + 1;
+  const prevFrom = shiftDateOnly(from, -span);
+  const prevTo = shiftDateOnly(from, -1);
+  if (prevFrom < daily.from) return null;
+  let total = 0;
+  for (const bucket of daily.days) {
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (bucket.date < prevFrom || bucket.date > prevTo) continue;
+    total += kind === undefined ? bucket.count : (bucket.by_kind[kind] ?? 0);
+  }
+  return total;
+}
+
+// Whether the Commits rows are the whole of what the board tracks, with nothing
+// narrowing them: no route filter, and no repository or source hidden in
+// Settings. It is the first half of "may the count be set against
+// activity_daily", which counts every commit of every repository.
+//
+// rangeIsCovered below is the second half and checks the CURRENT window
+// against the data. It cannot stand in for this: a hidden repository that was
+// quiet this week and busy the week before leaves the current window matching
+// the aggregate exactly, while the previous count still includes it.
+export function commitScopeIsWhole(scope: {
+  source?: string | null;
+  repo?: string | null;
+  branch?: string | null;
+  author?: string | null;
+  hiddenRepos: number;
+  hiddenSources: number;
+}): boolean {
+  return !scope.source && !scope.repo && !scope.branch && !scope.author && scope.hiddenRepos === 0 && scope.hiddenSources === 0;
+}
+
+// Whether the rows on screen account for the range the aggregate describes.
+//
+// previousPeriodCount answers for EVERY row in the earlier window. Setting that
+// against the rows on screen is only a comparison of like with like when those
+// rows are every row in the current window too, and they can fail to be that
+// with no filter set at all: a static contract whose feed is windowed to fewer
+// days than the range asks for loads only part of it. So this test is on the
+// data rather than on a list of reasons: the aggregate's own count for
+// [from, to] has to match what is visible. It also catches a hidden repository
+// that was active in the range, but commitScopeIsWhole is what rules hiding
+// out -- a repository quiet in this window and busy in the last one would pass
+// here.
+//
+// Within a tolerance, because the aggregate and the rows arrive in separate
+// payloads and a board that is syncing can have them a few commits apart. Two
+// percent (never less than two rows) is below what a whole-percent chip can
+// show, and far below what any of the cases above removes.
+const RANGE_COVERAGE_TOLERANCE = 0.02;
+
+export function rangeIsCovered(
+  daily: ActivityDailyDTO | null | undefined,
+  from: string,
+  to: string,
+  visible: number,
+  kind?: string,
+): boolean {
+  if (!daily || !from || !to || to < from) return false;
+  let expected = 0;
+  for (const bucket of daily.days) {
+    // String compare is safe for fixed-width YYYY-MM-DD keys.
+    if (bucket.date < from || bucket.date > to) continue;
+    expected += kind === undefined ? bucket.count : (bucket.by_kind[kind] ?? 0);
+  }
+  return Math.abs(expected - visible) <= Math.max(2, expected * RANGE_COVERAGE_TOLERANCE);
+}
+
 function dateOnlyUtcMs(date: string): number {
   const parts = date.split("-");
   return Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));

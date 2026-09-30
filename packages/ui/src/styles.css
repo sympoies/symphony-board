@@ -181,52 +181,52 @@ body::after {
    clears it after a short idle) or while the pointer hovers the bar. The track is
    never given a visible color and the gutter (--scrollbar-size) is always reserved,
    so revealing the bar never shifts content. */
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll) {
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"] {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)[data-scrolling="true"] {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track,
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track-piece,
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-corner {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-track,
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-track-piece,
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-track {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-track {
   border-radius: 999px;
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-thumb {
   background: transparent;
   border: 2px solid transparent;
   border-radius: 999px;
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)[data-scrolling="true"]::-webkit-scrollbar-thumb {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)[data-scrolling="true"]::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:hover {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap)::-webkit-scrollbar-thumb:active {
+:where(html, body, .board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll)::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active);
   border-color: var(--scrollbar-thumb-border);
 }
 
-:where(.board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap) {
+:where(.board-lanes, .col-cards, .graph-list-scroll, .activity-list, .commit-list, .items-list, .live-feed, .repo-table-wrap, .pane-scroll) {
   --scrollbar-track: color-mix(in srgb, var(--panel) 80%, var(--bg));
   --scrollbar-thumb-border: var(--scrollbar-track);
 }
@@ -1887,6 +1887,136 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .commits-split > .commits-rail:not(.commit-detail) .live-rank-item {
     height: 100%;
+  }
+}
+/* The Commits wide-panes tier. Mirrors COMMITS_PANES_MIN_WIDTH_PX in
+   layout-tier.ts, which is what gates the components rendering this tier's
+   panes -- layout-tier.test.ts keeps the two in step.
+
+   Up to here the supporting columns fill the pane by GROWING THEIR CHARTS (the
+   two blocks above). That is proportionate while the pane has a little height
+   to spare. On a tall, wide panel it is not: at 3008x1640 the overview's two
+   strips took 740px of a 1298px column between them, and seven day bars became
+   seven 120x370px slabs that said exactly what they said at 56px.
+
+   From this width the columns are two-up grids, which is what makes room for
+   more panes, and spare height changes hands. Every chart keeps a designed
+   height. What is left over goes to the panes marked .pane-fill, which are
+   lists -- Largest commits, Top repos, Top branches -- and a list answers more
+   room with more rows. The fill invariant is unchanged: both columns still end
+   exactly where the list beside them does.
+
+   Three columns at 32 / 34 / 34 rather than 40 / 30 / 30. The list gives up
+   width here, and only here, because it can: it needs 760px to keep its
+   one-line rows and the floor on its track guarantees that, while each
+   supporting column now has to hold two 400px modules side by side. */
+@media (min-width: 2480px) {
+  .commits-split {
+    grid-template-columns: minmax(780px, 32fr) minmax(0, 34fr) minmax(0, 34fr);
+  }
+
+  /* The overview: five rows, the last of which takes what is left. It scrolls
+     inside its own column rather than squeezing a chart, which is what happens
+     when a selected commit's detail card takes the top of the column. */
+  .commits-split > .commits-context > .commits-overview[data-panes="wide"] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto auto auto minmax(148px, 1fr);
+    align-content: start;
+    overflow-y: auto;
+  }
+  .commits-overview[data-panes="wide"] > .pane-span { grid-column: 1 / -1; }
+  .commits-overview[data-panes="wide"] > .pane-fill { grid-row: 5; }
+  .commits-overview[data-panes="wide"] .hm-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  /* The rail: authors across the top, the two lists that filter beside each
+     other in the row that grows, the two read-only vocabularies under them. A
+     definite height rather than the min-height it has below this tier, so the
+     growing row has something to grow INTO and its lists can scroll.
+
+     The changed-files card, when the Settings opt-in shows it, is a row of its
+     own at the head, which moves the growing row down by one. */
+  .commits-split > .commits-rail[data-panes="wide"]:not(.commit-detail) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto minmax(232px, 1fr) auto;
+    align-content: start;
+    height: var(--content-pane-height, auto);
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .commits-split > .commits-rail[data-panes="wide"]:not(.commit-detail):has(> .commit-files) {
+    grid-template-rows: auto auto minmax(232px, 1fr) auto;
+  }
+  .commits-rail[data-panes="wide"] > .pane-span,
+  .commits-rail[data-panes="wide"] > .commit-files { grid-column: 1 / -1; }
+
+  /* A pane that takes the spare height holds a list that scrolls inside it. */
+  .commits-overview[data-panes="wide"] > .pane-fill,
+  .commits-rail[data-panes="wide"] > .pane-fill {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Ranked rows stop stretching. Below this tier a rail's rows share whatever
+     height the chart was grown to; here a row is 28px and a list that has more
+     of them than fit scrolls. The three rules these replace are the 2200px
+     block above, at the same specificity, which is why they come after it. */
+  .commits-split > .commits-rail[data-panes="wide"] .live-rank-chart {
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+  /* The gutter is reserved whether or not the list overflows, and the head
+     above it is inset by the same amount: a bar that appeared only when there
+     were enough rows would shift every row 8px left of the words naming its
+     columns. */
+  .commits-split > .commits-rail[data-panes="wide"] .pane-fill .live-rank-chart {
+    flex: 1 1 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .commits-rail[data-panes="wide"] > .pane-fill > .rank-head { padding-right: var(--scrollbar-size); }
+  .commits-split > .commits-rail[data-panes="wide"] .live-rank-plot {
+    flex: none;
+    grid-auto-rows: 28px;
+    row-gap: 0;
+  }
+  /* label | bar and count | the row's facts. The facts flow into an implicit
+     third column rather than a declared one, so a chart without them does not
+     pay a column gap for a track it never fills. */
+  .commits-split > .commits-rail[data-panes="wide"] .live-rank-item {
+    height: 28px;
+    grid-template-columns: minmax(0, var(--rank-label-w, 11rem)) minmax(48px, 1fr);
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+  }
+  /* The count gets a track of its own width. Sized by content, a five-digit
+     count took 25px more than a one-digit one from the bar beside it, so the
+     same percentage drew different lengths on different rows. */
+  .commits-split > .commits-rail[data-panes="wide"] .live-rank-bar-cell {
+    grid-template-columns: minmax(0, 1fr) var(--rank-count-w, 3.4rem);
+    gap: 10px;
+  }
+  .commits-split > .commits-rail[data-panes="wide"] .live-rank-tooltip {
+    justify-self: end;
+    text-align: right;
+    font-size: 12px;
+  }
+  /* A row's name tip hangs under its row. Under the LAST row of a pane that
+     does not scroll, that is under the pane -- and the rail is a scroller now,
+     so an invisible tip below its lowest pane gave it a few pixels of scroll
+     with nothing to scroll to. That one tip opens upward instead. */
+  .commits-rail[data-panes="wide"] > .rail-block:not(.pane-fill) .live-rank-plot > :last-child .rank-name-tip {
+    top: auto;
+    bottom: calc(100% + 2px);
+  }
+  .commits-rail[data-panes="wide"] .live-rank-extra {
+    display: grid;
+    grid-template-columns: var(--rank-extra-cols, max-content);
+    column-gap: 10px;
+    align-items: center;
+    justify-items: end;
   }
 }
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
@@ -5129,12 +5259,13 @@ span.live-avatar { cursor: default; }
    The commit detail is excluded: it is a single card, and half of a wide rail
    would leave the other half empty. */
 @media (min-width: 2200px) {
-  /* Commits is deliberately absent, though no longer because its rail is
-     narrow: since the split became three ratio columns its rail is 30fr, about
-     890px at 3008px wide. It now carries four ranked charts rather than five
-     blocks (the per-day strip moved to the overview column), and those four
-     stacked already fill the height beside the list. Two-up would halve them to
-     ~430px for no gain and leave the column half empty at the bottom. */
+  /* Commits is deliberately absent AT THIS WIDTH. Its rail is 30fr, about 650px
+     at 2200px, and its four ranked charts stacked already fill the height
+     beside the list; halving them to ~320px would leave no room for a label, a
+     bar and a count on one row. It goes two-up later, at the wide-panes tier
+     (COMMITS_PANES_MIN_WIDTH_PX, 2480px), where the split also gives each
+     supporting column the width for two modules -- see "The Commits wide-panes
+     tier" above. */
   .activity-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5263,6 +5394,358 @@ span.live-avatar { cursor: default; }
 }
 .rail-days-axis > i:first-child > span { left: 0; transform: none; }
 .rail-days-axis > i:last-child > span { left: auto; right: 0; transform: none; }
+.rail-days-axis b { font-weight: 600; color: color-mix(in srgb, var(--text) 84%, var(--muted)); }
+
+/* ==================== Commits wide panes ====================================
+   The panes the Commits page adds from COMMITS_PANES_MIN_WIDTH_PX. None of
+   these rules is inside that media query: the components only render in that
+   tier, so the query would repeat a decision already made once, in JS.
+
+   One set of mark rules for every chart here, so they read as a family and not
+   as five drawings: bars are capped in width instead of filling their slot,
+   touching fills are separated by a 2px gap in the surface colour rather than
+   by a stroke, the grid is a hairline one step off the panel, and text is
+   always in a text token -- the mark beside it carries the colour. */
+
+/* The "split by" control in a pane head. */
+.pane-seg {
+  display: inline-flex;
+  margin-right: auto;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.pane-seg-option {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 1px 9px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pane-seg-option:hover { color: var(--text); }
+.pane-seg-option[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+.pane-seg-option:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+
+/* Series colours, in a fixed order. They are the four hues the Activity trend
+   already uses, reordered so the two that sit closest together (the teal and
+   the tan) are never neighbours in a stack; the fold is a neutral, so
+   "everything else" never borrows a hue that reads as a name. The hues are
+   pastel, which is the theme's and not something a chart can fix, so identity
+   never rests on colour alone: every series is named in the legend with its
+   count, and every bar states its total. */
+.stack-swatch,
+.stack-seg { --stack-color: color-mix(in srgb, var(--muted) 70%, var(--panel-2)); }
+[data-series="0"] { --stack-color: var(--link); }
+[data-series="1"] { --stack-color: var(--accent); }
+[data-series="2"] { --stack-color: var(--iid); }
+[data-series="3"] { --stack-color: var(--closed); }
+
+.stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.stack-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.stack-legend-item small { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.stack-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--stack-color); }
+
+/* A plot: the scale on the left, the columns, the date axis under them. The
+   height is a design decision, not a share of the pane -- a fraction of the
+   viewport within a floor and a ceiling, so a short window gets a shorter
+   chart and a tall one does NOT get a taller one. --plot-pad is the headroom
+   above the top gridline, where the tallest bar's total is written. */
+.stack-plot {
+  --plot-h: clamp(104px, 8vh, 152px);
+  --plot-pad: 16px;
+  display: grid;
+  grid-template-columns: 2.6rem minmax(0, 1fr);
+  grid-template-rows: var(--plot-h) auto;
+  column-gap: 8px;
+}
+.stack-yaxis {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+}
+.stack-yaxis > span { position: absolute; right: 0; transform: translateY(-50%); }
+.stack-yaxis > span:nth-child(1) { top: var(--plot-pad); }
+.stack-yaxis > span:nth-child(2) { top: calc(var(--plot-pad) + (100% - var(--plot-pad)) / 2); }
+.stack-yaxis > span:nth-child(3) { top: 100%; }
+.stack-cols,
+.churn-cols {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  padding-top: var(--plot-pad);
+}
+.stack-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid color-mix(in srgb, var(--muted) 22%, transparent);
+  pointer-events: none;
+}
+.stack-grid-top { top: var(--plot-pad); }
+.stack-grid-mid { top: calc(var(--plot-pad) + (100% - var(--plot-pad)) / 2); }
+.stack-grid-base { top: 100%; border-top-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.stack-col,
+.churn-col {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+}
+.stack-col { display: flex; align-items: flex-end; justify-content: center; }
+/* Capped, not filling the slot: seven days across 800px is a 110px slot, and a
+   bar that wide is a slab. */
+.stack-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  width: min(28px, 62%);
+  height: var(--stack-h);
+}
+.stack-seg { flex: var(--stack-n) 1 0; min-height: 2px; background: var(--stack-color); }
+.stack-seg[data-top="true"] { border-radius: 4px 4px 0 0; }
+.stack-cap {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A month or a quarter of days: the slot is already narrower than the cap, so
+   the bar takes more of it and the 2px gap between segments goes. */
+.stack-cols[data-density="tight"] .stack-bar,
+.churn-cols[data-density="tight"] .churn-add,
+.churn-cols[data-density="tight"] .churn-del { width: 72%; }
+.stack-cols[data-density="dense"] .stack-bar,
+.churn-cols[data-density="dense"] .churn-add,
+.churn-cols[data-density="dense"] .churn-del { width: 100%; }
+.stack-cols[data-density="dense"] .stack-bar { gap: 0; }
+.stack-col:hover .rail-daybar-tip,
+.churn-col:hover .rail-daybar-tip { opacity: 1; }
+/* Same reason as the day strip: a centred tip on an end column reaches past
+   the card. The gridlines are <i>, so the columns are the only <span>s here. */
+.stack-cols > span:first-of-type .rail-daybar-tip,
+.churn-cols > span:first-of-type .rail-daybar-tip { left: 0; transform: none; }
+.stack-cols > span:last-of-type .rail-daybar-tip,
+.churn-cols > span:last-of-type .rail-daybar-tip { left: auto; right: 0; transform: none; }
+/* The slots under a plot line up with its columns, which have no gap. */
+.stack-plot > .rail-days-axis { grid-column: 2; gap: 0; }
+
+/* Lines changed: one scale, additions above the zero line and deletions below. */
+.churn-plot { --plot-h: clamp(88px, 7vh, 120px); --plot-pad: 0px; }
+.churn-plot .stack-yaxis > span:nth-child(1) { transform: none; }
+.churn-plot .stack-yaxis > span:nth-child(3) { transform: translateY(-100%); }
+.churn-grid-zero { top: 50%; border-top-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.churn-plot .stack-grid-base { border-top-color: color-mix(in srgb, var(--muted) 22%, transparent); }
+.churn-add,
+.churn-del {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(22px, 56%);
+  height: var(--churn-h);
+  min-height: 2px;
+}
+.churn-add { bottom: calc(50% + 1px); background: var(--open); border-radius: 4px 4px 0 0; }
+.churn-del { top: calc(50% + 1px); background: var(--broken); border-radius: 0 0 4px 4px; }
+
+.pane-empty {
+  display: grid;
+  place-items: center;
+  min-height: 72px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Day by hour. The same five steps on the accent hue that the rhythm calendar
+   uses for the selected range. */
+.punch-grid {
+  display: grid;
+  grid-template-columns: 3.4rem repeat(24, minmax(0, 1fr)) 2.8rem;
+  gap: 3px;
+  align-items: center;
+}
+.punch-cell { height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
+.punch-cell[data-level="1"] { background: color-mix(in srgb, var(--accent) 28%, var(--panel)); }
+.punch-cell[data-level="2"] { background: color-mix(in srgb, var(--accent) 52%, var(--panel)); }
+.punch-cell[data-level="3"] { background: color-mix(in srgb, var(--accent) 76%, var(--panel)); }
+.punch-cell[data-level="4"] { background: var(--accent); }
+.punch-row-label,
+.punch-hour,
+.punch-row-total {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.punch-row-total {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 84%, var(--muted));
+}
+
+/* A list of rows that are each a way into something (Largest commits). */
+.pane-rows {
+  flex: 1 1 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+.pane-row {
+  appearance: none;
+  display: grid;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pane-rows > li:first-child .pane-row { border-top-color: transparent; }
+.pane-row:hover { background: var(--hover-soft); }
+.pane-row[aria-pressed="true"] { background: var(--selection-bg); }
+.pane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pane-row-commit {
+  grid-template-columns: 1.6rem minmax(0, 1fr) minmax(56px, 9rem) 7.6rem;
+  height: 40px;
+}
+.pane-row-rank { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; }
+.pane-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pane-row-main b,
+.pane-row-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-row-main b { font-size: 12px; font-weight: 600; }
+.pane-row-main small { font-size: 11px; color: var(--muted); }
+.pane-row-bar { display: flex; gap: 2px; height: 8px; min-width: 0; }
+.pane-row-bar > i { width: var(--pane-w); min-width: 2px; height: 100%; }
+.pane-row-bar-add { background: var(--open); }
+.pane-row-bar-del { background: var(--broken); border-radius: 0 4px 4px 0; }
+.pane-row-commit .commit-diffstat { justify-content: flex-end; }
+
+/* The year under the rhythm calendar, and the range against the one before it. */
+.hm-facts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.hm-facts > div { min-width: 0; }
+.hm-facts dt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.hm-facts dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hm-facts dd small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.hm-delta {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.hm-delta[data-dir="up"] { border-color: color-mix(in srgb, var(--open) 50%, var(--chip-border)); }
+.hm-delta[data-dir="down"] { border-color: color-mix(in srgb, var(--broken) 50%, var(--chip-border)); }
+
+/* Facts beside a ranked row. Hidden unless the chart is laid out as rows with
+   room for them, which only the wide Commits rail is. Each chart states its own
+   tracks, and the head above the author rows is laid out on the same ones, so a
+   column's name sits over its column. */
+.live-rank-extra {
+  display: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+}
+.live-rank-extra small { font-size: 10px; color: var(--muted); }
+.live-rank-extra .commit-diffstat { font-size: 11px; }
+.rank-cols-authors { --rank-label-w: 11rem; --rank-extra-cols: 2.8rem 8.4rem 2.4rem 2.6rem 5.4rem; }
+.rank-cols-repos { --rank-label-w: 9rem; --rank-extra-cols: 3rem 2.6rem; }
+.rank-cols-branches { --rank-label-w: 12rem; --rank-extra-cols: 2.6rem; }
+.rank-cols-share { --rank-label-w: 8rem; --rank-extra-cols: 2.8rem; }
+.rank-head {
+  display: grid;
+  grid-template-columns:
+    minmax(0, var(--rank-label-w, 11rem)) minmax(48px, 1fr) var(--rank-count-w, 3.4rem) var(--rank-extra-cols);
+  column-gap: 10px;
+  justify-items: end;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rank-head-start { justify-self: start; }
+.rank-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  justify-self: stretch;
+  height: 16px;
+}
+.rank-spark > i { flex: 1 1 0; min-width: 0; height: var(--spark-h); background: var(--accent); border-radius: 1px 1px 0 0; }
+.rank-spark > i[data-empty="true"] { background: var(--panel-2); }
 
 /* A selectable rank row is a <button> inside its own listitem wrapper (the role
    and the button cannot share an element without discarding aria-pressed), so

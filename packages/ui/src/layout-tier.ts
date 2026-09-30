@@ -70,6 +70,40 @@ export const RAIL_ROWS_QUERY = `(min-width: ${RAIL_ROWS_MIN_WIDTH_PX}px)`;
 export const RAIL_RANK_LIMIT = 6;
 export const RAIL_RANK_LIMIT_ROWS = 8;
 
+// Where the Commits supporting columns stop being one stack each and lay their
+// panes out two-up.
+//
+// Two numbers decide it, and both are about what a column must hold rather
+// than about the viewport. The list keeps its one-line rows only while it is
+// wider than 760px (CommitTimeline switches to the stacked card at or below
+// that), and a pane that carries a ranked row with its facts beside it needs
+// about 400px. With the 32 / 34 / 34 split this tier uses, a 2480px viewport
+// gives the list 770px and each supporting column two 400px modules. Below it
+// the halves would be too narrow to read, so the page keeps the rows tier.
+//
+// It also changes what spare height buys. Up to here the charts grow to fill
+// the pane; from here they keep a designed height and the height left over
+// goes to lists, which answer it with more rows.
+//
+// styles.css mirrors this number; layout-tier.test.ts keeps the two in step.
+export const COMMITS_PANES_MIN_WIDTH_PX = 2480;
+export const COMMITS_PANES_QUERY = `(min-width: ${COMMITS_PANES_MIN_WIDTH_PX}px)`;
+// The two lists that SCROLL inside their pane in this tier, Top repos and Top
+// branches. Their limit is about how much is worth scrolling to rather than
+// what fits: enough to hold every repo of a busy range, short of rendering a
+// thousand branch rows.
+export const COMMITS_PANES_RANK_LIMIT = 50;
+// The panes that do NOT scroll: their height is their row count, and it comes
+// out of the row the scrolling lists grow in. Commit types and scopes are
+// small closed vocabularies. Top authors is an open one, so it is the limit
+// that matters most here -- at the scrolling lists' fifty it was 1,400px of
+// authors in a 1,300px column, with everything else pushed below the fold.
+export const COMMITS_PANES_KIND_LIMIT = 12;
+export const COMMITS_PANES_AUTHOR_LIMIT = 10;
+// Bars in an author row's sparkline. The column is about 86px wide, so more
+// than this are narrower than the gap between them.
+export const COMMITS_PANES_SPARK_BARS = 30;
+
 // Commits needs about 480px for its wrapping list and 360px per supporting
 // pane, plus page padding and gaps. It fits three columns before Activity does.
 export const COMMIT_THREE_COLUMN_MIN_WIDTH_PX = 1280;

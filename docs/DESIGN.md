@@ -586,6 +586,24 @@ Pages:
   synchronized while following latest, without changing the device setting. At 1212–1279px the overview and digest
   rail stack in one column beside the list; from 1280px Commits shows the list,
   overview, and rail as three columns.
+  Up to 2479px the two supporting columns reach the bottom of the list by
+  growing their charts. From 2480px (`COMMITS_PANES_MIN_WIDTH_PX`) they are
+  two-up grids instead, the split is 32 / 34 / 34, and spare height goes to
+  lists rather than to marks: every chart keeps a designed height, and
+  Largest commits, Top repos, and Top branches take what is left and scroll
+  inside their pane. That tier adds a stacked per-day chart (by type, repo, or
+  author), lines changed per day, a day-by-hour grid in place of the hour
+  strip, Largest commits (a row pins that commit), commit scopes, per-row
+  facts on the ranked facets, a 12-month streak summary under the rhythm
+  calendar, and a comparison with the preceding period on the commit count.
+  The comparison reads `activity_daily`, which counts every commit, so it is
+  shown only while no source, repo, branch, or author filter is active and no
+  repository or source is hidden in Settings, only when the aggregate reaches
+  back far enough to cover the earlier window, and only when the rows on screen
+  account for the aggregate's own count for the selected range (within 2%) —
+  which is what hides it when the feed is windowed shorter than the range.
+  Every pane derives from the rows the list renders or from `activity_daily`;
+  none needs a contract field or a fetch of its own.
   Selected content cards share a subtle theme-aware fill and border across
   Commits, Items, Live, Reviews, and the Graph list; selection paints the
   rounded card rather than virtual-row spacing. Keyboard focus remains visible.

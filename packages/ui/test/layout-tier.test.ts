@@ -18,6 +18,12 @@ import {
   RAIL_ROWS_QUERY,
   RAIL_RANK_LIMIT,
   RAIL_RANK_LIMIT_ROWS,
+  COMMITS_PANES_AUTHOR_LIMIT,
+  COMMITS_PANES_KIND_LIMIT,
+  COMMITS_PANES_MIN_WIDTH_PX,
+  COMMITS_PANES_QUERY,
+  COMMITS_PANES_RANK_LIMIT,
+  COMMITS_PANES_SPARK_BARS,
   SPLIT_RAIL_MIN_WIDTH_PX,
   SPLIT_STACK_QUERY,
 } from "../src/layout-tier.ts";
@@ -432,6 +438,67 @@ test("the rail row tier is published once and mirrored in the stylesheet", () =>
     for (const [, deps] of text.matchAll(/useMemo\(\(\) => rank\w+\([^)]*rankLimit\), \[([^\]]*)\]\)/g)) {
       assert.match(deps, /rankLimit/, "a memo reading rankLimit must list it as a dependency");
     }
+  }
+});
+
+test("the Commits wide-panes tier is published once and mirrored in the stylesheet", () => {
+  assert.equal(COMMITS_PANES_MIN_WIDTH_PX, 2480);
+  assert.equal(COMMITS_PANES_QUERY, "(min-width: 2480px)");
+  // It refines the rows tier rather than replacing it: every row rule below it
+  // still applies, and this tier only changes what a row holds and what grows.
+  assert.ok(COMMITS_PANES_MIN_WIDTH_PX > RAIL_ROWS_MIN_WIDTH_PX);
+
+  const tier = mediaBlock(COMMITS_PANES_QUERY);
+  // The components render this tier's panes off the constant and the
+  // stylesheet lays them out off the query. If the two drift, either the
+  // two-up grid holds the narrow tier's four stretched panes or the new panes
+  // land in a single flex column with nothing to size them.
+  assert.match(tier, /\.commits-split\s*\{[^}]*grid-template-columns:[^}]*32fr[^}]*34fr[^}]*34fr/);
+  assert.match(tier, /\.commits-overview\[data-panes="wide"\]\s*\{[^}]*grid-template-columns:\s*repeat\(2,/);
+  assert.match(tier, /\.commits-rail\[data-panes="wide"\]:not\(\.commit-detail\)\s*\{[^}]*grid-template-columns:\s*repeat\(2,/);
+
+  // The list keeps its one-line rows only above the width at which the
+  // timeline switches to the stacked card, so the floor on its track has to
+  // clear that threshold or this tier would trade a wider rail for half as
+  // many commits on screen.
+  const floor = Number(/\.commits-split\s*\{[^}]*grid-template-columns:\s*minmax\((\d+)px,\s*32fr\)/.exec(tier)?.[1]);
+  const page = readFileSync(new URL("../src/components/CommitsPage.tsx", import.meta.url), "utf8");
+  const stacked = Number(/el\.clientWidth <= (\d+)/.exec(page)?.[1]);
+  assert.ok(Number.isFinite(floor) && Number.isFinite(stacked), "both widths must be readable from their sources");
+  assert.ok(floor > stacked, `the list floor (${floor}px) must clear the stacked-row threshold (${stacked}px)`);
+
+  // Spare height goes to lists here, not to charts: the rows stop stretching
+  // and the panes that take the leftover scroll inside themselves.
+  assert.match(tier, /\[data-panes="wide"\] \.live-rank-plot\s*\{[^}]*grid-auto-rows:\s*28px/);
+  assert.match(tier, /\[data-panes="wide"\] \.pane-fill \.live-rank-chart\s*\{[^}]*overflow-y:\s*auto/);
+  assert.doesNotMatch(tier, /\.rail-daybars|\.rail-hours/, "this tier renders neither strip, so it must not size them");
+
+  // A scrolling list holds more than a fitted one, and the closed vocabularies
+  // stay short enough not to need to scroll.
+  assert.ok(COMMITS_PANES_RANK_LIMIT > RAIL_RANK_LIMIT_ROWS);
+  assert.ok(COMMITS_PANES_KIND_LIMIT > RAIL_RANK_LIMIT_ROWS && COMMITS_PANES_KIND_LIMIT < COMMITS_PANES_RANK_LIMIT);
+
+  // The fifty-row limit is for the lists that scroll. Top authors does not: its
+  // chart is outside .pane-fill, so its height is its row count, taken out of
+  // the row the scrolling lists grow in. Fed the scrolling limit it was taller
+  // than the whole column.
+  const rail = readFileSync(new URL("../src/components/CommitsRail.tsx", import.meta.url), "utf8");
+  assert.ok(COMMITS_PANES_AUTHOR_LIMIT < COMMITS_PANES_RANK_LIMIT && COMMITS_PANES_AUTHOR_LIMIT <= COMMITS_PANES_KIND_LIMIT);
+  assert.match(rail, /rankActors\(authorSource, authorLimit, actorIndex\)/, "the authors pane must use its own bounded limit");
+  assert.match(
+    rail,
+    /className=\{`rail-rank-chart\$\{wide \? " rank-cols-authors" : ""\}`\}/,
+    "the authors chart is not a scroller, which is why its limit is bounded",
+  );
+  // A sparkline is bounded by its column, not by the calendar.
+  assert.ok(COMMITS_PANES_SPARK_BARS >= 7 && COMMITS_PANES_SPARK_BARS <= 40);
+  assert.match(rail, /sparkBuckets\(perDay, COMMITS_PANES_SPARK_BARS\)/);
+
+  // One decision, made in the page, handed to both columns.
+  assert.match(page, /useMediaQuery\(COMMITS_PANES_QUERY\)/);
+  for (const source of ["../src/components/CommitsOverview.tsx", "../src/components/CommitsRail.tsx"]) {
+    const text = readFileSync(new URL(source, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /COMMITS_PANES_QUERY|min-width:\s*2480/, `${source} takes the tier as a prop, it does not re-derive it`);
   }
 });
 

@@ -1,7 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityDTO, ReviewThreadDTO } from "@symphony-board/contract";
-import { actorAvatarIndex, actorIndex, actorsOf, commitAuthorOptions, commitTypeOf, countsByDay, countsByHour, dayAxisTicks, rankActions, rankActors, rankBranches, rankCommitTypes, rankKinds, rankRepos, shortRepoLabel } from "../src/rail-stats.ts";
+import {
+  actorAvatarIndex,
+  actorDetails,
+  actorIndex,
+  actorsOf,
+  branchDetails,
+  churnByDay,
+  commitAuthorOptions,
+  commitScopeOf,
+  commitSizeSummary,
+  commitTypeOf,
+  countsByDay,
+  countsByHour,
+  dayAxisTicks,
+  largestCommits,
+  punchCard,
+  rankActions,
+  rankActors,
+  rankBranches,
+  rankCommitScopes,
+  rankCommitTypes,
+  rankKinds,
+  rankRepos,
+  repoDetails,
+  shortRepoLabel,
+  sparkBuckets,
+  stackedDays,
+} from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
   return {
@@ -405,4 +432,249 @@ test("dayAxisTicks labels every day of a short range and only the ends of a long
 
   assert.deepEqual(dayAxisTicks(span(1)), [{ index: 0, label: "09-01" }]);
   assert.deepEqual(dayAxisTicks([]), []);
+});
+
+// ---- wide-panes aggregates ---------------------------------------------------
+
+const sized = (over: Partial<ActivityDTO>, additions?: number, deletions?: number): ActivityDTO =>
+  activity({ ...over, details: { ...(over.details ?? {}), ...(additions === undefined ? {} : { additions, deletions }) } });
+
+test("stackedDays keeps the top series, folds the rest into one bucket, and zero-fills the span", () => {
+  const typeOf = (a: ActivityDTO) => {
+    const type = commitTypeOf(a.title ?? "");
+    return { key: type, label: type };
+  };
+  const rows = [
+    ...Array.from({ length: 4 }, () => activity({ title: "fix: a", occurred_at: "2026-09-01T10:00:00Z" })),
+    ...Array.from({ length: 3 }, () => activity({ title: "feat: b", occurred_at: "2026-09-01T11:00:00Z" })),
+    ...Array.from({ length: 2 }, () => activity({ title: "docs: c", occurred_at: "2026-09-03T11:00:00Z" })),
+    activity({ title: "ci: d", occurred_at: "2026-09-03T12:00:00Z" }),
+    activity({ title: "not conventional", occurred_at: "2026-09-03T12:00:00Z" }),
+  ];
+
+  const stack = stackedDays(rows, "UTC", "2026-09-01", "2026-09-03", typeOf, 2);
+
+  // Two named series by total, then ONE fold. The unparsed type is itself called
+  // "other", and must land in the fold rather than beside it as a second "other".
+  assert.deepEqual(stack.series, [
+    { key: "fix", label: "fix", count: 4 },
+    { key: "feat", label: "feat", count: 3 },
+    { key: "other", label: "other", count: 4 },
+  ]);
+  assert.deepEqual(stack.days, [
+    { date: "2026-09-01", total: 7, segments: [4, 3, 0] },
+    { date: "2026-09-02", total: 0, segments: [0, 0, 0] },
+    { date: "2026-09-03", total: 4, segments: [0, 0, 4] },
+  ]);
+  assert.equal(stack.max, 7);
+  // Every day's segments add up to its total: nothing is dropped by the fold.
+  for (const day of stack.days) assert.equal(day.segments.reduce((a, b) => a + b, 0), day.total);
+});
+
+test("stackedDays keeps a key that is literally the fold's out of the named series", () => {
+  // The common real case: unconventional subjects outnumber every type, so
+  // "other" would rank FIRST among the named series. It must still be the one
+  // trailing fold -- kept as a named series it would be drawn twice, once under
+  // its own colour and once as the fold, with the same key and the same name.
+  const typeOf = (a: ActivityDTO) => {
+    const type = commitTypeOf(a.title ?? "");
+    return { key: type, label: type };
+  };
+  const rows = [
+    ...Array.from({ length: 5 }, () => activity({ title: "plain subject" })),
+    ...Array.from({ length: 3 }, () => activity({ title: "fix: a" })),
+    activity({ title: "feat: b" }),
+  ];
+  const stack = stackedDays(rows, "UTC", "2026-09-10", "2026-09-10", typeOf, 4);
+  assert.deepEqual(stack.series, [
+    { key: "fix", label: "fix", count: 3 },
+    { key: "feat", label: "feat", count: 1 },
+    { key: "other", label: "other", count: 5 },
+  ]);
+  assert.deepEqual(stack.days[0]?.segments, [3, 1, 5]);
+  assert.equal(new Set(stack.series.map((s) => s.key)).size, stack.series.length, "series keys are unique");
+});
+
+test("stackedDays adds no fold when every key fits", () => {
+  const stack = stackedDays(
+    [activity({ title: "fix: a" }), activity({ title: "feat: b" })],
+    "UTC", "2026-09-10", "2026-09-10",
+    (a) => ({ key: commitTypeOf(a.title ?? ""), label: commitTypeOf(a.title ?? "") }),
+    4,
+  );
+  assert.deepEqual(stack.series.map((s) => s.key), ["feat", "fix"]);
+  assert.deepEqual(stack.days[0]?.segments, [1, 1]);
+});
+
+test("churnByDay sums line counts per day and counts only the commits that carry them", () => {
+  const rows = [
+    sized({ occurred_at: "2026-09-01T10:00:00Z" }, 10, 4),
+    sized({ occurred_at: "2026-09-01T12:00:00Z" }, 5, 0),
+    // A merge, or a commit the producer could not read: no counts at all.
+    activity({ occurred_at: "2026-09-01T13:00:00Z" }),
+    sized({ occurred_at: "2026-09-02T09:00:00Z" }, 0, 7),
+  ];
+  assert.deepEqual(churnByDay(rows, "UTC", "2026-09-01", "2026-09-03"), [
+    { date: "2026-09-01", additions: 15, deletions: 4, counted: 2, commits: 3 },
+    { date: "2026-09-02", additions: 0, deletions: 7, counted: 1, commits: 1 },
+    { date: "2026-09-03", additions: 0, deletions: 0, counted: 0, commits: 0 },
+  ]);
+});
+
+test("punchCard draws one row per day for a short range", () => {
+  const rows = [
+    activity({ occurred_at: "2026-09-24T21:10:00Z" }),
+    activity({ occurred_at: "2026-09-24T21:50:00Z" }),
+    activity({ occurred_at: "2026-09-25T03:00:00Z" }),
+  ];
+  const card = punchCard(rows, "UTC", "2026-09-24", "2026-09-26");
+  assert.equal(card.byWeekday, false);
+  assert.deepEqual(card.rows.map((r) => [r.key, r.weekday, r.total]), [
+    ["2026-09-24", "Thu", 2],
+    ["2026-09-25", "Fri", 1],
+    ["2026-09-26", "Sat", 0],
+  ]);
+  assert.equal(card.rows[0]?.hours.length, 24);
+  assert.equal(card.rows[0]?.hours[21], 2);
+  assert.equal(card.max, 2);
+  assert.deepEqual(card.peak, { key: "2026-09-24", weekday: "Thu", hour: 21, count: 2 });
+});
+
+test("punchCard folds a long range onto the seven weekdays, Monday first", () => {
+  const rows = [
+    activity({ occurred_at: "2026-09-07T09:00:00Z" }), // Mon
+    activity({ occurred_at: "2026-09-14T09:30:00Z" }), // Mon
+    activity({ occurred_at: "2026-09-13T23:00:00Z" }), // Sun
+  ];
+  const card = punchCard(rows, "UTC", "2026-09-01", "2026-09-30");
+  assert.equal(card.byWeekday, true);
+  assert.deepEqual(card.rows.map((r) => r.weekday), ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+  assert.equal(card.rows[0]?.hours[9], 2);
+  assert.equal(card.rows[6]?.hours[23], 1);
+  assert.deepEqual(card.peak, { key: "Mon", weekday: "Mon", hour: 9, count: 2 });
+});
+
+test("punchCard has no peak when nothing landed in the range", () => {
+  assert.equal(punchCard([], "UTC", "2026-09-01", "2026-09-02").peak, null);
+});
+
+test("largestCommits ranks by lines changed and skips commits without counts", () => {
+  const rows = [
+    sized({ external_id: "small" }, 1, 1),
+    sized({ external_id: "big" }, 400, 90),
+    activity({ external_id: "merge" }),
+    sized({ external_id: "mid", occurred_at: "2026-09-10T12:00:00Z" }, 30, 20),
+    // Same size as `mid` but newer: the newer one leads.
+    sized({ external_id: "mid-newer", occurred_at: "2026-09-11T12:00:00Z" }, 25, 25),
+  ];
+  const top = largestCommits(rows, 3);
+  assert.deepEqual(top.map((t) => [t.commit.external_id, t.lines]), [["big", 490], ["mid-newer", 50], ["mid", 50]]);
+  assert.deepEqual([top[0]?.additions, top[0]?.deletions], [400, 90]);
+  assert.equal(largestCommits(rows, 0).length, 4, "0 means no limit, like the rankings");
+});
+
+test("commitSizeSummary reports the middle and the largest of the commits that carry counts", () => {
+  assert.deepEqual(commitSizeSummary([sized({}, 100, 100), sized({}, 1, 1), sized({}, 10, 0), activity({})]), {
+    median: 10,
+    largest: 200,
+  });
+  assert.deepEqual(commitSizeSummary([activity({})]), { median: null, largest: null }, "no counts, no figures");
+});
+
+test("sparkBuckets keeps a bar per day while they fit and sums runs of days beyond that", () => {
+  // Within the budget: untouched, one bar per day.
+  assert.deepEqual(sparkBuckets([1, 0, 2], 30), [1, 0, 2]);
+  // Beyond it: the bar count is the budget, whatever the range, and nothing is
+  // lost -- the buckets add up to the series.
+  const year = Array.from({ length: 365 }, (_, i) => (i % 7 === 0 ? 3 : 1));
+  const bars = sparkBuckets(year, 30);
+  assert.equal(bars.length, 30);
+  assert.equal(bars.reduce((a, b) => a + b, 0), year.reduce((a, b) => a + b, 0));
+  // Runs, in order: the first six days land in the first of three bars.
+  assert.deepEqual(sparkBuckets([1, 1, 1, 1, 1, 1, 5, 5, 5], 3), [3, 3, 15]);
+  assert.deepEqual(sparkBuckets([], 30), []);
+});
+
+test("commitScopeOf reads the conventional-commit scope and nothing else", () => {
+  assert.equal(commitScopeOf("fix(agent-session): recover sessions"), "agent-session");
+  assert.equal(commitScopeOf("feat(UI)!: breaking"), "ui");
+  assert.equal(commitScopeOf("fix: no scope"), null);
+  assert.equal(commitScopeOf("Update (notes): not conventional"), null);
+  assert.equal(commitScopeOf("chore(): empty"), null);
+});
+
+test("rankCommitScopes counts scoped commits only", () => {
+  const rows = [
+    activity({ title: "fix(ui): a" }),
+    activity({ title: "feat(ui): b" }),
+    activity({ title: "fix(api): c" }),
+    activity({ title: "docs: d" }),
+  ];
+  assert.deepEqual(rankCommitScopes(rows, 5), [
+    { key: "ui", label: "ui", count: 2 },
+    { key: "api", label: "api", count: 1 },
+  ]);
+});
+
+test("actorDetails merges identities and reports lines, repos, active days and a per-day series", () => {
+  const index = actorIndex(directory);
+  const rows = [
+    sized({ actor: "terrylin", project_path: "acme/api", occurred_at: "2026-09-01T10:00:00Z" }, 10, 2),
+    sized({ actor: "Terry LIN", project_path: "acme/web", occurred_at: "2026-09-03T10:00:00Z" }, 5, 5),
+    activity({ actor: "terrylin", project_path: "acme/api", occurred_at: "2026-09-03T11:00:00Z" }),
+    sized({ actor: "ada", occurred_at: "2026-09-02T10:00:00Z" }, 1, 0),
+  ];
+  const details = actorDetails(rows, index, "UTC", "2026-09-01", "2026-09-03");
+  assert.deepEqual(details.get("terrylin"), {
+    additions: 15,
+    deletions: 7,
+    counted: 2,
+    repos: 2,
+    activeDays: 2,
+    perDay: [1, 0, 2],
+  });
+  assert.deepEqual(details.get("ada")?.perDay, [0, 1, 0]);
+  assert.equal(details.has("Terry LIN"), false, "a facet is not a second person");
+});
+
+test("repoDetails counts distinct people and keeps the newest commit instant", () => {
+  const index = actorIndex(directory);
+  const rows = [
+    activity({ actor: "terrylin", occurred_at: "2026-09-01T10:00:00Z" }),
+    activity({ actor: "Terry LIN", occurred_at: "2026-09-04T10:00:00Z" }),
+    activity({ actor: "ada", occurred_at: "2026-09-02T10:00:00Z" }),
+    activity({ actor: "ada", source_id: "gl", occurred_at: "2026-09-03T10:00:00Z" }),
+  ];
+  const details = repoDetails(rows, index);
+  assert.deepEqual(details.get("gh|acme/api"), { authors: 2, lastAt: "2026-09-04T10:00:00Z" });
+  assert.deepEqual(details.get("gl|acme/api"), { authors: 1, lastAt: "2026-09-03T10:00:00Z" });
+});
+
+test("branchDetails counts the repositories a branch name appears in", () => {
+  const rows = [
+    activity({ project_path: "acme/api", details: { branch: "main" } }),
+    activity({ project_path: "acme/web", details: { branch: "main" } }),
+    activity({ project_path: "acme/web", details: { branch: "feat/x" } }),
+  ];
+  const details = branchDetails(rows);
+  assert.deepEqual(details.get("main"), { repos: 2 });
+  assert.deepEqual(details.get("feat/x"), { repos: 1 });
+});
+
+test("a row's zoned day is remembered per zone, not across zones", () => {
+  // The per-row day and hour are cached on the row object, because the wide
+  // Commits tier asks for them seven times over. 20:30 UTC is already the next
+  // day in Taipei, so reusing the UTC answer for the second zone would put the
+  // commit on the wrong bar -- and asking for UTC again afterwards must not get
+  // the Taipei one back.
+  const rows = [activity({ occurred_at: "2026-09-10T20:30:00Z" })];
+  assert.deepEqual(countsByDay(rows, "UTC", "2026-09-10", "2026-09-11").map((d) => d.count), [1, 0]);
+  assert.deepEqual(countsByDay(rows, "Asia/Taipei", "2026-09-10", "2026-09-11").map((d) => d.count), [0, 1]);
+  assert.equal(countsByHour(rows, "Asia/Taipei")[4]?.count, 1);
+  assert.equal(countsByHour(rows, "UTC")[20]?.count, 1);
+  assert.deepEqual(countsByDay(rows, "UTC", "2026-09-10", "2026-09-11").map((d) => d.count), [1, 0]);
+  // An unparseable instant is remembered as unparseable, in every zone.
+  const broken = [activity({ occurred_at: "not a date" })];
+  assert.deepEqual(countsByDay(broken, "UTC", "2026-09-10", "2026-09-10").map((d) => d.count), [0]);
+  assert.deepEqual(countsByDay(broken, "Asia/Taipei", "2026-09-10", "2026-09-10").map((d) => d.count), [0]);
 });

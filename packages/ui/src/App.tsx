@@ -2087,6 +2087,8 @@ export function App() {
           onClearDetailRoute={replaceCommitDetailRouteClosed}
           actorAvatars={actorAvatars}
           commits={commits}
+          hiddenRepos={hidden.size}
+          hiddenSources={hiddenSources.size}
           windowTotal={windowCommits.length}
           totalCommits={totalCommits}
           repoOptions={commitRepos}
