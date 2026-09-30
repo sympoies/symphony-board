@@ -1863,7 +1863,8 @@ a.rf-node-title:hover { color: var(--accent); }
     height: auto;
     min-height: 76px;
   }
-  .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-repos { min-height: 84px; }
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-repos,
+  .commits-split > .commits-rail:not(.commit-detail) .live-rank-chart-labels { min-height: 84px; }
   .commits-split > .commits-context > .commits-overview .rail-daybars,
   .commits-split > .commits-context > .commits-overview .rail-hours {
     flex: 1 1 auto;
@@ -4491,8 +4492,12 @@ a.rf-node-title:hover { color: var(--accent); }
   column-gap: 8px;
   align-items: stretch;
 }
-.live-rank-chart-repos .live-rank-plot,
-.live-rank-chart-labels .live-rank-plot {
+/* `-labels` is deliberately NOT here. The wider track is the repo charts' own:
+   six of them need 6*34 + 5*10 = 254px, which the narrowest rail (a 238px plot
+   at 1212-1279px) does not have. A label chart keeps the default 26px / 8px
+   tracks; what stops its words wrapping is the full-width footer below, not a
+   wider track. */
+.live-rank-chart-repos .live-rank-plot {
   grid-auto-columns: minmax(34px, 1fr);
   column-gap: 10px;
 }

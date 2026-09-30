@@ -6905,20 +6905,26 @@ try {
           overflowing,
           overflowingCounts,
           fullBarCountOverflow,
-          // The repos facet in the row layout. Its chart carries an extra class
-          // whose vertical-bar rules (a fixed 14px bar, a 34px two-line footer)
-          // sit later in the stylesheet at the same specificity as the row
-          // relayout, so they won: every repo drew the same 14px stub whatever
-          // its count, under a name sitting a line above it.
-          repoBars: [...(rail.querySelector('.live-rank-chart-repos')?.querySelectorAll('.live-rank-item') || [])].map((item) => {
-            const bar = item.querySelector('.live-rank-bar')?.getBoundingClientRect();
-            const name = item.querySelector('.live-rank-name')?.getBoundingClientRect();
-            return {
-              count: Number((item.querySelector('.live-rank-tooltip')?.textContent || '').replace(/,/g, '')),
-              barPx: bar ? Math.round(bar.width) : 0,
-              offCentre: bar && name ? Math.round(Math.abs((name.top + name.height / 2) - (bar.top + bar.height / 2))) : null,
-            };
-          }),
+          // Every text-label chart in the row layout, one entry per chart. These
+          // carry an extra class (-repos, or -labels for types, branches,
+          // kinds and actions) whose vertical-bar rules -- a fixed 14px bar, a
+          // 34px two-line footer -- sit later in the stylesheet at the same
+          // specificity as the row relayout, so they won: every row drew the
+          // same 14px stub whatever its count, under a name a line above it.
+          // Measured per chart, because the row relayout has to name each
+          // variant to outrank it and a variant left out fails alone.
+          labelCharts: [...rail.querySelectorAll('.live-rank-chart-repos, .live-rank-chart-labels')].map((chart) => ({
+            title: (chart.closest('.rail-block')?.querySelector('.rail-block-title')?.textContent || '').trim(),
+            bars: [...chart.querySelectorAll('.live-rank-item')].map((item) => {
+              const bar = item.querySelector('.live-rank-bar')?.getBoundingClientRect();
+              const name = item.querySelector('.live-rank-name')?.getBoundingClientRect();
+              return {
+                count: Number((item.querySelector('.live-rank-tooltip')?.textContent || '').replace(/,/g, '')),
+                barPx: bar ? Math.round(bar.width) : 0,
+                offCentre: bar && name ? Math.round(Math.abs((name.top + name.height / 2) - (bar.top + bar.height / 2))) : null,
+              };
+            }),
+          })),
           // The count is a permanent column here, not a hover tip, so it has to
           // be read at a glance: 10px in the secondary ink was neither.
           countFontPx: parseFloat(getComputedStyle(rail.querySelector('.live-rank-tooltip') || rail).fontSize),
@@ -7417,19 +7423,23 @@ try {
     ],
     [
       railTwoUp.length === 2 &&
-        railTwoUp.every((r) => {
-          const bars = r.repoBars || [];
-          const counts = new Set(bars.map((b) => b.count));
-          return (
-            bars.length > 0 &&
-            bars.every((b) => b.offCentre != null && b.offCentre <= 3) &&
-            // Ranked, so widths never increase down the list...
-            bars.every((b, i) => i === 0 || b.barPx <= bars[i - 1].barPx) &&
-            // ...and different counts must not all draw the same bar.
-            (counts.size < 2 || new Set(bars.map((b) => b.barPx)).size > 1)
-          );
-        }),
-      `rails: repo rows draw bars in proportion to their counts, level with their names (${JSON.stringify(railTwoUp.map((r) => ({ page: r.page, repoBars: r.repoBars })))})`,
+        railTwoUp.every((r) =>
+          // Repos plus at least two label charts per rail (types and branches on
+          // Commits; kinds and actions on Activity).
+          (r.labelCharts || []).length >= 3 &&
+          r.labelCharts.every(({ bars }) => {
+            const counts = new Set(bars.map((b) => b.count));
+            return (
+              bars.length > 0 &&
+              bars.every((b) => b.offCentre != null && b.offCentre <= 3) &&
+              // Ranked, so widths never increase down the list...
+              bars.every((b, i) => i === 0 || b.barPx <= bars[i - 1].barPx) &&
+              // ...and different counts must not all draw the same bar.
+              (counts.size < 2 || new Set(bars.map((b) => b.barPx)).size > 1)
+            );
+          }),
+        ),
+      `rails: every text-label chart draws its rows in proportion to their counts, level with their names (${JSON.stringify(railTwoUp.map((r) => ({ page: r.page, labelCharts: r.labelCharts })))})`,
     ],
     [
       railTwoUp.length === 2 && railTwoUp.every((r) => r.countFontPx >= 11 && r.nameFontPx >= 12),
