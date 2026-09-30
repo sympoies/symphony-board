@@ -100,6 +100,14 @@ export function columnCollapsed(
   return isEmpty ? !peeked.has(kind) : collapsed.has(kind);
 }
 
+// A phone shows one board column at a time; this picks the one it opens on: the
+// first column, in board order, that has items — so an empty leading lane
+// (Trackers on a board with no tracker, a collapsed rail) never hides the
+// populated columns. With nothing anywhere it falls back to Open.
+export function initialMobileColumn(columns: ReadonlyArray<{ kind: string; items: readonly unknown[] }>): string {
+  return columns.find((c) => c.items.length > 0)?.kind ?? "open";
+}
+
 // Derive each item's board status from its own state (status is an intrinsic
 // property; filtered items are placed into columns by the caller).
 export function deriveStatuses(items: ItemDTO[]): Map<string, ItemStatus> {

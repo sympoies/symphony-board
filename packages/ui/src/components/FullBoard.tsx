@@ -8,6 +8,7 @@ import {
   columnCollapsed,
   computeBoardWindowStats,
   findContractScopedStats,
+  initialMobileColumn,
   STATUS_ORDER,
   STATUS_LABEL,
   STATUS_DESC,
@@ -215,8 +216,8 @@ export function FullBoard({
     })),
     ...lanes.filter(({ lane }) => !lane.lead).map(laneColumn),
   ];
-  // A phone shows one column at a time; it opens on the first (Trackers).
-  const [mobileKind, setMobileKind] = useState<string>(columns[0]?.kind ?? "open");
+  // A phone shows one column at a time (see model.initialMobileColumn).
+  const [mobileKind, setMobileKind] = useState<string>(() => initialMobileColumn(columns));
   const { paneRef: boardPaneRef, paneHeightStyle } = useContentPaneHeight<HTMLElement>([
     boardItems.length,
     lanes.length,

@@ -100,6 +100,7 @@ import {
   STATUS_ORDER,
   spotlight,
   columnCollapsed,
+  initialMobileColumn,
   itemIsPrimaryWindow,
   buildColorIndex,
   resolveRepoColor,
@@ -3377,6 +3378,15 @@ test("columnCollapsed: empty is a rail unless peeked; non-empty is a rail only i
   for (const kind of ["lane-trackers", "open", "closed", "lane-follow-up", "lane-pr"]) {
     assert.equal(columnCollapsed(kind, false, stale, none), false, `stale keys leave ${kind} expanded`);
   }
+});
+
+test("initialMobileColumn: the phone opens on the first column that has items", () => {
+  const col = (kind: string, n: number) => ({ kind, items: Array.from({ length: n }) });
+  assert.equal(initialMobileColumn([col("lane-trackers", 2), col("open", 5)]), "lane-trackers", "trackers present -> Trackers");
+  // An empty leading lane is a collapsed rail; the phone must not land on it.
+  assert.equal(initialMobileColumn([col("lane-trackers", 0), col("open", 5)]), "open", "no trackers -> first populated column");
+  assert.equal(initialMobileColumn([col("lane-trackers", 0), col("open", 0), col("closed", 3)]), "closed");
+  assert.equal(initialMobileColumn([col("lane-trackers", 0), col("open", 0)]), "open", "nothing anywhere -> Open");
 });
 
 // The spotlight lanes are pure label/kind/state conventions compiled from
