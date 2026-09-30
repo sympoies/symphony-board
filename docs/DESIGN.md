@@ -202,6 +202,9 @@ compare against the default branch (one or two extra calls per pushed branch per
 sweep — affordable at the incremental cadence). Feeds merge per sha into one
 activity row whose `details.branch` / `details.ref` carry the primary branch and
 `details.branches` / `details.refs` the full membership (default branch first).
+The row also names the repository's default branch (`details.default_branch`)
+and marks a commit with more than one parent (`details.merge`); both are read
+from the stored payload, not from a request of their own.
 A deleted branch stops being discovered; rows it produced keep the labels they
 earned. Per-source `commit_branches: "default"` restores the default-branch-only
 feed as an escape hatch.
@@ -318,7 +321,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.8.0`.
+Current major: v4. Current emitted version: `4.8.1`.
 
 Version `1.1.0` added display metadata:
 
@@ -652,7 +655,17 @@ Pages:
   account for the aggregate's own count for the selected range (within 2%) —
   which is what hides it when the feed is windowed shorter than the range.
   Every pane derives from the rows the list renders or from `activity_daily`;
-  none needs a contract field or a fetch of its own.
+  none needs a fetch of its own.
+  A merge commit (`details.merge`) is tagged `merge` where its line counts
+  would be, so it no longer reads as a commit whose counts are unknown, and a
+  device-local toolbar toggle leaves merges out of the list and of every pane;
+  the period comparison is withheld while it is on. The repository's default
+  branch (`details.default_branch`) is drawn first and emphasized on a commit's
+  branch chips. In the 2480px tier the per-day chart can also be split by
+  default branch vs. side branch or by merge vs. commit, a Merges tile appears
+  when the range has any, and Top branches leads with the default branches and
+  states the share of commits on one. A row from a producer that names no
+  default branch is left out of that share rather than counted as a side branch.
   Selected content cards share a subtle theme-aware fill and border across
   Commits, Items, Live, Reviews, and the Graph list; selection paints the
   rounded card rather than virtual-row spacing. Keyboard focus remains visible.

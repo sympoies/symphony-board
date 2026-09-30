@@ -13,6 +13,7 @@ import {
   activityRouteMatches,
   activityMatches,
   filterCommits,
+  commitIsMerge,
   commitRepoOptions,
   commitBranchOptions,
   preferredDefaultTimeRange,
@@ -117,6 +118,8 @@ import {
   saveCommitsFollowLatest,
   loadCommitFileStats,
   saveCommitFileStats,
+  loadCommitsHideMerges,
+  saveCommitsHideMerges,
   loadBoardScope,
   saveBoardScope,
   deviceCeilingDays,
@@ -302,6 +305,7 @@ export function App() {
   const [liveTabEnabled, setLiveTabEnabled] = useState<boolean>(loadLiveTabEnabled);
   const [commitsFollowLatest, setCommitsFollowLatest] = useState<boolean>(loadCommitsFollowLatest);
   const [commitFileStats, setCommitFileStats] = useState<boolean>(loadCommitFileStats);
+  const [commitsHideMerges, setCommitsHideMerges] = useState<boolean>(loadCommitsHideMerges);
   // Whether THIS device loads contract-backed board data at all. Date range owns
   // download size; this setting only gates "full/on" vs "off/Live-only".
   const [boardScope, setBoardScope] = useState<BoardScope>(loadBoardScope);
@@ -793,6 +797,9 @@ export function App() {
     saveCommitFileStats(commitFileStats);
   }, [commitFileStats]);
   useEffect(() => {
+    saveCommitsHideMerges(commitsHideMerges);
+  }, [commitsHideMerges]);
+  useEffect(() => {
     saveBoardScope(boardScope);
   }, [boardScope]);
   // Persist + re-apply the wide-layout preference. useLayoutEffect so the viewport
@@ -1279,19 +1286,27 @@ export function App() {
     [visibleEnv?.actor_directory, route.author],
   );
   const windowCommits = useMemo(() => filterCommits(windowedActivities), [windowedActivities]);
-  const repoCommits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, source: route.source }), [windowedActivities, route.repo, route.source]);
-  const commits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, author: route.author, authorActors: routeAuthorActors }), [windowedActivities, route.repo, route.branch, route.source, route.author, routeAuthorActors]);
+  // How many of the window's commits are merges: whether the "hide merges"
+  // control has anything to act on. Counted before the preference applies, so
+  // the control does not vanish the moment it is used.
+  const windowMergeCount = useMemo(() => windowCommits.reduce((n, c) => (commitIsMerge(c) ? n + 1 : n), 0), [windowCommits]);
+  // Hiding merges is a reading preference, not a facet: it narrows the list and
+  // every facet source alike. `windowCommits` stays whole, because it is the
+  // total the header sets the visible count against.
+  const hideMerges = commitsHideMerges;
+  const repoCommits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, source: route.source, hideMerges }), [windowedActivities, route.repo, route.source, hideMerges]);
+  const commits = useMemo(() => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, author: route.author, authorActors: routeAuthorActors, hideMerges }), [windowedActivities, route.repo, route.branch, route.source, route.author, routeAuthorActors, hideMerges]);
   // The digest rail's two ranked lists are FACETS: each is counted with every
   // filter applied EXCEPT its own. Counting them off `commits` instead would
   // collapse the list you are standing in to a single row and leave nowhere to
   // click next — selecting a repo would hide every other repo.
   const commitRailRepoSource = useMemo(
-    () => filterCommits(windowedActivities, { branch: route.branch, author: route.author, authorActors: routeAuthorActors }),
-    [windowedActivities, route.branch, route.author, routeAuthorActors],
+    () => filterCommits(windowedActivities, { branch: route.branch, author: route.author, authorActors: routeAuthorActors, hideMerges }),
+    [windowedActivities, route.branch, route.author, routeAuthorActors, hideMerges],
   );
   const commitRailAuthorSource = useMemo(
-    () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source }),
-    [windowedActivities, route.repo, route.branch, route.source],
+    () => filterCommits(windowedActivities, { repo: route.repo, branch: route.branch, source: route.source, hideMerges }),
+    [windowedActivities, route.repo, route.branch, route.source, hideMerges],
   );
   // Contract actor directory (4.7.0+) as the lookups every actor ranking needs.
   // Built once per contract rather than per rail: the Commits rail alone ranks
@@ -1303,8 +1318,8 @@ export function App() {
     [visibleEnv?.review_threads, visibleEnv?.activities, railActorIndex],
   );
   const commitRailBranchSource = useMemo(
-    () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author, authorActors: routeAuthorActors }),
-    [windowedActivities, route.repo, route.source, route.author, routeAuthorActors],
+    () => filterCommits(windowedActivities, { repo: route.repo, source: route.source, author: route.author, authorActors: routeAuthorActors, hideMerges }),
+    [windowedActivities, route.repo, route.source, route.author, routeAuthorActors, hideMerges],
   );
   // Source chip options: every source with a commit in the window, counted
   // BEFORE the source filter so the chip you are standing on is not the only one
@@ -2118,6 +2133,9 @@ export function App() {
           followLatest={commitsFollowLatest}
           onFollowLatest={() => setCommitsFollowLatest(true)}
           fileStats={commitFileStats}
+          mergeCount={windowMergeCount}
+          hideMerges={commitsHideMerges}
+          onHideMerges={setCommitsHideMerges}
           onRepo={setRouteRepo}
           onBranch={setRouteBranch}
           onAuthor={setRouteAuthor}

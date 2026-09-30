@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { SourceRepo } from "./SourceRepo.tsx";
 import { DiffStat } from "./DiffStat.tsx";
 import { safeHref } from "../url.ts";
-import { commitBody, commitBranches, commitMessage, commitSha, commitStats, relativeTime, type ColorOf } from "../model.ts";
+import { commitBody, commitIsMerge, commitMessage, commitRefs, commitSha, commitStats, relativeTime, type ColorOf } from "../model.ts";
 
 // The selected commit, inserted before the overview so the original pane moves
 // down intact. This is what lets the full commit message be read at all: the
@@ -45,7 +45,8 @@ export function CommitDetail({
   onClose: () => void;
 }) {
   const sha = commitSha(commit);
-  const branches = commitBranches(commit);
+  const refs = commitRefs(commit);
+  const merge = commitIsMerge(commit);
   const body = commitBody(commit);
   const stats = commitStats(commit);
   const href = safeHref(commit.url);
@@ -127,7 +128,17 @@ export function CommitDetail({
               </dd>
             </div>
           ) : null}
-          {stats ? (
+          {/* A merge has no line counts by design, and the row says so: left
+              out, it read the same as a commit whose counts are unknown. */}
+          {merge ? (
+            <div className="commit-detail-row">
+              <dt>Lines</dt>
+              <dd>
+                <span className="commit-merge-tag">merge</span>
+                <span className="muted">counted in the commits it brought in</span>
+              </dd>
+            </div>
+          ) : stats ? (
             <div className="commit-detail-row">
               <dt>Lines</dt>
               <dd>
@@ -135,13 +146,14 @@ export function CommitDetail({
               </dd>
             </div>
           ) : null}
-          {branches.length > 0 ? (
+          {refs.length > 0 ? (
             <div className="commit-detail-row">
-              <dt>{branches.length === 1 ? "Branch" : "Branches"}</dt>
+              <dt>{refs.length === 1 ? "Branch" : "Branches"}</dt>
               <dd className="commit-detail-branches">
-                {branches.map((branch) => (
-                  <span key={branch} className="chip commit-branch-chip">
-                    {branch}
+                {refs.map((ref) => (
+                  <span key={ref.name} className="chip commit-branch-chip" data-default={ref.isDefault ? "true" : undefined}>
+                    {ref.name}
+                    {ref.isDefault ? <small>default</small> : null}
                   </span>
                 ))}
               </dd>

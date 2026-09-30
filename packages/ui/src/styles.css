@@ -1932,7 +1932,11 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .commits-overview[data-panes="wide"] > .pane-span { grid-column: 1 / -1; }
   .commits-overview[data-panes="wide"] > .pane-fill { grid-row: 5; }
-  .commits-overview[data-panes="wide"] .hm-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* Six tracks, and the one two-number tile takes two of them. Twelve cells in
+     two rows is what the tier's tiles come to, so the block's height is the
+     same whatever the range holds. */
+  .commits-overview[data-panes="wide"] .hm-summary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .commits-overview[data-panes="wide"] .hm-summary > [data-span="2"] { grid-column: span 2; }
 
   /* The rail: authors across the top, the two lists that filter beside each
      other in the row that grows, the two read-only vocabularies under them. A
@@ -2964,9 +2968,31 @@ a.rf-node-title:hover { color: var(--accent); }
   padding: 1px 7px;
   background: var(--chip-bg);
 }
+/* The repository's default branch (contract 4.8.1). Marked by weight and ink
+   rather than hue: the chip's border and fill are the row's quiet chrome, and a
+   colored chip per row would turn the list into a column of badges. The title
+   attribute says what the emphasis means. */
+.commit-ref-chip[data-default="true"] {
+  color: var(--text);
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--text) 38%, var(--chip-border));
+}
 .commit-row-actions {
   flex: none;
   display: flex; align-items: center; gap: 6px;
+}
+/* Stands where the line counts would: a merge has none by design, and saying
+   "merge" is what separates it from a commit whose counts are unknown (which
+   shows nothing). Same type and size as the diffstat it replaces. */
+.commit-merge-tag {
+  flex: none;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  border: 1px dashed var(--chip-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  white-space: nowrap;
 }
 .commit-sha {
   color: var(--muted);
@@ -5237,6 +5263,9 @@ span.live-avatar { cursor: default; }
 /* The source chips sit on their own line above the repo / branch controls, so a
    two-source board does not push the repo combobox into a second row. */
 .commits-toolbar .commits-source-group { flex-basis: 100%; }
+/* "default" after a branch name in Top branches. A word, not a color: the rank
+   bars beside it already spend the accent. */
+.rank-default-tag { margin-left: 6px; color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: 0.02em; }
 
 /* ==================== side rails (Commits digest, Activity who/where/when) ====
    Both rails are stacks of small titled blocks on the page surface, deliberately
@@ -5696,18 +5725,21 @@ span.live-avatar { cursor: default; }
   white-space: nowrap;
 }
 .hm-facts dd small { font-size: 11px; font-weight: 500; color: var(--muted); }
+/* On the tile's detail line, at that line's size: beside the count it was a
+   second thing on a line sized for one number, and wrapped under it. */
 .hm-delta {
   display: inline-block;
-  margin-left: 8px;
-  padding: 1px 7px;
+  padding: 0 5px;
   border: 1px solid var(--chip-border);
   border-radius: 999px;
   background: var(--chip-bg);
   color: var(--text);
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 600;
-  line-height: 1.4;
-  vertical-align: middle;
+  /* No taller than the line it sits in, so a tile with a comparison is the same
+     height as one without. */
+  line-height: 1;
+  vertical-align: baseline;
 }
 .hm-delta[data-dir="up"] { border-color: color-mix(in srgb, var(--open) 50%, var(--chip-border)); }
 .hm-delta[data-dir="down"] { border-color: color-mix(in srgb, var(--broken) 50%, var(--chip-border)); }
@@ -5931,6 +5963,8 @@ span.live-avatar { cursor: default; }
   padding: 2px 8px;
   font-size: 11px;
 }
+.commit-branch-chip[data-default="true"] { font-weight: 600; border-color: color-mix(in srgb, var(--text) 38%, var(--chip-border)); }
+.commit-branch-chip small { margin-left: 6px; color: var(--muted); font-size: 10px; font-weight: 500; }
 /* The detail title IS the provider link (see CommitDetail), so it keeps the
    title color and only brightens on hover — the same rule .commit-message-link
    follows in the list, rather than the teal `a` color. */

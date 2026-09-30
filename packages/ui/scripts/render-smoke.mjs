@@ -547,6 +547,13 @@ function inflateActivityContract(body) {
               // could not read, so the fixture has to contain a row that shows
               // no diffstat beside rows that do.
               ...(i % 4 === 0 ? {} : { additions: (i * 7) % 250, deletions: (i * 3) % 90 }),
+              // Half of the rows without counts say why: they are merges. The
+              // other half stay the "could not be read" shape, so the fixture
+              // holds both and the page has to tell them apart.
+              ...(i % 8 === 0 ? { merge: true } : {}),
+              // Every commit names the repository's default branch except every
+              // seventh, which is the row an older producer would have written.
+              ...(i % 7 === 0 ? {} : { default_branch: "main" }),
             }
           : {}),
         smoke_index: i,
@@ -7176,6 +7183,59 @@ try {
     }))()`,
     returnByValue: true,
   })).result.value || {};
+  // How the range landed (contract 4.8.1): merges are named rather than shown
+  // as rows with no line counts, and the default branch is marked wherever a
+  // branch is drawn.
+  await send("Runtime.evaluate", {
+    expression: "[...document.querySelectorAll('.commits-overview .pane-seg-option')].find((b) => (b.textContent || '').trim() === 'merge')?.click()",
+  });
+  await sleep(200);
+  const commitsLanding = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rail = document.querySelector('.commits-rail:not(.commit-detail)');
+      const rowsEl = [...document.querySelectorAll('.commit-list .commit-row')];
+      const branches = [...(rail?.querySelectorAll(':scope > .rail-block') || [])]
+        .find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches');
+      const mergeRows = rowsEl.filter((row) => row.querySelector('.commit-merge-tag'));
+      return {
+        rows: rowsEl.length,
+        mergeRows: mergeRows.length,
+        // A merge shows its tag INSTEAD of line counts, never beside them.
+        mergeRowsWithCounts: mergeRows.filter((row) => row.querySelector('.commit-diffstat')).length,
+        defaultChips: [...new Set([...document.querySelectorAll('.commit-list .commit-ref-chip[data-default="true"]')].map((el) => (el.textContent || '').trim()))],
+        tiles: [...document.querySelectorAll('.commits-overview .hm-summary dt')].map((el) => (el.textContent || '').trim()),
+        splitOptions: [...document.querySelectorAll('.commits-overview .pane-seg-option')].map((b) => (b.textContent || '').trim()),
+        mergeSeries: [...document.querySelectorAll('.commits-overview .stack-legend-item')].map((el) => (el.firstElementChild?.nextSibling?.textContent || '').trim()),
+        branchHead: (branches?.querySelector('.rail-block-meta')?.textContent || '').trim(),
+        firstBranch: (branches?.querySelector('.live-rank-item .live-rank-name')?.textContent || '').trim(),
+        defaultTags: branches?.querySelectorAll('.rank-default-tag').length ?? -1,
+        toggle: (document.querySelector('.commits-merge-toggle')?.getAttribute('aria-pressed')) ?? null,
+        count: (document.querySelector('.commits-page .activity-head .count')?.textContent || '').trim(),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  // Hiding merges is a reading preference: the rows go, and so does anything
+  // that would now compare a part of the range with the whole of another.
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-merge-toggle')?.click()" });
+  await sleep(350);
+  const commitsMergesHidden = (await send("Runtime.evaluate", {
+    expression: `(() => ({
+      mergeRows: document.querySelectorAll('.commit-list .commit-merge-tag').length,
+      tiles: [...document.querySelectorAll('.commits-overview .hm-summary dt')].map((el) => (el.textContent || '').trim()),
+      delta: document.querySelectorAll('.commits-overview .hm-delta').length,
+      toggle: (document.querySelector('.commits-merge-toggle')?.getAttribute('aria-pressed')) ?? null,
+      count: (document.querySelector('.commits-page .activity-head .count')?.textContent || '').trim(),
+      stored: localStorage.getItem('symphony-board:commits-hide-merges'),
+    }))()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-merge-toggle')?.click()" });
+  await sleep(250);
+  await send("Runtime.evaluate", {
+    expression: "[...document.querySelectorAll('.commits-overview .pane-seg-option')].find((b) => (b.textContent || '').trim() === 'type')?.click()",
+  });
+  await sleep(150);
   // A row of Largest commits is a way INTO that commit: it pins the detail pane.
   await send("Runtime.evaluate", { expression: "document.querySelector('.commits-overview .pane-row-commit')?.click()" });
   await sleep(350);
@@ -7767,7 +7827,7 @@ try {
       `commits: the spare height goes to lists, and both columns still end with the list beside them (${JSON.stringify({ overviewShort: commitsWidePanes.overviewShort, railShort: commitsWidePanes.railShort, selfScroll: [commitsWidePanes.overviewSelfScroll, commitsWidePanes.railSelfScroll], paneShort: [commitsWidePanes.overviewPaneShort, commitsWidePanes.railPaneShort], largestScrollsInside: commitsWidePanes.largestScrollsInside, pageOverflow: commitsWidePanes.pageOverflow, largest: commitsWidePanes.largestRows, repos: commitsWidePanes.repoRows, branches: commitsWidePanes.branchRows })})`,
     ],
     [
-      commitsWidePanes.tiles === 8 &&
+      commitsWidePanes.tiles === 9 &&
         commitsWidePanes.rhythmFacts >= 4 &&
         commitsWidePanes.authorExtras === 5 &&
         commitsWidePanes.authorHeadDrift != null &&
@@ -7783,6 +7843,30 @@ try {
         (commitsWideSplitByRepo.series || []).length >= 2 &&
         JSON.stringify(commitsWideSplitByRepo.series) !== JSON.stringify(commitsWidePanes.daySeries),
       `commits: the per-day chart re-cuts by repo on request (${JSON.stringify(commitsWideSplitByRepo)} from ${JSON.stringify(commitsWidePanes.daySeries)})`,
+    ],
+    [
+      commitsLanding.mergeRows > 0 &&
+        commitsLanding.mergeRows < commitsLanding.rows &&
+        commitsLanding.mergeRowsWithCounts === 0 &&
+        JSON.stringify(commitsLanding.defaultChips) === JSON.stringify(["main"]) &&
+        (commitsLanding.tiles || []).includes("merges") &&
+        ["branch", "merge"].every((option) => (commitsLanding.splitOptions || []).includes(option)) &&
+        JSON.stringify([...(commitsLanding.mergeSeries || [])].sort()) === JSON.stringify(["commit", "merge"]) &&
+        /on the default branch/.test(commitsLanding.branchHead || "") &&
+        /^main/.test(commitsLanding.firstBranch || "") &&
+        commitsLanding.defaultTags === 1 &&
+        commitsLanding.toggle === "false",
+      `commits: merges are named and the default branch is marked (${JSON.stringify(commitsLanding)})`,
+    ],
+    [
+      commitsMergesHidden.mergeRows === 0 &&
+        !(commitsMergesHidden.tiles || []).includes("merges") &&
+        commitsMergesHidden.delta === 0 &&
+        commitsMergesHidden.toggle === "true" &&
+        commitsMergesHidden.stored === "true" &&
+        / of /.test(commitsMergesHidden.count || "") &&
+        commitsMergesHidden.count !== commitsLanding.count,
+      `commits: hiding merges removes them from the page and withholds the period comparison (${JSON.stringify(commitsMergesHidden)} from ${JSON.stringify(commitsLanding.count)})`,
     ],
     [
       commitsWideLargestPin.hasDetail === true &&

@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.8.0`.
+Current emitted version: `4.8.1`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.8.1` | clarification | `details.merge` / `details.default_branch` on commit activity rows | Activities |
 | `4.8.0` | additive | `items[].window_reasons` value `program_tracker`; open labeled program trackers are always emitted | Item Window |
 | `4.7.3` | clarification | `parent` / `blocks` edges from program tracker phase tables | Edges |
 | `4.7.2` | clarification | `details.actor_avatar_url` on supported activity rows | Activities |
@@ -40,7 +41,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.8.0",
+  "contract_version": "4.8.1",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -454,6 +455,12 @@ below):
   rather than "no change". They are also absent for every MERGE commit by
   design: a provider reports a merge's counts against its first parent, so a
   consumer summing a range would count the merged branch's work twice.
+  A commit with more than one parent carries `details.merge: true`; the key is
+  absent on every other commit, so it is what tells a merge from a commit whose
+  counts could not be read. A commit row may also carry
+  `details.default_branch`, the name of the repository's default branch as the
+  sweep that stored the commit read it. `details.branch` alone cannot say this:
+  a commit that lives only on a side branch reports that side branch there.
 
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for comments, commits, and
@@ -574,6 +581,27 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.8.1` is a clarification release: commit activity rows may now carry
+`details.merge` and `details.default_branch`. `details` was already an open
+object and every key in it was already optional, so no row shape changed and no
+consumer breaks.
+
+`details.merge` is `true` for a commit with more than one parent and absent
+otherwise — never `false`. It exists because a merge carries no line counts by
+design, which left it indistinguishable from a commit whose counts the producer
+could not read; a consumer can now say "merge" instead of "unknown", count
+merges, or leave them out.
+
+`details.default_branch` is the repository's default branch name. A commit is
+on the default branch when that name is in its branch membership
+(`details.branch` / `details.branches`); when the key is absent the answer is
+unknown, not "on a side branch". The value is the one the storing sweep read,
+so a repository that renames its default branch reports the new name only on
+rows a later sweep re-reads.
+
+Both come from the stored raw payload, so neither costs a provider request.
+There is no backfill: a row gains them when a sweep re-reads its commit.
 
 Version `4.7.2` is a clarification release: supported activity rows may carry
 `details.actor_avatar_url` for the matching provider account's photo. `details`

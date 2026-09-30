@@ -15,6 +15,7 @@ import {
   EMPTY_ACTOR_INDEX,
   actorDetails,
   branchDetails,
+  commitLanding,
   rankActors,
   rankBranches,
   rankCommitScopes,
@@ -208,7 +209,30 @@ export function CommitsRail({
   const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);
   const typeTotal = useMemo(() => rankCommitTypes(commits, 0).length, [commits]);
   const selectedRepoKey = selectedRepo && selectedSource ? `${selectedSource}|${selectedRepo}` : null;
+  // The share of the range's commits that landed on a default branch, out of
+  // the rows that name one (contract 4.8.1). A producer that does not say
+  // leaves `known` at zero, and the head falls back to the busiest branch --
+  // which is a fact about these rows, where a name like `main` is not evidence.
+  const leadBranch = branchRanks[0];
+  const landing = useMemo(() => (wide ? commitLanding(branchSource) : null), [wide, branchSource]);
+  const branchLead =
+    landing && landing.known > 0
+      ? `${share(landing.onDefault, landing.known)} on the default branch`
+      : leadBranch
+        ? `${share(leadBranch.count, branchSource.length)} on ${leadBranch.label}`
+        : null;
+  // Default branches lead the wide table whatever their count: they are where
+  // work lands, and every row under them is a branch that has not landed yet.
+  const branchRows = useMemo(
+    () =>
+      branchFacts
+        ? [...branchRanks.filter((rank) => branchFacts.get(rank.key)?.isDefault), ...branchRanks.filter((rank) => !branchFacts.get(rank.key)?.isDefault)]
+        : branchRanks,
+    [branchRanks, branchFacts],
+  );
 
+  // Every hook is above this line: the phone's Files pane returns early, and a
+  // hook below it would run on one render and not the next.
   if (showOnlyChangedFiles) {
     return (
       <aside className="commits-rail" aria-label="Changed files">
@@ -361,19 +385,11 @@ export function CommitsRail({
     </div>
   );
 
-  // The share of the range's commits on its busiest branch. Not "on the default
-  // branch": the contract does not say which branch that is, and a name is not
-  // evidence. The busiest one is a fact about these rows.
-  const leadBranch = branchRanks[0];
   const branchesBlock = (
     <div className="rail-block pane-fill">
       <div className="rail-block-head">
         <span className="rail-block-title">Top branches</span>
-        <span className="rail-block-meta">
-          {wide && leadBranch
-            ? `${share(leadBranch.count, branchSource.length)} on ${leadBranch.label} · ${branchTotal} total`
-            : `${branchTotal} total`}
-        </span>
+        <span className="rail-block-meta">{wide && branchLead ? `${branchLead} · ${branchTotal} total` : `${branchTotal} total`}</span>
       </div>
       {wide && branchRanks.length > 0 ? (
         <RankHead cols="rank-cols-branches" label="branch" extras={[{ label: "repos" }]} />
@@ -384,7 +400,7 @@ export function CommitsRail({
         empty="no branch refs in range"
         countLabel={commitCountLabel}
         scale={wide ? "max" : "axis"}
-        items={branchRanks.map((rank) => {
+        items={branchRows.map((rank) => {
           const facts = branchFacts?.get(rank.key);
           return {
             key: rank.key,
@@ -392,7 +408,9 @@ export function CommitsRail({
             count: rank.count,
             selected: rank.label === selectedBranch,
             extra: facts ? <span>{facts.repos}</span> : undefined,
-            detail: facts ? `in ${facts.repos} ${pluralize(facts.repos, "repo")}` : undefined,
+            detail: facts
+              ? `${facts.isDefault ? "default branch, " : ""}in ${facts.repos} ${pluralize(facts.repos, "repo")}`
+              : undefined,
             onSelect: () => onBranch(rank.label === selectedBranch ? null : rank.label),
             footer: (
               <span className="live-rank-name" aria-hidden="true">
@@ -400,6 +418,7 @@ export function CommitsRail({
                     has room for the name, and `fix/x` and `docs/x` are two
                     different branches. */}
                 {wide ? rank.label : shortRepoLabel(rank.label)}
+                {facts?.isDefault ? <small className="rank-default-tag">default</small> : null}
               </span>
             ),
           };

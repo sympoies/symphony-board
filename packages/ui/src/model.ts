@@ -1013,8 +1013,8 @@ export function previousPeriodCount(
 }
 
 // Whether the Commits rows are the whole of what the board tracks, with nothing
-// narrowing them: no route filter, and no repository or source hidden in
-// Settings. It is the first half of "may the count be set against
+// narrowing them: no route filter, no repository or source hidden in Settings,
+// and merge commits not left out. It is the first half of "may the count be set against
 // activity_daily", which counts every commit of every repository.
 //
 // rangeIsCovered below is the second half and checks the CURRENT window
@@ -1028,8 +1028,19 @@ export function commitScopeIsWhole(scope: {
   author?: string | null;
   hiddenRepos: number;
   hiddenSources: number;
+  // Merge commits left out of the rows (the Commits page preference). The
+  // aggregate still counts them.
+  mergesHidden?: boolean;
 }): boolean {
-  return !scope.source && !scope.repo && !scope.branch && !scope.author && scope.hiddenRepos === 0 && scope.hiddenSources === 0;
+  return (
+    !scope.source &&
+    !scope.repo &&
+    !scope.branch &&
+    !scope.author &&
+    scope.hiddenRepos === 0 &&
+    scope.hiddenSources === 0 &&
+    scope.mergesHidden !== true
+  );
 }
 
 // Whether the rows on screen account for the range the aggregate describes.
@@ -1975,6 +1986,45 @@ export function commitBranches(activity: ActivityDTO): string[] {
   return out.sort();
 }
 
+// Whether the commit is a merge (more than one parent). The producer writes
+// `details.merge: true` for those and omits the key otherwise (contract 4.8.1),
+// so only the literal `true` counts: an older producer's row is simply "not
+// known to be a merge", and nothing else in a `details` bag is a claim.
+export function commitIsMerge(activity: ActivityDTO): boolean {
+  return activity.details?.merge === true;
+}
+
+// The repository's default branch as the producer read it (contract 4.8.1), or
+// null when the row does not say. `details.branch` cannot stand in for it: that
+// is the commit's PRIMARY branch, which for a commit that lives only on a side
+// branch is the side branch.
+export function commitDefaultBranch(activity: ActivityDTO): string | null {
+  return shortRef(detailText(activity.details, "default_branch"));
+}
+
+// Three answers, not two: on the default branch, off it, or — for a row that
+// names no default branch — unknown. Callers that count a share leave the
+// unknown rows out of the base rather than filing them under "side branch".
+export function commitOnDefaultBranch(activity: ActivityDTO): boolean | null {
+  const defaultBranch = commitDefaultBranch(activity);
+  return defaultBranch === null ? null : commitBranches(activity).includes(defaultBranch);
+}
+
+export interface CommitRef {
+  name: string;
+  isDefault: boolean;
+}
+
+// A commit's branches for display: the default branch first and marked, the
+// rest alphabetical. commitBranches is alphabetical throughout, which suits a
+// filter's option list but put `main` behind every `feat/*` on a row that only
+// has room to show two.
+export function commitRefs(activity: ActivityDTO): CommitRef[] {
+  const defaultBranch = commitDefaultBranch(activity);
+  const refs = commitBranches(activity).map((name) => ({ name, isDefault: name === defaultBranch }));
+  return [...refs.filter((ref) => ref.isDefault), ...refs.filter((ref) => !ref.isDefault)];
+}
+
 // The Commits page filters by repo and, when the contract carries branch refs,
 // by exact branch. Repo and branch are exact matches because both controls offer
 // closed option sets; a stale URL value intentionally narrows to zero rows.
@@ -1997,6 +2047,10 @@ export type CommitFilter = {
   // to match several of them. Absent/empty falls back to exact `author`
   // equality, which is the pre-4.7.0 behavior and what an unmerged name needs.
   authorActors?: readonly string[] | null;
+  // Leave merge commits out. A view preference rather than a facet: it applies
+  // to the list and to every facet source alike, because a merge is not a
+  // place to go — it is a kind of row the reader has asked not to see.
+  hideMerges?: boolean;
 };
 
 export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = {}): ActivityDTO[] {
@@ -2005,9 +2059,11 @@ export function filterCommits(activities: ActivityDTO[], filter: CommitFilter = 
   const source = filter.source?.trim() || null;
   const author = filter.author?.trim() || null;
   const authorActors = filter.authorActors?.length ? new Set(filter.authorActors) : null;
+  const hideMerges = filter.hideMerges === true;
   return activities.filter(
     (a) =>
       isCommitActivity(a) &&
+      (!hideMerges || !commitIsMerge(a)) &&
       (source === null || a.source_id === source) &&
       (repo === null || a.project_path === repo) &&
       (branch === null || commitBranches(a).includes(branch)) &&

@@ -44,7 +44,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
+import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
@@ -799,7 +799,15 @@ export class GitLabSource implements Source {
         summary: `Committed ${sha.slice(0, 8)}${p.project ? ` in ${p.project}` : ""}`,
         // The list feed inlines `commit.stats`; the compare feed does not, so a
         // separately resolved `p.stats` stands in for those rows.
-        details: commitDetails(sha, title, body, payloadBranches(p), commitLineStats(p.stats ?? commit.stats, parentCount(commit.parent_ids))),
+        details: commitDetails({
+          sha,
+          message: title,
+          body,
+          branches: payloadBranches(p),
+          defaultBranch: cleanText(p.defaultBranch),
+          parentCount: parentCount(commit.parent_ids),
+          stats: p.stats ?? commit.stats,
+        }),
       };
       return { item: null, labels: [], edges: [], activities: [activity] };
     }
@@ -980,30 +988,6 @@ function messageBody(value: unknown): string | null {
 
 function parentCount(parents: unknown): number {
   return Array.isArray(parents) ? parents.length : 0;
-}
-
-// Branch detail for a commit row: `branch`/`ref` carry the primary branch (the
-// default branch whenever the commit is on it), and multi-branch membership
-// adds the full `branches`/`refs` lists. `additions`/`deletions` are the
-// commit's line counts when the producer could read them and the commit is not
-// a merge (see docs/CONTRACT.md activity details).
-function commitDetails(sha: string, message: string | null, body: string | null, branches: string[], stats: CommitLineStats | null): Record<string, unknown> {
-  const details: Record<string, unknown> = { sha, message };
-  if (body) details.body = body;
-  const primary = branches[0];
-  if (primary) {
-    details.branch = primary;
-    details.ref = `refs/heads/${primary}`;
-  }
-  if (branches.length > 1) {
-    details.branches = branches;
-    details.refs = branches.map((b) => `refs/heads/${b}`);
-  }
-  if (stats) {
-    details.additions = stats.additions;
-    details.deletions = stats.deletions;
-  }
-  return details;
 }
 
 // Branch membership stored on a commit payload. Payloads written before the

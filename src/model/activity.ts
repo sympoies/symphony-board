@@ -39,6 +39,55 @@ function lineCount(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
+// What a commit activity row says about its commit, shared by both providers so
+// the row has one shape and one set of rules (see docs/CONTRACT.md, Activities).
+//
+// `branch`/`ref` carry the primary branch (the default branch whenever the
+// commit is on it), and multi-branch membership adds the full `branches`/`refs`
+// lists. `default_branch` names the repository's default branch beside them,
+// because the primary branch of a commit that lives only on a side branch is
+// that side branch — so without it a consumer cannot tell the two apart.
+//
+// `merge` is present, and true, only for a commit with more than one parent. A
+// merge carries no line counts by design (commitLineStats), which made it
+// indistinguishable from a commit whose counts could not be read.
+//
+// Every optional key is absent rather than empty when the payload does not
+// support it: absent means "unknown", never "no".
+export interface CommitDetailsInput {
+  sha: string;
+  message: string | null;
+  body: string | null;
+  // Default branch first, side branches alphabetical (the payload's order).
+  branches: string[];
+  defaultBranch: string | null;
+  parentCount: number;
+  // The provider's raw line counts, validated by commitLineStats.
+  stats: unknown;
+}
+
+export function commitDetails(input: CommitDetailsInput): Record<string, unknown> {
+  const details: Record<string, unknown> = { sha: input.sha, message: input.message };
+  if (input.body) details.body = input.body;
+  const primary = input.branches[0];
+  if (primary) {
+    details.branch = primary;
+    details.ref = `refs/heads/${primary}`;
+  }
+  if (input.branches.length > 1) {
+    details.branches = input.branches;
+    details.refs = input.branches.map((b) => `refs/heads/${b}`);
+  }
+  if (input.defaultBranch) details.default_branch = input.defaultBranch;
+  if (input.parentCount > 1) details.merge = true;
+  const stats = commitLineStats(input.stats, input.parentCount);
+  if (stats) {
+    details.additions = stats.additions;
+    details.deletions = stats.deletions;
+  }
+  return details;
+}
+
 export function itemActivities(item: CanonicalItem): CanonicalActivity[] {
   const target = { sourceId: item.sourceId, externalId: item.externalId };
   const base = {

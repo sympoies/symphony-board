@@ -57,6 +57,10 @@ import {
   commitSha,
   commitShortSha,
   commitStats,
+  commitIsMerge,
+  commitDefaultBranch,
+  commitOnDefaultBranch,
+  commitRefs,
   commitRepoOptions,
   itemInTimeRange,
   filterItemsByRange,
@@ -534,6 +538,49 @@ test("commitStats reads a whole pair of line counts, or nothing", () => {
   for (const [why, details] of unknown) {
     assert.equal(commitStats(activity({ kind: "commit", action: "committed", details })), null, why);
   }
+});
+
+test("a commit row says whether it is a merge and where the default branch is", () => {
+  const commit = (details: ActivityDTO["details"]) => activity({ kind: "commit", action: "committed", details });
+
+  // Only the literal `true` is a merge: the producer omits the key otherwise,
+  // and a truthy string from some other producer is not a claim to act on.
+  assert.equal(commitIsMerge(commit({ sha: "a1", merge: true })), true);
+  assert.equal(commitIsMerge(commit({ sha: "a1" })), false);
+  assert.equal(commitIsMerge(commit({ sha: "a1", merge: "true" })), false);
+  assert.equal(commitIsMerge(commit(null)), false);
+
+  assert.equal(commitDefaultBranch(commit({ sha: "a1", branch: "main", default_branch: "main" })), "main");
+  assert.equal(commitDefaultBranch(commit({ sha: "a1", branch: "main" })), null, "a producer that does not say leaves it unknown");
+
+  // On the default branch, off it, and unknown are three answers, not two: a
+  // row from a producer that names no default branch is not "on a side branch".
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branch: "main", default_branch: "main" })), true);
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branches: ["main", "feat/x"], default_branch: "main" })), true);
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branch: "feat/x", default_branch: "main" })), false);
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branch: "main" })), null);
+});
+
+test("commitRefs lists a commit's branches with the default branch first and marked", () => {
+  const commit = (details: ActivityDTO["details"]) => activity({ kind: "commit", action: "committed", details });
+  // Alphabetical order put `main` behind every `feat/*`, and the row shows two.
+  assert.deepEqual(commitRefs(commit({ sha: "a1", branches: ["feat/a", "feat/b", "main"], default_branch: "main" })), [
+    { name: "main", isDefault: true },
+    { name: "feat/a", isDefault: false },
+    { name: "feat/b", isDefault: false },
+  ]);
+  assert.deepEqual(commitRefs(commit({ sha: "a1", branch: "feat/a", default_branch: "main" })), [{ name: "feat/a", isDefault: false }]);
+  assert.deepEqual(commitRefs(commit({ sha: "a1", branch: "main" })), [{ name: "main", isDefault: false }], "unknown is not marked");
+});
+
+test("filterCommits can leave merge commits out", () => {
+  const rows = [
+    activity({ id: "gh|c1", external_id: "c1", kind: "commit", action: "committed", details: { sha: "a1" } }),
+    activity({ id: "gh|c2", external_id: "c2", kind: "commit", action: "committed", details: { sha: "a2", merge: true } }),
+  ];
+  assert.deepEqual(filterCommits(rows).map((a) => a.external_id), ["c1", "c2"]);
+  assert.deepEqual(filterCommits(rows, { hideMerges: false }).map((a) => a.external_id), ["c1", "c2"]);
+  assert.deepEqual(filterCommits(rows, { hideMerges: true }).map((a) => a.external_id), ["c1"]);
 });
 
 test("filterCommits keeps only commit records, optionally pinned to one repo", () => {
@@ -3791,4 +3838,7 @@ test("commitScopeIsWhole is true only with no route filter and nothing hidden", 
   // not, whether or not they had commits in the selected range.
   assert.equal(commitScopeIsWhole({ ...whole, hiddenRepos: 1 }), false);
   assert.equal(commitScopeIsWhole({ ...whole, hiddenSources: 1 }), false);
+  // Hiding merges removes rows the aggregate still counts.
+  assert.equal(commitScopeIsWhole({ ...whole, mergesHidden: true }), false);
+  assert.equal(commitScopeIsWhole({ ...whole, mergesHidden: false }), true);
 });

@@ -21,8 +21,9 @@ import { EMPTY_ACTOR_INDEX, type ActorIndex, type CommitAuthorOption } from "../
 import {
   buildCommitRows,
   activityKey,
-  commitBranches,
+  commitIsMerge,
   commitMessage,
+  commitRefs,
   commitSha,
   commitShortSha,
   commitStats,
@@ -288,7 +289,8 @@ function CommitTimeline({
           // activity `id` in 4.0.0; reconstruct it from source_id|external_id).
           const rowKey = activityKey(commit);
           const copied = copiedId === rowKey;
-          const branches = commitBranches(commit);
+          const refs = commitRefs(commit);
+          const merge = commitIsMerge(commit);
           const accentColor = colorOf(commit.source_id, commit.project_path);
           const actor = commit.actor ? `@${commit.actor}` : "unknown author";
           return (
@@ -362,8 +364,18 @@ function CommitTimeline({
                       <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
                     </span>
                     <span className="commit-meta-who">{actor} committed {relativeTime(commit.occurred_at)}</span>
-                    {branches.slice(0, 2).map((branch) => (
-                      <span key={branch} className="commit-ref-chip">{branch}</span>
+                    {/* Default branch first (commitRefs), since the row has room for
+                        two: a commit on `main` and three feature branches should
+                        say `main`. */}
+                    {refs.slice(0, 2).map((ref) => (
+                      <span
+                        key={ref.name}
+                        className="commit-ref-chip"
+                        data-default={ref.isDefault ? "true" : undefined}
+                        title={ref.isDefault ? `${ref.name} · default branch` : undefined}
+                      >
+                        {ref.name}
+                      </span>
                     ))}
                   </div>
                   {expanded && body ? (
@@ -373,7 +385,16 @@ function CommitTimeline({
                   ) : null}
                 </div>
                 <div className="commit-row-actions">
-                  <DiffStat stats={commitStats(commit)} />
+                  {/* A merge has no line counts by design. Saying so is what
+                      separates it from a commit whose counts are unknown, which
+                      shows nothing here. */}
+                  {merge ? (
+                    <span className="commit-merge-tag" title="Merge commit: its lines are counted in the commits it brought in">
+                      merge
+                    </span>
+                  ) : (
+                    <DiffStat stats={commitStats(commit)} />
+                  )}
                   {short ? <code className="commit-sha">{short}</code> : null}
                   <button
                     type="button"
@@ -435,6 +456,9 @@ export function CommitsPage({
   followLatest,
   onFollowLatest,
   fileStats,
+  mergeCount = 0,
+  hideMerges = false,
+  onHideMerges,
   hiddenRepos = 0,
   hiddenSources = 0,
   onRepo,
@@ -486,6 +510,12 @@ export function CommitsPage({
   // diffstat, rendered at the head of the digest rail. Off by default, because
   // it is one provider read per commit the pane shows.
   fileStats: boolean;
+  // Merge commits in the loaded window (before the preference applies), and the
+  // device preference that leaves them out of the page. The control is offered
+  // only while there is a merge to hide or the preference is already on.
+  mergeCount?: number;
+  hideMerges?: boolean;
+  onHideMerges?: (hide: boolean) => void;
   // How many repositories and sources Settings hides. `commits` already has
   // them removed; the page only needs to know THAT something is, because the
   // full-history aggregate it compares against does not.
@@ -614,7 +644,8 @@ export function CommitsPage({
   // shows them. Foldable screens expand the inline toolbar on demand.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterSheetTab, setFilterSheetTab] = useState<"repo" | "branch" | "author">("repo");
-  const activeFilterCount = (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0) + (selectedAuthor ? 1 : 0);
+  const activeFilterCount =
+    (selectedRepo ? 1 : 0) + (selectedBranch ? 1 : 0) + (selectedSource ? 1 : 0) + (selectedAuthor ? 1 : 0) + (hideMerges ? 1 : 0);
   // The summary has to name every filter the count counts, or a pinned source
   // reads as "1 active" over the words "all repos · all branches".
   const filtersSummary =
@@ -625,6 +656,7 @@ export function CommitsPage({
           selectedRepo ?? "all repos",
           selectedBranch ?? "all branches",
           selectedAuthor ?? "all authors",
+          hideMerges ? "no merges" : null,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -670,6 +702,21 @@ export function CommitsPage({
           </button>
         ))}
       </div>
+    ) : null;
+  // A pressed button rather than a checkbox, like the source chips beside it:
+  // the toolbar's other controls are all "what am I looking at", and this is
+  // one more of those.
+  const mergeToggle =
+    onHideMerges && (mergeCount > 0 || hideMerges) ? (
+      <button
+        type="button"
+        className={`toggle commits-merge-toggle${hideMerges ? " toggle-on" : ""}`}
+        aria-pressed={hideMerges}
+        title={`${mergeCount.toLocaleString("en-US")} merge ${pluralize(mergeCount, "commit")} in range`}
+        onClick={() => onHideMerges(!hideMerges)}
+      >
+        hide merges
+      </button>
     ) : null;
   const filterBody = () => (
     <div className="commits-toolbar commits-toolbar-inline">
@@ -731,6 +778,7 @@ export function CommitsPage({
           ))}
         </select>
       </label>
+      {mergeToggle}
     </div>
   );
   const repoFilterSection = () => (
@@ -911,6 +959,7 @@ export function CommitsPage({
         </button>
       </div>
       {sourceChips}
+      {mergeToggle}
       {filterSheetTab === "repo" ? repoFilterSection() : filterSheetTab === "branch" ? branchFilterSection() : authorFilterSection()}
     </div>
   );
@@ -954,6 +1003,7 @@ export function CommitsPage({
               author: selectedAuthor,
               hiddenRepos,
               hiddenSources,
+              mergesHidden: hideMerges,
             })}
             selectedKey={selectedKey}
             // A Largest commits row pins, and never toggles: the row is a way

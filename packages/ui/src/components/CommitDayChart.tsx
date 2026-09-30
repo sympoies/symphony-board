@@ -1,6 +1,6 @@
 import type { ActivityDTO } from "@symphony-board/contract";
 import { memo, useMemo, useState, type CSSProperties } from "react";
-import { commitMessage } from "../model.ts";
+import { commitIsMerge, commitMessage, commitOnDefaultBranch } from "../model.ts";
 import type { TimeRange } from "../model.ts";
 import {
   STACK_FOLD_KEY,
@@ -21,15 +21,16 @@ import { formatAxisValue, niceAxisMax } from "../rank-scale.ts";
 // bigger. This keeps the plot at a designed height and spends the room on a
 // second variable instead: each bar is stacked by commit type, by repository or
 // by author, so a tall day also says whether it was a release, one repo, or one
-// person.
+// person -- or by how it landed: on the default branch or a side branch, as a
+// merge or a plain commit.
 //
 // Four series and a fold, because the theme has four series hues and because a
 // reader cannot hold more than that in a legend. The fold is a real series: a
 // day's segments always add up to its total.
 
-type StackBy = "type" | "repo" | "author";
+type StackBy = "type" | "repo" | "author" | "branch" | "merge";
 
-const STACK_BY: readonly StackBy[] = ["type", "repo", "author"];
+const STACK_BY: readonly StackBy[] = ["type", "repo", "author", "branch", "merge"];
 const STACK_SERIES_LIMIT = 4;
 // Past this many days a total on every bar collides with its neighbours.
 const CAP_LABEL_DAYS_MAX = 14;
@@ -55,6 +56,18 @@ function keyOfBy(by: StackBy, actorIndex: ActorIndex): (a: ActivityDTO) => { key
       const name = actorIndex.canonical.get(actor) ?? actor;
       return { key: name, label: name };
     };
+  }
+  if (by === "branch") {
+    // Landed or still in flight. A row that names no default branch is neither,
+    // and goes to the fold rather than being filed under "side branch".
+    return (a) => {
+      const on = commitOnDefaultBranch(a);
+      if (on === null) return { key: STACK_FOLD_KEY, label: STACK_FOLD_KEY };
+      return on ? { key: "default", label: "default branch" } : { key: "side", label: "side branch" };
+    };
+  }
+  if (by === "merge") {
+    return (a) => (commitIsMerge(a) ? { key: "merge", label: "merge" } : { key: "commit", label: "commit" });
   }
   return (a) => {
     const type = commitTypeOf(commitMessage(a));

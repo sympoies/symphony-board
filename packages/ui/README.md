@@ -310,7 +310,9 @@ column and count — when the range excludes it, and that large synthetic
 Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
 compact split, filter wrapping, the laptop three-column tier, and the
 wide-panes tier (two-up supporting columns whose charts keep a fixed height
-while lists take the spare height). It also mocks the daemon's sync control surface to assert the
+while lists take the spare height). It checks that merge commits are tagged
+instead of shown without line counts, that the default branch is marked, and
+that the hide-merges toggle removes them and withholds the period comparison. It also mocks the daemon's sync control surface to assert the
 Header Sync action renders, enters the running (disabled) state on click, shows
 the reloaded status on completion, and that Settings exposes the advanced
 manual-sync controls.
