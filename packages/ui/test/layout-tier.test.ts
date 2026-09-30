@@ -24,6 +24,8 @@ import {
   COMMITS_PANES_QUERY,
   COMMITS_PANES_RANK_LIMIT,
   COMMITS_PANES_SPARK_BARS,
+  COMMITS_STACK_MIN_WIDTH_PX,
+  COMMITS_STACK_QUERY,
   SPLIT_RAIL_MIN_WIDTH_PX,
   SPLIT_STACK_QUERY,
 } from "../src/layout-tier.ts";
@@ -499,6 +501,40 @@ test("the Commits wide-panes tier is published once and mirrored in the styleshe
   for (const source of ["../src/components/CommitsOverview.tsx", "../src/components/CommitsRail.tsx"]) {
     const text = readFileSync(new URL(source, import.meta.url), "utf8");
     assert.doesNotMatch(text, /COMMITS_PANES_QUERY|min-width:\s*2480/, `${source} takes the tier as a prop, it does not re-derive it`);
+  }
+});
+
+test("the Commits laptop tier stacks the wide tier's panes and is mirrored in the stylesheet", () => {
+  assert.equal(COMMITS_STACK_MIN_WIDTH_PX, 1400);
+  assert.equal(COMMITS_STACK_QUERY, "(min-width: 1400px) and (max-width: 2479px)");
+  // It starts inside the three-column layout, below the laptop screens it is
+  // for (a 13" Air at 1470px, a 14" Pro at 1512px), and hands over to the wide
+  // tier exactly where that one begins, so no width is in both or in neither.
+  assert.ok(COMMITS_STACK_MIN_WIDTH_PX > COMMIT_THREE_COLUMN_MIN_WIDTH_PX);
+  assert.ok(COMMITS_STACK_MIN_WIDTH_PX <= 1470);
+  assert.match(COMMITS_STACK_QUERY, new RegExp(`max-width: ${COMMITS_PANES_MIN_WIDTH_PX - 1}px`));
+
+  const tier = mediaBlock(COMMITS_STACK_QUERY);
+  assert.match(tier, /\.commits-split\s*\{[^}]*grid-template-columns:[^}]*36fr[^}]*32fr[^}]*32fr/);
+  // Each supporting column is one stack that scrolls inside itself, the way a
+  // wide-tier column does, rather than growing the page or squeezing a chart.
+  assert.match(tier, /\.commits-overview\[data-panes="stack"\]\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(tier, /\.commits-rail\[data-panes="stack"\]:not\(\.commit-detail\)\s*\{[^}]*height:\s*var\(--content-pane-height[^}]*overflow-y:\s*auto/);
+  // The ranked charts are rows with their facts here, not the bars flowed
+  // across that the plain digest draws.
+  assert.match(tier, /\.commits-rail\[data-panes="stack"\] \.live-rank-plot\s*\{[^}]*grid-auto-flow:\s*row/);
+  assert.match(tier, /\.commits-rail\[data-panes="stack"\] \.live-rank-extra\s*\{[^}]*grid-template-columns:\s*var\(--rank-extra-cols/);
+  // Nothing in it may style the wide tier: that tier is its own block.
+  assert.doesNotMatch(tier, /data-panes="wide"/);
+
+  // Decided once, in the page, like the wide tier, and handed down as one
+  // value so the two columns cannot disagree.
+  const page = readFileSync(new URL("../src/components/CommitsPage.tsx", import.meta.url), "utf8");
+  assert.match(page, /useMediaQuery\(COMMITS_STACK_QUERY\)/);
+  for (const source of ["../src/components/CommitsOverview.tsx", "../src/components/CommitsRail.tsx"]) {
+    const text = readFileSync(new URL(source, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /COMMITS_STACK_QUERY|min-width:\s*1400/, `${source} takes the tier as a prop, it does not re-derive it`);
+    assert.match(text, /data-panes=\{panes \?\? undefined\}/, `${source} must say which pane layout it is in`);
   }
 });
 

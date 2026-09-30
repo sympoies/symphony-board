@@ -689,12 +689,22 @@ Pages:
   synchronized while following latest, without changing the device setting. At 1212–1279px the overview and digest
   rail stack in one column beside the list; from 1280px Commits shows the list,
   overview, and rail as three columns.
-  Up to 2479px the two supporting columns reach the bottom of the list by
-  growing their charts. From 2480px (`COMMITS_PANES_MIN_WIDTH_PX`) they are
-  two-up grids instead, the split is 32 / 34 / 34, and spare height goes to
-  lists rather than to marks: every chart keeps a designed height, and
-  Largest commits, Top repos, and Top branches take what is left and scroll
-  inside their pane. That tier adds a stacked per-day chart (by type, repo, or
+  Up to 1399px the two supporting columns hold the plain digest and reach the
+  bottom of the list by growing their charts. From 1400px
+  (`COMMITS_STACK_MIN_WIDTH_PX`, the laptop tier) they carry the full set of
+  panes described below, stacked one module per column at 36 / 32 / 32, and
+  each column scrolls inside itself; every list in them stops at eight rows,
+  Largest commits and Change requests scroll within 320px, and the author
+  rows keep share, active days and the per-day line (lines and repos stay in
+  the row's accessible name). A laptop screen has the height for these panes
+  but not the width for two side by side. From 2480px
+  (`COMMITS_PANES_MIN_WIDTH_PX`) they are two-up grids instead, the split is
+  32 / 34 / 34, and spare height goes to lists rather than to marks: every
+  chart keeps a designed height, and Largest commits, Top repos, and Top
+  branches take what is left and scroll inside their pane. In the three-column
+  layouts the list's wrapping card puts the sha and its actions beside the
+  subject only, so the repository, author and chips below it use the card's
+  full width. The pane tiers add a stacked per-day chart (by type, repo, or
   author), lines changed per day, a day-by-hour grid in place of the hour
   strip, Largest commits (a row pins that commit), commit scopes, per-row
   facts on the ranked facets, a 12-month streak summary under the rhythm
@@ -712,7 +722,7 @@ Pages:
   device-local toolbar toggle leaves merges out of the list and of every pane;
   the period comparison is withheld while it is on. The repository's default
   branch (`details.default_branch`) is drawn first and emphasized on a commit's
-  branch chips. In the 2480px tier the per-day chart can also be split by
+  branch chips. In the pane tiers the per-day chart can also be split by
   default branch vs. side branch or by merge vs. commit, a Merges tile appears
   when the range has any, and Top branches leads with the default branches and
   states the share of commits on one. A row from a producer that names no
@@ -721,13 +731,13 @@ Pages:
   number as a chip on its row and a Change request row in its detail with the
   item's title, state, review and CI when the item is loaded. The chip opens
   the Items page narrowed to that item when it is one of that page's rows, and
-  the provider page when it is loaded only as a support row. The 2480px tier
-  adds a Change requests pane beside Largest commits (the range's commits
+  the provider page when it is loaded only as a support row. The pane tiers
+  add a Change requests pane beside Largest commits (the range's commits
   regrouped by the change request they belong to: commits, lines, and how long
   a merged one was open) and a tile counting default-branch commits that landed
   without one. That tile counts only explicit "none" answers on non-merge
   commits, so a provider that cannot resolve every commit never inflates it.
-  The 2480px tier's last rail pane answers "where did the work land" three
+  The pane tiers' last rail pane answers "where did the work land" three
   ways behind one switch: Hot files and Hot directories from the producer's
   file aggregate (`commit_file_stats`), and Commit scopes from the subjects.
   The file views state their coverage ("N of M scanned"), and a row narrows the

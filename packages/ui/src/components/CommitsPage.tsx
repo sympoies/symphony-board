@@ -15,7 +15,7 @@ import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { useCommitFileStats } from "../useCommitFileStats.ts";
-import { COMMIT_COMPACT_SPLIT_QUERY, COMMITS_PANES_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
+import { COMMIT_COMPACT_SPLIT_QUERY, COMMITS_PANES_QUERY, COMMITS_STACK_QUERY, NARROW_VIEWPORT_QUERY, type CommitsPanes } from "../layout-tier.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { commitScopeIsWhole, sourceDisplayName } from "../model.ts";
 import { EMPTY_ACTOR_INDEX, commitsTouching, hotPaths, shortPathLabel, type ActorIndex, type CommitAuthorOption } from "../rail-stats.ts";
@@ -625,10 +625,13 @@ export function CommitsPage({
   >(() => (followLatest ? { kind: "following" } : { kind: "closed" }));
   const isNarrow = useMediaQuery(NARROW_VIEWPORT_QUERY);
   const isCompactSplit = useMediaQuery(COMMIT_COMPACT_SPLIT_QUERY);
-  // The wide-panes tier: both supporting columns lay out two-up and carry more
-  // panes. Decided here, once, so the two columns can never disagree about
-  // which layout they are in. See layout-tier.ts.
+  // The pane tiers: from the laptop tier both supporting columns carry the full
+  // set of panes, stacked; from the wide tier they lay them out two-up. Decided
+  // here, once, so the two columns can never disagree about which layout they
+  // are in. See layout-tier.ts.
   const widePanes = useMediaQuery(COMMITS_PANES_QUERY);
+  const stackPanes = useMediaQuery(COMMITS_STACK_QUERY);
+  const panes: CommitsPanes | null = widePanes ? "wide" : stackPanes ? "stack" : null;
   const [mobilePane, setMobilePane] = useState<"info" | "files">("info");
   const mobileDetailOpen = isNarrow && detailRouteOpen;
   useEffect(() => {
@@ -1108,7 +1111,7 @@ export function CommitsPage({
             timezone={timezone}
             range={range}
             actorIndex={actorIndex}
-            wide={widePanes}
+            panes={panes}
             // `commits` is the whole range only while nothing narrows it: no
             // route filter and nothing hidden in Settings.
             comparable={commitScopeIsWhole({
@@ -1152,7 +1155,7 @@ export function CommitsPage({
           onRepo={onRepo}
           onAuthor={onAuthor}
           onBranch={onBranch}
-          wide={widePanes}
+          panes={panes}
           timezone={timezone}
           range={range}
           fileAggregate={usableAggregate}

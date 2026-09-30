@@ -7,6 +7,7 @@ import {
   RAIL_RANK_LIMIT,
   RAIL_RANK_LIMIT_ROWS,
   RAIL_ROWS_QUERY,
+  type CommitsPanes,
 } from "../layout-tier.ts";
 import type { ActivityDTO, CommitFileStatsDTO } from "@symphony-board/contract";
 import { memo, useMemo, useState, type CSSProperties, type ReactNode } from "react";
@@ -61,6 +62,10 @@ import { ActorAvatar } from "./ActorAvatar.tsx";
 // and scroll inside their pane instead of stopping at eight; Top authors does
 // not scroll, so it stops at ten. The last pane says where the work landed:
 // files, directories, or scopes.
+//
+// The laptop tier (`panes === "stack"`, COMMITS_STACK_MIN_WIDTH_PX) draws the
+// same rows and panes in one stack that scrolls as a whole, so every list in
+// it stops at a sidebar's eight rows and none scrolls on its own.
 
 // The limit is a tier, not a constant: see layout-tier.ts. A sidebar rail
 // lays these charts out as rows, where an extra item costs 26px of height the
@@ -143,7 +148,7 @@ export function CommitsRail({
   onRepo,
   onAuthor,
   onBranch,
-  wide = false,
+  panes = null,
   timezone,
   range,
   fileAggregate = null,
@@ -161,8 +166,9 @@ export function CommitsRail({
   fileRepoKeys?: ReadonlySet<string> | null;
   selectedPathKey?: string | null;
   onPath?: (path: HotPath | null) => void;
-  // The wide-panes tier: see the note at the top of this file.
-  wide?: boolean;
+  // The pane tier, from the laptop tier up: see the note at the top of this
+  // file. Null is the plain digest.
+  panes?: CommitsPanes | null;
   // For the per-author day series, which buckets in the viewer's zone across
   // the selected range exactly as the overview's per-day chart does.
   timezone: string;
@@ -195,12 +201,17 @@ export function CommitsRail({
   // count follows the layout rather than being fixed. useMediaQuery re-renders
   // on the breakpoint, so resizing onto a second monitor re-evaluates it.
   const railRows = useMediaQuery(RAIL_ROWS_QUERY);
+  // Both pane tiers draw the same panes; the laptop tier stacks them in one
+  // column instead of two.
+  const wide = panes !== null;
   // In the wide tier the two lists that scroll inside their pane hold
   // everything worth scrolling to. The panes that do not scroll are bounded,
-  // because their rows come out of the height those lists grow in.
-  const rankLimit = wide ? COMMITS_PANES_RANK_LIMIT : railRows ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
-  const kindLimit = wide ? COMMITS_PANES_KIND_LIMIT : rankLimit;
-  const authorLimit = wide ? COMMITS_PANES_AUTHOR_LIMIT : rankLimit;
+  // because their rows come out of the height those lists grow in. The laptop
+  // tier's column scrolls as a whole, so no list in it scrolls on its own and
+  // each stops at a sidebar's row count.
+  const rankLimit = panes === "wide" ? COMMITS_PANES_RANK_LIMIT : railRows || panes === "stack" ? RAIL_RANK_LIMIT_ROWS : RAIL_RANK_LIMIT;
+  const kindLimit = panes === "wide" ? COMMITS_PANES_KIND_LIMIT : rankLimit;
+  const authorLimit = panes === "wide" ? COMMITS_PANES_AUTHOR_LIMIT : rankLimit;
 
   const repoRanks = useMemo(() => rankRepos(repoSource, rankLimit), [repoSource, rankLimit]);
   const authorRanks = useMemo(() => rankActors(authorSource, authorLimit, actorIndex), [authorSource, authorLimit, actorIndex]);
@@ -571,7 +582,7 @@ export function CommitsRail({
   return (
     <aside
       className={`commits-rail${wide ? " pane-scroll" : ""}`}
-      data-panes={wide ? "wide" : undefined}
+      data-panes={panes ?? undefined}
       aria-label="Commit range digest"
     >
       {changedFiles ? <CommitFileList state={changedFiles} /> : null}

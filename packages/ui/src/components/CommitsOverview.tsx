@@ -24,6 +24,7 @@ import { ChangeRequests, type ResolveChangeRequest } from "./ChangeRequests.tsx"
 import { buildActivityHeatmapFromDaily, commitChangeRequest, commitIsMerge, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
 import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
+import type { CommitsPanes } from "../layout-tier.ts";
 
 // The Commits overview column: the SHAPE of the selected range over time.
 //
@@ -50,6 +51,10 @@ import type { TimeRange } from "../model.ts";
 // height -- the per-day strip becomes a stacked chart, the hour strip a
 // day-by-hour grid, and lines changed gets a pane of its own -- and the height
 // left over goes to a list, Largest commits, which answers it with more rows.
+//
+// The laptop tier (`panes === "stack"`, COMMITS_STACK_MIN_WIDTH_PX) draws the
+// same panes in a single stack that scrolls inside the column: a laptop has
+// the height for them but not the width for two side by side.
 
 function commitCountLabel(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
@@ -253,7 +258,7 @@ export function CommitsOverview({
   range,
   actorIndex = EMPTY_ACTOR_INDEX,
   panelRef,
-  wide = false,
+  panes = null,
   comparable = false,
   selectedKey = null,
   onSelectCommit,
@@ -274,8 +279,9 @@ export function CommitsOverview({
   // merged, bots dropped) rather than raw actor strings.
   actorIndex?: ActorIndex;
   panelRef?: Ref<HTMLElement>;
-  // The wide-panes tier: see the note at the top of this file.
-  wide?: boolean;
+  // The pane tier, from the laptop tier up: see the note at the top of this
+  // file. Null is the plain digest.
+  panes?: CommitsPanes | null;
   // True when nothing narrows `commits`: no repo / branch / author / source
   // filter and nothing hidden in Settings (commitScopeIsWhole). Only then can
   // the count be set against activity_daily, which counts every commit.
@@ -293,6 +299,9 @@ export function CommitsOverview({
   // or a filter it cannot describe.
   fileCoverage?: Pick<HotPaths, "files" | "scanned" | "commits"> | null;
 }) {
+  // Both pane tiers draw the same panes; they differ only in how the column
+  // lays them out, which is the stylesheet's business.
+  const wide = panes !== null;
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   const days = useMemo(
     () => countsByDay(commits, timezone, range.from, range.to),
@@ -458,7 +467,7 @@ export function CommitsOverview({
     <aside
       ref={panelRef}
       className={`commits-overview${wide ? " pane-scroll" : ""}`}
-      data-panes={wide ? "wide" : undefined}
+      data-panes={panes ?? undefined}
       aria-label="Commit range overview"
     >
       {/* A .rail-block like every other panel in this column and the rail beside

@@ -2064,6 +2064,250 @@ a.rf-node-title:hover { color: var(--accent); }
     justify-items: end;
   }
 }
+/* The Commits card in the three-column layouts. */
+@media (min-width: 1280px) {
+  /* Wherever the list sits beside two columns it is the wrapping card, and
+     the card spends its width better here. The sha and its actions sit beside
+     the subject only, not down the whole card, so the facts under the subject
+     get the card's full width instead of the ~290px left of the actions; and
+     who-and-when shares a line with the change request and branch chips, the
+     way it does in the one-line row. The main block spans the card and takes
+     the card's two columns as a subgrid, so the subject stops at the actions
+     while the lines under it run the full width; no markup changes, and the
+     main block keeps its own box. */
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-row-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+    align-items: start;
+  }
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-row-main {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: subgrid;
+    row-gap: 6px;
+  }
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-title-line { grid-column: 1; }
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-row-meta,
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-body-panel { grid-column: 1 / -1; }
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-row-actions { grid-column: 2; grid-row: 1; }
+  .commits-split > .commit-list[data-row-layout="stacked"] .commit-meta-who { flex: 0 1 auto; }
+}
+/* The Commits laptop tier. Mirrors COMMITS_STACK_QUERY in layout-tier.ts,
+   which is what gates the components rendering the full set of panes --
+   layout-tier.test.ts keeps the two in step.
+
+   Between here and the wide tier the supporting columns carry the wide tier's
+   panes, but a laptop screen has the width for one module per column, not
+   two. So each column is one stack at its designed heights and scrolls inside
+   itself, and nothing grows to fill: the plain digest's rule of stretching the
+   charts to the pane's height is what drew five tall bars on a 14" screen.
+
+   It deliberately repeats the rows tier's relayout (the 2200px block) for its
+   own rail instead of widening that tier: that block also lays out Activity's
+   rail and the wide tier, and this one must not move either. Nothing here
+   names the wide tier. */
+@media (min-width: 1400px) and (max-width: 2479px) {
+  /* The list gives up a little width to two columns that now hold more. At
+     1512px it keeps ~520px, still the wrapping card it already was. */
+  .commits-split {
+    grid-template-columns: minmax(0, 36fr) minmax(0, 32fr) minmax(0, 32fr);
+  }
+
+  /* The overview already has a definite height from the three-column rule;
+     the stack scrolls inside it rather than growing a chart. */
+  .commits-split > .commits-context > .commits-overview[data-panes="stack"] {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pane-gap);
+    overflow-y: auto;
+  }
+  .commits-split > .commits-rail[data-panes="stack"]:not(.commit-detail) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pane-gap);
+    height: var(--content-pane-height, auto);
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .commits-overview[data-panes="stack"] > .rail-block,
+  .commits-split > .commits-rail[data-panes="stack"]:not(.commit-detail) > .rail-block {
+    flex: 0 0 auto;
+  }
+  /* Four tiles across: the tier's twelve cells, the two-number one taking two
+     tracks, come to three rows whatever the range holds. */
+  .commits-overview[data-panes="stack"] .hm-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .commits-overview[data-panes="stack"] .hm-summary > [data-span="2"] { grid-column: span 2; }
+  /* The two lists in this column are bounded and scroll inside themselves;
+     they are the only panes whose length is the range's, not a design's. */
+  .commits-overview[data-panes="stack"] > .pane-fill .pane-rows { flex: none; max-height: 320px; }
+  /* The year's five facts under the calendar, three across: five in a 430px
+     card clipped every label and the last date. */
+  .commits-overview[data-panes="stack"] .hm-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; }
+  /* A day's tooltip names every series in it, which is wider than this
+     column; centred over its bar it hung past the card on both sides and made
+     the column scroll sideways. Here it is a readout in the plot's top corner,
+     wrapped to the plot's width, whichever day is under the pointer. */
+  .commits-overview[data-panes="stack"] :is(.stack-cols, .churn-cols) { position: relative; }
+  .commits-overview[data-panes="stack"] :is(.stack-col, .churn-col) { position: static; }
+  .commits-overview[data-panes="stack"] :is(.stack-cols, .churn-cols) .rail-daybar-tip {
+    top: 0;
+    bottom: auto;
+    left: auto;
+    right: 0;
+    transform: none;
+    max-width: 100%;
+    white-space: normal;
+  }
+  /* A pane head with a switch in it (Commits per day) wraps its meta onto a
+     line of its own instead of clipping the switch. */
+  .commits-overview[data-panes="stack"] .rail-block-head { flex-wrap: wrap; row-gap: 4px; }
+  .commits-overview[data-panes="stack"] .rail-block-title { white-space: nowrap; }
+  .commits-overview[data-panes="stack"] .commit-day-chart > .rail-block-head > .rail-block-meta { margin-left: auto; }
+
+  /* The toolbar gives the panes a line back: the source chips sit beside the
+     pickers instead of above them, which the repo picker's narrower basis
+     makes room for. */
+  .commits-page .commits-toolbar .commits-source-group { flex-basis: auto; }
+  .commits-page .commits-toolbar .commits-filter { flex-basis: 360px; max-width: 360px; }
+
+  /* The rail's ranked charts as rows: label, bar and count, then the row's
+     facts. */
+  .commits-split > .commits-rail[data-panes="stack"] .live-rank-chart {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+    margin-top: 4px;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-axis,
+  .commits-rail[data-panes="stack"] .live-rank-grid,
+  .commits-rail[data-panes="stack"] .live-rank-baseline {
+    display: none;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-plot {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-auto-rows: 26px;
+    row-gap: 0;
+    column-gap: 0;
+    height: auto;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-item {
+    grid-template-rows: none;
+    grid-template-columns: minmax(0, var(--rank-label-w, 11rem)) minmax(40px, 1fr);
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    align-items: center;
+    justify-items: stretch;
+    column-gap: 10px;
+    height: 26px;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-footer,
+  .commits-rail[data-panes="stack"] .live-rank-chart-repos .live-rank-footer,
+  .commits-rail[data-panes="stack"] .live-rank-chart-labels .live-rank-footer {
+    order: -1;
+    width: auto;
+    height: auto;
+    place-items: center start;
+    grid-auto-flow: column;
+    justify-content: start;
+    gap: 6px;
+  }
+  .commits-rail[data-panes="stack"] .activity-rank-actor {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  .commits-rail[data-panes="stack"] .activity-rank-actor-name {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--text) 84%, var(--muted));
+    font-size: 12px;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-name {
+    max-width: none;
+    text-align: left;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    font-size: 12px;
+  }
+  .commits-rail[data-panes="stack"] .rank-name-tip {
+    left: 0;
+    transform: none;
+    top: calc(100% + 2px);
+  }
+  .commits-rail[data-panes="stack"] .live-rank-bar-cell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--rank-count-w, 3rem);
+    align-items: center;
+    justify-items: start;
+    gap: 10px;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-bar,
+  .commits-rail[data-panes="stack"] .live-rank-chart-repos .live-rank-bar,
+  .commits-rail[data-panes="stack"] .live-rank-chart-labels .live-rank-bar {
+    width: var(--rank-h);
+    height: 10px;
+    min-height: 0;
+    min-width: 3px;
+    border-radius: 0 3px 3px 0;
+    flex: none;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-tooltip {
+    position: static;
+    order: 1;
+    justify-self: end;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    min-width: 0;
+    text-align: right;
+    color: color-mix(in srgb, var(--text) 84%, var(--muted));
+    font-size: 12px;
+    transition: none;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-extra {
+    display: grid;
+    grid-template-columns: var(--rank-extra-cols, max-content);
+    column-gap: 10px;
+    align-items: center;
+    justify-items: end;
+  }
+  /* The last row's name tip opens upward: under the last row of the last pane
+     it would hang below the column, which scrolls. */
+  .commits-rail[data-panes="stack"] > .rail-block .live-rank-plot > :last-child .rank-name-tip {
+    top: auto;
+    bottom: calc(100% + 2px);
+  }
+
+  /* One module per column is ~430px, so each ranking keeps the facts that fit
+     beside a readable name and drops the rest to the row's accessible name,
+     which states every one of them. Authors keep their share, active days and
+     the per-day line; lines and repos go. */
+  .commits-rail[data-panes="stack"] .rank-cols-authors { --rank-label-w: 7.5rem; --rank-count-w: 2.6rem; --rank-extra-cols: 2.6rem 2.4rem 4.2rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-authors .live-rank-extra > :nth-child(2),
+  .commits-rail[data-panes="stack"] .rank-cols-authors .live-rank-extra > :nth-child(3),
+  .commits-rail[data-panes="stack"] .rank-head.rank-cols-authors > :nth-child(5),
+  .commits-rail[data-panes="stack"] .rank-head.rank-cols-authors > :nth-child(6) {
+    display: none;
+  }
+  .commits-rail[data-panes="stack"] .rank-cols-repos { --rank-label-w: 8.5rem; --rank-count-w: 2.6rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-branches { --rank-label-w: 10rem; --rank-count-w: 2.6rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-share { --rank-count-w: 2.6rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-files { --rank-label-w: 8rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-files-multi { --rank-label-w: 10rem; }
+  .commits-rail[data-panes="stack"] .rank-head { grid-template-columns: minmax(0, var(--rank-label-w, 11rem)) minmax(40px, 1fr) var(--rank-count-w, 3rem) var(--rank-extra-cols); }
+}
 /* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
    layout-tier.ts, which is what gates the component actually rendering —
    layout-tier.test.ts keeps the two in step. The overview column may give up its
