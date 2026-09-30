@@ -1971,13 +1971,10 @@ export function commitStats(activity: ActivityDTO): CommitStats | null {
 // Branch/ref membership is optional contract detail. Producers may emit the
 // default commit feed branch as `ref`/`branch`; fixtures and future richer
 // producers can carry `refs`/`branches` for multi-branch membership.
+const COMMIT_REF_KEYS = ["ref", "refs", "branch", "branches"] as const;
+
 export function commitBranches(activity: ActivityDTO): string[] {
-  const refs = [
-    ...detailTextList(activity.details, "ref"),
-    ...detailTextList(activity.details, "refs"),
-    ...detailTextList(activity.details, "branch"),
-    ...detailTextList(activity.details, "branches"),
-  ];
+  const refs = COMMIT_REF_KEYS.flatMap((key) => detailTextList(activity.details, key));
   const out: string[] = [];
   for (const raw of refs) {
     const ref = shortRef(raw);
@@ -2005,9 +2002,25 @@ export function commitDefaultBranch(activity: ActivityDTO): string | null {
 // Three answers, not two: on the default branch, off it, or — for a row that
 // names no default branch — unknown. Callers that count a share leave the
 // unknown rows out of the base rather than filing them under "side branch".
+//
+// A membership test with an early exit, not `commitBranches(...).includes`:
+// this runs once per row for the landing share and the branch split, and
+// building, de-duplicating and sorting every row's branch list to look one name
+// up cost three times as much at 25,000 rows.
 export function commitOnDefaultBranch(activity: ActivityDTO): boolean | null {
   const defaultBranch = commitDefaultBranch(activity);
-  return defaultBranch === null ? null : commitBranches(activity).includes(defaultBranch);
+  if (defaultBranch === null) return null;
+  const details = activity.details;
+  if (!details || typeof details !== "object") return false;
+  for (const key of COMMIT_REF_KEYS) {
+    const value = details[key];
+    if (Array.isArray(value)) {
+      for (const entry of value) if (shortRef(typeof entry === "string" ? entry : null) === defaultBranch) return true;
+    } else if (typeof value === "string" && shortRef(value) === defaultBranch) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export interface CommitRef {

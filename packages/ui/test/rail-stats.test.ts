@@ -10,6 +10,7 @@ import {
   churnByDay,
   commitAuthorOptions,
   commitLanding,
+  defaultBranchesFirst,
   commitScopeOf,
   commitSizeSummary,
   commitTypeOf,
@@ -675,6 +676,24 @@ test("branchDetails marks a branch some repository names as its default", () => 
   assert.equal(details.get("develop")?.isDefault, true);
   assert.equal(details.get("feat/x")?.isDefault, false);
   assert.equal(details.get("trunk")?.isDefault, false);
+});
+
+test("defaultBranchesFirst leads with default branches whatever their count", () => {
+  const rows = [
+    ...Array.from({ length: 5 }, () => activity({ details: { branch: "feat/x", default_branch: "main" } })),
+    ...Array.from({ length: 3 }, () => activity({ details: { branch: "fix/y", default_branch: "main" } })),
+    ...Array.from({ length: 2 }, () => activity({ details: { branch: "main", default_branch: "main" } })),
+  ];
+  const ranks = rankBranches(rows, 0);
+  assert.deepEqual(ranks.map((rank) => rank.key), ["feat/x", "fix/y", "main"], "ranked by count, the default branch is last");
+  assert.deepEqual(
+    defaultBranchesFirst(ranks, branchDetails(rows)).map((rank) => rank.key),
+    ["main", "feat/x", "fix/y"],
+    "the default branch leads and the rest keep their ranking order",
+  );
+  // No row names a default branch: the ranking is returned as it was.
+  const unknown = [activity({ details: { branch: "b" } }), activity({ details: { branch: "a" } }), activity({ details: { branch: "a" } })];
+  assert.deepEqual(defaultBranchesFirst(rankBranches(unknown, 0), branchDetails(unknown)).map((rank) => rank.key), ["a", "b"]);
 });
 
 test("commitLanding counts merges and the share of commits on a default branch", () => {

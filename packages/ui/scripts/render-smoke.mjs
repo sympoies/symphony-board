@@ -546,10 +546,13 @@ function inflateActivityContract(body) {
               // real shape for a merge commit and for anything the producer
               // could not read, so the fixture has to contain a row that shows
               // no diffstat beside rows that do.
-              ...(i % 4 === 0 ? {} : { additions: (i * 7) % 250, deletions: (i * 3) % 90 }),
+              // (Every sixteenth row keeps its counts AND is a merge, below: the
+              // shape a producer that predates the merge rule would emit.)
+              ...(i % 4 === 0 && i % 16 !== 0 ? {} : { additions: (i * 7) % 250, deletions: (i * 3) % 90 }),
               // Half of the rows without counts say why: they are merges. The
               // other half stay the "could not be read" shape, so the fixture
-              // holds both and the page has to tell them apart.
+              // holds both and the page has to tell them apart. A merge that
+              // does carry counts still shows the tag, never both.
               ...(i % 8 === 0 ? { merge: true } : {}),
               // Every commit names the repository's default branch except every
               // seventh, which is the row an older producer would have written.
@@ -7190,18 +7193,38 @@ try {
     expression: "[...document.querySelectorAll('.commits-overview .pane-seg-option')].find((b) => (b.textContent || '').trim() === 'merge')?.click()",
   });
   await sleep(200);
+  // The commits each ranked facet counts, summed over its rows. Hiding merges
+  // has to reach the facet sources as well as the list, and these are what the
+  // facet sources draw.
+  const RAIL_SUMS = `const railSums = () => Object.fromEntries(
+    [...document.querySelectorAll('.commits-rail:not(.commit-detail) > .rail-block')]
+      .map((block) => [
+        (block.querySelector('.rail-block-title')?.textContent || '').trim(),
+        [...block.querySelectorAll('.live-rank-tooltip')].reduce((sum, el) => sum + Number((el.textContent || '0').replace(/,/g, '')), 0),
+      ])
+      .filter(([title]) => ['Top authors', 'Top repos', 'Top branches'].includes(title)),
+  );`;
   const commitsLanding = (await send("Runtime.evaluate", {
     expression: `(() => {
+      ${RAIL_SUMS}
       const rail = document.querySelector('.commits-rail:not(.commit-detail)');
       const rowsEl = [...document.querySelectorAll('.commit-list .commit-row')];
       const branches = [...(rail?.querySelectorAll(':scope > .rail-block') || [])]
         .find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches');
       const mergeRows = rowsEl.filter((row) => row.querySelector('.commit-merge-tag'));
       return {
+        railSums: railSums(),
         rows: rowsEl.length,
         mergeRows: mergeRows.length,
         // A merge shows its tag INSTEAD of line counts, never beside them.
         mergeRowsWithCounts: mergeRows.filter((row) => row.querySelector('.commit-diffstat')).length,
+        // ...and the fixture really does hold a merge that carries counts, or
+        // the line above could not fail. Read off the row's own title: the
+        // smoke index is in it, and every sixteenth row is that shape.
+        mergeRowsCarryingCounts: mergeRows.filter((row) => {
+          const index = Number(/smoke (\\d+)$/.exec((row.querySelector('.commit-message-link')?.textContent || '').trim())?.[1] ?? NaN);
+          return Number.isFinite(index) && index % 16 === 0;
+        }).length,
         defaultChips: [...new Set([...document.querySelectorAll('.commit-list .commit-ref-chip[data-default="true"]')].map((el) => (el.textContent || '').trim()))],
         tiles: [...document.querySelectorAll('.commits-overview .hm-summary dt')].map((el) => (el.textContent || '').trim()),
         splitOptions: [...document.querySelectorAll('.commits-overview .pane-seg-option')].map((b) => (b.textContent || '').trim()),
@@ -7215,19 +7238,19 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  // Hiding merges is a reading preference: the rows go, and so does anything
-  // that would now compare a part of the range with the whole of another.
+  // Hiding merges is a reading preference: the rows go from the list and from
+  // every ranked facet beside it.
   await send("Runtime.evaluate", { expression: "document.querySelector('.commits-merge-toggle')?.click()" });
   await sleep(350);
   const commitsMergesHidden = (await send("Runtime.evaluate", {
-    expression: `(() => ({
+    expression: `(() => { ${RAIL_SUMS} return {
+      railSums: railSums(),
       mergeRows: document.querySelectorAll('.commit-list .commit-merge-tag').length,
       tiles: [...document.querySelectorAll('.commits-overview .hm-summary dt')].map((el) => (el.textContent || '').trim()),
-      delta: document.querySelectorAll('.commits-overview .hm-delta').length,
       toggle: (document.querySelector('.commits-merge-toggle')?.getAttribute('aria-pressed')) ?? null,
       count: (document.querySelector('.commits-page .activity-head .count')?.textContent || '').trim(),
       stored: localStorage.getItem('symphony-board:commits-hide-merges'),
-    }))()`,
+    }; })()`,
     returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", { expression: "document.querySelector('.commits-merge-toggle')?.click()" });
@@ -7848,6 +7871,7 @@ try {
       commitsLanding.mergeRows > 0 &&
         commitsLanding.mergeRows < commitsLanding.rows &&
         commitsLanding.mergeRowsWithCounts === 0 &&
+        commitsLanding.mergeRowsCarryingCounts > 0 &&
         JSON.stringify(commitsLanding.defaultChips) === JSON.stringify(["main"]) &&
         (commitsLanding.tiles || []).includes("merges") &&
         ["branch", "merge"].every((option) => (commitsLanding.splitOptions || []).includes(option)) &&
@@ -7861,12 +7885,14 @@ try {
     [
       commitsMergesHidden.mergeRows === 0 &&
         !(commitsMergesHidden.tiles || []).includes("merges") &&
-        commitsMergesHidden.delta === 0 &&
+        ["Top authors", "Top repos", "Top branches"].every(
+          (title) => commitsLanding.railSums?.[title] > 0 && commitsMergesHidden.railSums?.[title] < commitsLanding.railSums[title],
+        ) &&
         commitsMergesHidden.toggle === "true" &&
         commitsMergesHidden.stored === "true" &&
         / of /.test(commitsMergesHidden.count || "") &&
         commitsMergesHidden.count !== commitsLanding.count,
-      `commits: hiding merges removes them from the page and withholds the period comparison (${JSON.stringify(commitsMergesHidden)} from ${JSON.stringify(commitsLanding.count)})`,
+      `commits: hiding merges removes them from the list and from every ranked facet (${JSON.stringify(commitsMergesHidden)} from ${JSON.stringify({ count: commitsLanding.count, railSums: commitsLanding.railSums })})`,
     ],
     [
       commitsWideLargestPin.hasDetail === true &&

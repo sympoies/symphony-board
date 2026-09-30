@@ -2456,8 +2456,8 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/11");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/10");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/12");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/11");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

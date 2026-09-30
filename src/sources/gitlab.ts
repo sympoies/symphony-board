@@ -44,7 +44,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
+import { commitDetails, commitLineStats, itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
 import type { GqlClient } from "./graphql.ts";
@@ -183,7 +183,7 @@ export class GitLabSource implements Source {
   // gitlab/8: items carry provider-native note/comment totals.
   // gitlab/9: commit activity details carry additions/deletions (never for merges).
   // gitlab/10: project-event author photos are retained in activity details.
-  readonly normalizerVersion = "gitlab/10";
+  readonly normalizerVersion = "gitlab/11";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;

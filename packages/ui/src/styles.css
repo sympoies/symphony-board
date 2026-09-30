@@ -1932,9 +1932,9 @@ a.rf-node-title:hover { color: var(--accent); }
   }
   .commits-overview[data-panes="wide"] > .pane-span { grid-column: 1 / -1; }
   .commits-overview[data-panes="wide"] > .pane-fill { grid-row: 5; }
-  /* Six tracks, and the one two-number tile takes two of them. Twelve cells in
-     two rows is what the tier's tiles come to, so the block's height is the
-     same whatever the range holds. */
+  /* Six tracks, and the one two-number tile takes two of them. The tier's tiles
+     come to nine cells, or ten when the range has merges, so they are always
+     two rows and the block's height is the same whatever the range holds. */
   .commits-overview[data-panes="wide"] .hm-summary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .commits-overview[data-panes="wide"] .hm-summary > [data-span="2"] { grid-column: span 2; }
 

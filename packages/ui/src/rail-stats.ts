@@ -738,6 +738,13 @@ export function branchDetails(activities: readonly ActivityDTO[]): Map<string, B
   return new Map([...repos.entries()].map(([branch, set]) => [branch, { repos: set.size, isDefault: defaults.has(branch) }]));
 }
 
+// Branch ranks with the default branches leading, whatever their count: they
+// are where work lands, and every row under them is a branch that has not
+// landed yet. Order within each group is the ranking's own.
+export function defaultBranchesFirst(ranks: readonly RailRank[], details: ReadonlyMap<string, BranchDetail>): RailRank[] {
+  return [...ranks.filter((rank) => details.get(rank.key)?.isDefault), ...ranks.filter((rank) => !details.get(rank.key)?.isDefault)];
+}
+
 // ---- how the range landed ---------------------------------------------------
 
 export type CommitLanding = {

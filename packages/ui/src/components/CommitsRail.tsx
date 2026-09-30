@@ -16,6 +16,7 @@ import {
   actorDetails,
   branchDetails,
   commitLanding,
+  defaultBranchesFirst,
   rankActors,
   rankBranches,
   rankCommitScopes,
@@ -221,15 +222,8 @@ export function CommitsRail({
       : leadBranch
         ? `${share(leadBranch.count, branchSource.length)} on ${leadBranch.label}`
         : null;
-  // Default branches lead the wide table whatever their count: they are where
-  // work lands, and every row under them is a branch that has not landed yet.
-  const branchRows = useMemo(
-    () =>
-      branchFacts
-        ? [...branchRanks.filter((rank) => branchFacts.get(rank.key)?.isDefault), ...branchRanks.filter((rank) => !branchFacts.get(rank.key)?.isDefault)]
-        : branchRanks,
-    [branchRanks, branchFacts],
-  );
+  // Default branches lead the wide table (see defaultBranchesFirst).
+  const branchRows = useMemo(() => (branchFacts ? defaultBranchesFirst(branchRanks, branchFacts) : branchRanks), [branchRanks, branchFacts]);
 
   // Every hook is above this line: the phone's Files pane returns early, and a
   // hook below it would run on one render and not the next.

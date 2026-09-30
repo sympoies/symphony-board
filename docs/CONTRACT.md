@@ -601,7 +601,11 @@ so a repository that renames its default branch reports the new name only on
 rows a later sweep re-reads.
 
 Both come from the stored raw payload, so neither costs a provider request.
-There is no backfill: a row gains them when a sweep re-reads its commit.
+There is no backfill: a row gains them when a sweep re-reads its commit. Until
+then a row stored before `4.8.1` has neither key, so on such a row the absence
+of `details.merge` does not prove a single-parent commit. Branch membership is
+likewise as of the last sweep that read the commit: a side-branch commit later
+merged into the default branch reports the default branch only once re-read.
 
 Version `4.7.2` is a clarification release: supported activity rows may carry
 `details.actor_avatar_url` for the matching provider account's photo. `details`

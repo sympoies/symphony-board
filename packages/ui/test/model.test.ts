@@ -559,6 +559,20 @@ test("a commit row says whether it is a merge and where the default branch is", 
   assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branches: ["main", "feat/x"], default_branch: "main" })), true);
   assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branch: "feat/x", default_branch: "main" })), false);
   assert.equal(commitOnDefaultBranch(commit({ sha: "a1", branch: "main" })), null);
+  // Every spelling commitBranches accepts, so the two never disagree about
+  // which branches a commit is on.
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", ref: "refs/heads/main", default_branch: "main" })), true);
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", refs: ["refs/heads/feat/x", "refs/heads/main"], default_branch: "main" })), true);
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", refs: ["refs/heads/feat/x"], default_branch: "main" })), false);
+  assert.equal(commitOnDefaultBranch(commit({ sha: "a1", default_branch: "main" })), false, "no branch membership at all");
+  for (const details of [
+    { sha: "a1", branches: ["main", "feat/x"], default_branch: "main" },
+    { sha: "a1", ref: "refs/heads/feat/x", branches: ["feat/y"], default_branch: "main" },
+    { sha: "a1", refs: ["refs/heads/main"], branch: " main ", default_branch: "main" },
+  ]) {
+    const row = commit(details);
+    assert.equal(commitOnDefaultBranch(row), commitBranches(row).includes("main"), JSON.stringify(details));
+  }
 });
 
 test("commitRefs lists a commit's branches with the default branch first and marked", () => {

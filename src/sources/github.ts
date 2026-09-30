@@ -19,7 +19,7 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitLineStats } from "../model/activity.ts";
+import { commitDetails, commitLineStats, itemActivities, stableActivityId } from "../model/activity.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { parseTrackerRows, trackerEdges, trackerRefKey } from "../model/tracker.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
@@ -270,7 +270,7 @@ export class GitHubSource implements Source {
   // github/9: commit activity details carry additions/deletions (never for merges).
   // github/10: provider actor photos are retained in activity details.
   // github/11: tracker issues emit parent/blocks edges from their phase table.
-  readonly normalizerVersion = "github/11";
+  readonly normalizerVersion = "github/12";
   private gql: GqlClient;
   private projects: string[];
   // Lower-cased `projects`: the repositories a tracker row may be resolved into.

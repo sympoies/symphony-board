@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import {
   EMPTY_ACTOR_INDEX,
   churnByDay,
-  commitLanding,
   commitSizeSummary,
   countsByDay,
   dayAxisTicks,
@@ -19,7 +18,7 @@ import { CommitDayChart } from "./CommitDayChart.tsx";
 import { CommitChurn } from "./CommitChurn.tsx";
 import { CommitPunchCard } from "./CommitPunchCard.tsx";
 import { LargestCommits } from "./LargestCommits.tsx";
-import { buildActivityHeatmapFromDaily, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
+import { buildActivityHeatmapFromDaily, commitIsMerge, heatmapStreaks, pluralize, previousPeriodCount, rangeIsCovered } from "../model.ts";
 import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
 import type { TimeRange } from "../model.ts";
 
@@ -225,8 +224,8 @@ function CommitRhythm({
   );
 }
 
-// How the range compares with the same number of days before it, as a chip
-// beside the commit count. Null when there is nothing honest to say: the
+// How the range compares with the same number of days before it, as a chip on
+// the commits tile's detail line. Null when there is nothing honest to say: the
 // aggregate does not reach back that far, or the list is filtered -- the
 // aggregate counts every commit, so a filtered count beside it would compare a
 // part with a whole.
@@ -321,7 +320,9 @@ export function CommitsOverview({
   const sizes = useMemo(() => (wide ? commitSizeSummary(commits) : null), [wide, commits]);
   // Merges carry no line counts by design, so they are what "N of M commits
   // counted" has to leave out of M before it says anything about coverage.
-  const merges = useMemo(() => (wide ? commitLanding(commits).merges : 0), [wide, commits]);
+  // Counted directly: commitLanding also answers the default-branch question,
+  // which costs a membership test per row and is not needed here.
+  const merges = useMemo(() => (wide ? commits.reduce((n, c) => (commitIsMerge(c) ? n + 1 : n), 0) : 0), [wide, commits]);
   // The comparison is drawn only when it compares like with like: nothing
   // narrows the list (`comparable`), AND the rows on screen really are the
   // range the aggregate describes -- which a feed windowed shorter than the
@@ -331,12 +332,12 @@ export function CommitsOverview({
       ? previousPeriodCount(activityDaily, range.from, range.to, "commit")
       : null;
 
-  // `wide` marks the one tile whose value is two numbers and needs two tracks.
+  // `span` marks the one tile whose value is two numbers and needs two tracks.
   // Every other value is a single short number, so a tile's height never
   // depends on what the range happens to contain: the comparison chip sits on
   // the detail line, which clips, rather than beside the count, where a fifth
   // digit wrapped it under the number and made the whole row taller.
-  const summary: { label: string; value: ReactNode; detail: ReactNode; title?: string; wide?: boolean }[] = [
+  const summary: { label: string; value: ReactNode; detail: ReactNode; title?: string; span?: 2 }[] = [
     {
       label: "commits",
       value: commits.length.toLocaleString("en-US"),
@@ -358,7 +359,7 @@ export function CommitsOverview({
       ? [
           {
             label: "lines changed",
-            wide: true,
+            span: 2 as const,
             value:
               churn.counted > 0 ? (
                 <>
@@ -430,7 +431,7 @@ export function CommitsOverview({
 
         <dl className="hm-summary">
           {summary.map((item) => (
-            <div key={item.label} data-span={item.wide ? "2" : undefined} title={item.title}>
+            <div key={item.label} data-span={item.span} title={item.title}>
               <dt>{item.label}</dt>
               <dd>
                 {item.value}
