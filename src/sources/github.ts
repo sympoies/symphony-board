@@ -19,7 +19,8 @@ import type {
 } from "../model/types.ts";
 import { toLabel } from "../model/labels.ts";
 import { cleanProviderBody } from "../model/text.ts";
-import { commitDetails, commitLineStats, itemActivities, stableActivityId } from "../model/activity.ts";
+import { commitDetails, commitLineStats, itemActivities, stableActivityId, type CommitChangeRequest, type CommitLineStats } from "../model/activity.ts";
+import { refOf } from "../model/ref.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { parseTrackerRows, trackerEdges, trackerRefKey } from "../model/tracker.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
@@ -40,13 +41,19 @@ const MAX_REST_PAGES = 20;
 // GitHub's compare API serves at most 250 commits for a base...head range, so
 // three 100-commit pages always cover everything the provider will return.
 const MAX_COMPARE_PAGES = 3;
-// Line counts per GraphQL round trip. Neither REST commit feed carries them
-// (`stats` exists only on the single-commit response), so a REST enrichment
-// would be one extra call per sha. Aliasing N `object(oid:)` lookups into one
-// GraphQL document costs ONE rate-limit point instead — measured against the
-// live API at this width — which is what makes a full sweep of every tracked
-// repo affordable.
-const COMMIT_STATS_BATCH = 100;
+// Commits per GraphQL round trip for the facts a commit feed does not carry:
+// line counts and the pull request a commit belongs to. Neither REST feed has
+// them (`stats` exists only on the single-commit response, and the association
+// has its own endpoint), so a REST enrichment would be one or two extra calls
+// per sha. Aliasing N `object(oid:)` lookups into one GraphQL document costs
+// ONE rate-limit point instead — measured against the live API at this width,
+// with and without the pull request selection — which is what makes a full
+// sweep of every tracked repo affordable.
+const COMMIT_FACTS_BATCH = 100;
+// Pull requests read per commit in that batch. One is the usual answer; three
+// leaves room to prefer the pull request a commit LANDED as over one it was
+// merely cherry-picked into, without paging a connection per commit.
+const COMMIT_PULLS_PER_COMMIT = 3;
 
 function mapState(s: string | null | undefined): ItemState {
   if (s === "OPEN") return "open";
@@ -151,19 +158,28 @@ const REVIEW_THREADS_PAGE_Q = `query ReviewThreadsPage($owner:String!, $name:Str
   }
 }`;
 
-// One GraphQL document that reads the line counts of up to COMMIT_STATS_BATCH
-// commits. `object(oid:)` has no list form, so the shas are interpolated as
-// field ALIASES (`c0`, `c1`, …) rather than passed as a variable — hence the
-// shape guard below: only plain hex reaches the document, so nothing a provider
-// response carries can alter the query. Every alias is optional on the
-// response: an oid GitHub cannot resolve comes back null and yields no stats.
-const COMMIT_STATS_OID = /^[0-9a-f]{4,64}$/;
+// One GraphQL document that reads the line counts and the pull requests of up
+// to COMMIT_FACTS_BATCH commits. `object(oid:)` has no list form, so the shas
+// are interpolated as field ALIASES (`c0`, `c1`, …) rather than passed as a
+// variable — hence the shape guard below: only plain hex reaches the document,
+// so nothing a provider response carries can alter the query. Every alias is
+// optional on the response: an oid GitHub cannot resolve comes back null and
+// yields no facts at all, which leaves that commit's row saying nothing.
+const COMMIT_FACTS_OID = /^[0-9a-f]{4,64}$/;
 
-function commitStatsQuery(shas: readonly string[]): string {
-  const lookups = shas
-    .map((sha, i) => `    c${i}: object(oid:"${sha}") { ... on Commit { oid additions deletions } }`)
+// `totalCount` rides along so a commit with more pull requests than were read
+// can be told from one whose list is complete.
+const COMMIT_PULLS = `associatedPullRequests(first:${COMMIT_PULLS_PER_COMMIT}){ totalCount nodes { id number state mergeCommit { oid } repository { nameWithOwner } } }`;
+
+// A merge commit is in the document for its pull request only. Its line counts
+// are never selected: they are the diff against the first parent, which
+// double-counts the branch being merged (see commitLineStats), so the reason
+// travels with the field that is NOT asked for.
+function commitFactsQuery(commits: readonly { sha: string; merge: boolean }[]): string {
+  const lookups = commits
+    .map(({ sha, merge }, i) => `    c${i}: object(oid:"${sha}") { ... on Commit { oid ${merge ? "" : "additions deletions "}${COMMIT_PULLS} } }`)
     .join("\n");
-  return `query CommitStats($owner:String!, $name:String!) {
+  return `query CommitFacts($owner:String!, $name:String!) {
   rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
 ${lookups}
@@ -271,7 +287,8 @@ export class GitHubSource implements Source {
   // github/10: provider actor photos are retained in activity details.
   // github/11: tracker issues emit parent/blocks edges from their phase table.
   // github/12: commit activity details carry merge and default_branch.
-  readonly normalizerVersion = "github/12";
+  // github/13: commit activity details carry change_request.
+  readonly normalizerVersion = "github/13";
   private gql: GqlClient;
   private projects: string[];
   // Lower-cased `projects`: the repositories a tracker row may be resolved into.
@@ -853,10 +870,10 @@ export class GitHubSource implements Source {
       }
     }
 
-    const stats = await this.fetchCommitStats(project, owner, name, [...bySha.values()].map((e) => e.commit), gql);
+    const facts = await this.fetchCommitFacts(project, owner, name, [...bySha.values()].map((e) => e.commit), gql);
 
     for (const { commit, branches } of bySha.values()) {
-      const stat = stats.get(String(commit.sha).toLowerCase());
+      const fact = facts.get(String(commit.sha).toLowerCase());
       const payload = {
         __activityKind: "github_commit",
         project,
@@ -865,8 +882,13 @@ export class GitHubSource implements Source {
         commit,
         // Absent (not null) when the lookup was skipped or failed, so a payload
         // written before this existed and one written by a sweep that could not
-        // reach the stats query hash identically.
-        ...(stat ? { stats: stat } : {}),
+        // reach the batch hash identically. `pulls` may be an empty list: that
+        // is an answer ("no pull request of this repository") unless
+        // `pullsMore` says the list was not read to its end, where absent is
+        // no answer at all.
+        ...(fact?.stats ? { stats: fact.stats } : {}),
+        ...(fact?.pulls ? { pulls: fact.pulls } : {}),
+        ...(fact?.pullsMore ? { pullsMore: true } : {}),
       };
       const payloadJson = JSON.stringify(payload);
       records.push({
@@ -881,43 +903,56 @@ export class GitHubSource implements Source {
     return { records, latest };
   }
 
-  // Line counts for the commits of one sweep, keyed by sha. Best effort by
-  // design: a commit whose stats could not be read is stored without them and
-  // picked up by the next sweep that can, which is strictly better than failing
-  // a sweep — and marking it incomplete over a decoration would block the
-  // soft-delete pass that only a complete sweep may run.
+  // What one GraphQL round trip per 100 commits can say about the commits of a
+  // sweep, keyed by sha: their line counts and the pull requests they belong
+  // to. Best effort by design: a commit whose facts could not be read is stored
+  // without them and picked up by the next sweep that can, which is strictly
+  // better than failing a sweep — and marking it incomplete over a decoration
+  // would block the soft-delete pass that only a complete sweep may run.
   //
-  // Merge commits are filtered out here rather than at the call site so the
-  // reason travels with the request that is NOT sent: their counts are the diff
-  // against the first parent, which double-counts the branch being merged (see
-  // commitLineStats).
-  private async fetchCommitStats(
+  // `stats` is absent for a merge (never asked for, see commitFactsQuery) and
+  // for a commit whose counts were unusable. `pulls` is present whenever the
+  // commit object resolved, and EMPTY when it belongs to no pull request of
+  // this repository — which is the difference between "none" and "unknown" the
+  // row reports. Pull requests of OTHER repositories are dropped here rather
+  // than stored: GitHub resolves a commit across its fork network, and the
+  // token may read repositories the board does not track.
+  private async fetchCommitFacts(
     project: string,
     owner: string | undefined,
     name: string | undefined,
     commits: readonly any[],
     gql: GqlClient,
-  ): Promise<Map<string, { additions: number; deletions: number }>> {
-    const out = new Map<string, { additions: number; deletions: number }>();
+  ): Promise<Map<string, CommitFacts>> {
+    const out = new Map<string, CommitFacts>();
     if (!owner || !name) return out;
-    const shas = commits
-      .filter((c) => (Array.isArray(c?.parents) ? c.parents.length : 0) <= 1)
-      .map((c) => String(c?.sha ?? "").toLowerCase())
-      .filter((sha) => COMMIT_STATS_OID.test(sha));
-    for (let i = 0; i < shas.length; i += COMMIT_STATS_BATCH) {
-      const batch = shas.slice(i, i + COMMIT_STATS_BATCH);
+    const lookups = commits
+      .map((c) => ({ sha: String(c?.sha ?? "").toLowerCase(), merge: parentCount(c?.parents) > 1 }))
+      .filter((c) => COMMIT_FACTS_OID.test(c.sha));
+    for (let i = 0; i < lookups.length; i += COMMIT_FACTS_BATCH) {
+      const batch = lookups.slice(i, i + COMMIT_FACTS_BATCH);
       try {
-        const data: any = await gql(commitStatsQuery(batch), { owner, name });
+        const data: any = await gql(commitFactsQuery(batch), { owner, name });
         const repo = data?.repository ?? {};
         for (let j = 0; j < batch.length; j++) {
           const node = repo[`c${j}`];
-          // Every sha here is a non-merge by construction, so 1 parent; the
-          // shared helper is still what decides a usable pair of counts.
-          const stats = commitLineStats(node, 1);
-          if (stats) out.set(batch[j]!, stats);
+          if (!node) continue;
+          const facts: CommitFacts = {};
+          // A merge's counts were never selected; for every other commit the
+          // shared helper decides whether the pair is usable.
+          const stats = batch[j]!.merge ? null : commitLineStats(node, 1);
+          if (stats) facts.stats = stats;
+          const pulls = node.associatedPullRequests?.nodes;
+          if (Array.isArray(pulls)) {
+            facts.pulls = pulls.map((pull) => storedPull(pull, project)).filter((pull): pull is StoredPull => pull !== null);
+            // More were associated than were read, so an own-repository pull
+            // request may be among the unread ones.
+            if (isPositiveCount(node.associatedPullRequests?.totalCount) && node.associatedPullRequests.totalCount > pulls.length) facts.pullsMore = true;
+          }
+          out.set(batch[j]!.sha, facts);
         }
       } catch (err) {
-        log.warn(`[${this.descriptor.sourceId}] project ${project}: commit stats batch failed: ${(err as Error).message}`);
+        log.warn(`[${this.descriptor.sourceId}] project ${project}: commit facts batch failed: ${(err as Error).message}`);
         break;
       }
     }
@@ -1040,6 +1075,7 @@ export class GitHubSource implements Source {
             defaultBranch: cleanText(p.defaultBranch),
             parentCount: parentCount(commit.parents),
             stats: p.stats,
+            changeRequest: pullChangeRequest(this.descriptor.sourceId, p.project, sha, p.pulls, p.pullsMore === true),
           }),
           ...(actorAvatarUrl ? { actor_avatar_url: actorAvatarUrl } : {}),
         },
@@ -1198,6 +1234,86 @@ function messageBody(value: unknown): string | null {
 
 function parentCount(parents: unknown): number {
   return Array.isArray(parents) ? parents.length : 0;
+}
+
+// A pull request as the commit payload stores it: just what choosing between
+// several needs. Reduced at fetch time so the stored raw stays small, and
+// chosen at normalize time so the rule can change without a re-fetch.
+interface StoredPull {
+  id: string;
+  number: number;
+  state: string | null;
+  mergeCommitOid: string | null;
+  repo: string | null;
+}
+
+interface CommitFacts {
+  stats?: CommitLineStats;
+  pulls?: StoredPull[];
+  // The commit has more associated pull requests than `pulls` was read from.
+  pullsMore?: true;
+}
+
+function isPositiveCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function sameRepo(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a && !!b && a.toLowerCase() === b.toLowerCase();
+}
+
+// From a GraphQL `associatedPullRequests` node, for a commit of `project`. Null
+// for a pull request of another repository, and for anything without a node id
+// and a positive whole number: a link is an identity, and half of one is not
+// worth storing.
+function storedPull(node: any, project: string): StoredPull | null {
+  const pull = readPull({
+    id: node?.id,
+    number: node?.number,
+    state: node?.state,
+    mergeCommitOid: node?.mergeCommit?.oid,
+    repo: node?.repository?.nameWithOwner,
+  });
+  return pull && sameRepo(pull.repo, project) ? pull : null;
+}
+
+// The same validation for an entry read back out of a stored payload, which is
+// untyped JSON by the time normalize sees it.
+function readPull(entry: any): StoredPull | null {
+  const id = cleanText(entry?.id);
+  const number = entry?.number;
+  if (!id || typeof number !== "number" || !Number.isInteger(number) || number <= 0) return null;
+  return {
+    id,
+    number,
+    state: cleanText(entry?.state),
+    mergeCommitOid: cleanText(entry?.mergeCommitOid),
+    repo: cleanText(entry?.repo),
+  };
+}
+
+// The change request a commit row reports, from the pull requests its payload
+// stored: undefined when there is no stored answer (unknown), null when the
+// lookup found none, else the one the commit most plausibly LANDED as.
+//
+// Only a pull request of the commit's own repository counts; the fetch already
+// drops the others, and this checks again because a stored payload is untyped
+// JSON. Among the rest: the pull request whose merge commit this is, then a
+// merged one, then the first — so a commit later cherry-picked into a second
+// pull request still points at the one that brought it in.
+//
+// "None" is only claimed when the list was read to its end. With `more` set
+// and no match among what was read, an own-repository pull request may be
+// among the unread ones, so the answer is unknown.
+function pullChangeRequest(sourceId: string, project: unknown, sha: string, pulls: unknown, more: boolean): CommitChangeRequest | null | undefined {
+  if (!Array.isArray(pulls)) return undefined;
+  const repo = cleanText(project);
+  const own = pulls.map(readPull).filter((pull): pull is StoredPull => pull !== null && sameRepo(pull.repo, repo));
+  const oid = sha.toLowerCase();
+  const chosen =
+    own.find((pull) => pull.mergeCommitOid?.toLowerCase() === oid) ?? own.find((pull) => pull.state === "MERGED") ?? own[0] ?? null;
+  if (chosen) return { ref: refOf(sourceId, chosen.id), iid: chosen.number };
+  return more ? undefined : null;
 }
 
 // Branch membership stored on a commit payload. Payloads written before the

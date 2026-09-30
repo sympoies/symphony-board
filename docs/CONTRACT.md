@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.8.1`.
+Current emitted version: `4.8.2`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.8.2` | clarification | `details.change_request` on commit activity rows; in-range commits pull their change request into a range response | Activities |
 | `4.8.1` | clarification | `details.merge` / `details.default_branch` on commit activity rows | Activities |
 | `4.8.0` | additive | `items[].window_reasons` value `program_tracker`; open labeled program trackers are always emitted | Item Window |
 | `4.7.3` | clarification | `parent` / `blocks` edges from program tracker phase tables | Edges |
@@ -41,7 +42,7 @@ package version, to decide compatibility.
 
 ```jsonc
 {
-  "contract_version": "4.8.1",
+  "contract_version": "4.8.2",
   "generated_at": "2026-06-08T00:00:00.000Z",
   "generator": "symphony-board/<app-version>", // <name>/<root package.json version>
   "timezone": "UTC",
@@ -350,7 +351,8 @@ Important fields:
 - `window_reasons`: v2 inclusion reasons. `primary` means the item belongs to
   `item_window`; `edge_endpoint` means it is included to resolve an emitted edge
   endpoint; `activity_target` means it is included to resolve an emitted review
-  activity's target change request and current review-thread state;
+  activity's target change request and current review-thread state, or (4.8.2+)
+  the change request an emitted commit row names in `details.change_request`;
   `program_tracker` (4.8.0+) means it is an open program tracker labeled
   `workflow::tracking`, which is emitted whatever the window (see Item Window).
   A row can carry several reasons. Missing means "primary" when reading old v1
@@ -461,6 +463,12 @@ below):
   `details.default_branch`, the name of the repository's default branch as the
   sweep that stored the commit read it. `details.branch` alone cannot say this:
   a commit that lives only on a side branch reports that side branch there.
+  A commit row may also carry `details.change_request`, the change request
+  (PR/MR) the commit belongs to: `{ "ref": "<source_id>|<external_id>", "iid":
+  <number> }` when the producer found one, `null` when it looked and there is
+  none, and absent when it could not look. `ref` is the item's immutable
+  identity, the same string as `items[].id`; `iid` is the mutable number for
+  display. The item is not guaranteed to be in `items[]`.
 
 Current sources derive item transition activities from canonical item timestamps
 and fetch provider REST activity surfaces for comments, commits, and
@@ -581,6 +589,53 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.8.2` is a clarification + producer-behavior patch: commit activity
+rows may now carry `details.change_request`, and a range response emits the
+change requests its in-range commits name. `details` was already an open
+object, the key is optional, and `activity_target` was already an
+`items[].window_reasons` value, so no shape changed.
+
+The key has three states on purpose. An object names the change request. `null`
+means the producer looked the commit up and it belongs to none — a fact a
+consumer can count ("landed without a change request"). Absent means the
+producer has no answer: a row stored before `4.8.2`, a lookup that failed, or a
+provider that cannot resolve that commit. A consumer must not read absent as
+`null`.
+
+What each provider can answer differs, and the difference is in the states
+above rather than hidden:
+
+- GitHub can answer for any commit. The association rides in the GraphQL
+  document the sweep already sends for line counts, merges included, so it
+  costs no extra request. Only a pull request of the commit's own repository is
+  accepted; when several match, the one whose merge commit is this commit wins,
+  then a merged one. A GitHub row whose lookup succeeded therefore carries an
+  object or `null`; it carries nothing when the lookup failed, or when the
+  commit has more pull requests than the three that are read and none of those
+  read is the repository's own. Pull requests of other repositories in the
+  fork network are not stored.
+  GitHub's answer is about the repository as it is now: history imported from
+  another repository reports `null` for commits whose pull requests lived there.
+- GitLab has no batch that resolves a commit, and one request per commit is a
+  different cost class. One merged-merge-request listing per project per sweep,
+  bounded to a day before the oldest default-branch commit being stored, links
+  the commits a merge request LANDED as: its merge commit, its squash commit,
+  and its head. A GitLab row therefore carries an object or nothing, never
+  `null`. A commit inside a merge-commit merge is unknown, not unlinked, and so
+  is a commit landed by a merge request into another branch when it is older
+  than that bound.
+
+The lookup is best effort: a failure leaves the key absent and never marks the
+sweep incomplete. An activity upsert replaces `details`, so a later sweep whose
+lookup failed removes a link an earlier one stored until the commit is re-read.
+
+`buildRangeContract` adds the change request items that in-range commit rows
+name to `items[]` with `window_reasons: ["activity_target"]`, the same support
+role a reviewed change request already has, and counts them in
+`item_window.activity_target_items`. Like any emitted change request, these
+rows bring their `review_threads[]` with them. The static contract is
+unchanged: its 90-day item window already spans its 30-day activity window.
 
 Version `4.8.1` is a clarification release: commit activity rows may now carry
 `details.merge` and `details.default_branch`. `details` was already an open
@@ -929,7 +984,8 @@ Fields:
 - `edge_endpoint_items`: number of loaded rows outside the primary window that
   exist to resolve emitted edge endpoints.
 - `activity_target_items`: optional number of loaded rows outside the primary
-  window that exist to resolve emitted review activity targets. When a row has
+  window that exist to resolve emitted review activity targets or (4.8.2+) the
+  change requests emitted commit rows name. When a row has
   both `edge_endpoint` and `activity_target`, the counts are per reason.
 - `total_items`: full live canonical item count before windowing.
 - `truncated`: true when at least one live item row is omitted from `items[]`.
@@ -1017,6 +1073,9 @@ The range response is a projection, not a second schema:
   `window_reasons: ["activity_target"]` when they are outside the primary item
   set, so unresolved-review filters can read the target change request's current
   `review_threads` summary without treating the row as an edge endpoint.
+- the change requests in-range commit rows name in `details.change_request`
+  (4.8.2+) are included the same way, so a consumer can show the change request
+  a commit belongs to.
 - `activities[]` is filtered by `occurred_at` inside `[from, to]`.
 - `aggregates[]` is populated in range responses from the full live item/edge
   set (the same computation the static contract uses), so a windowed board keeps

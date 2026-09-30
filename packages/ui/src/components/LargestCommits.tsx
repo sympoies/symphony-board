@@ -19,10 +19,15 @@ export function LargestCommits({
   commits,
   selectedKey,
   onSelect,
+  span = true,
 }: {
   commits: ActivityDTO[];
   selectedKey: string | null;
   onSelect: (commit: ActivityDTO) => void;
+  // Whether the pane has the column's full width. It shares its row with the
+  // Change requests pane when the range names any, and at half the width the
+  // proportion bar is what gives way: the numbers beside it say the same thing.
+  span?: boolean;
 }) {
   // Sorted once per row set. The slice is what renders; the full length is the
   // "of N" in the head, which is how many commits carried counts at all.
@@ -31,7 +36,7 @@ export function LargestCommits({
   const scale = top[0]?.lines ?? 0;
 
   return (
-    <div className="rail-block pane-span pane-fill largest-commits">
+    <div className={`rail-block pane-fill largest-commits${span ? " pane-span" : ""}`}>
       <div className="rail-block-head">
         <span className="rail-block-title">Largest commits</span>
         <span className="rail-block-meta">

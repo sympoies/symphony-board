@@ -204,7 +204,12 @@ activity row whose `details.branch` / `details.ref` carry the primary branch and
 `details.branches` / `details.refs` the full membership (default branch first).
 The row also names the repository's default branch (`details.default_branch`)
 and marks a commit with more than one parent (`details.merge`); both are read
-from the stored payload, not from a request of their own.
+from the stored payload, not from a request of their own. It names the change
+request the commit belongs to (`details.change_request`) when the provider can
+say: GitHub answers inside the GraphQL batch that already reads line counts
+(for any commit, short of one with more pull requests than it reads), while
+GitLab links only the commits a merge request landed as, from one
+merged-merge-request listing per project per sweep.
 A deleted branch stops being discovered; rows it produced keep the labels they
 earned. Per-source `commit_branches: "default"` restores the default-branch-only
 feed as an escape hatch.
@@ -321,7 +326,7 @@ The contract is the product API. It is defined by:
 - `src/contract/version.ts` (producer version and generator)
 - `src/contract/validate.ts` (producer-side validator)
 
-Current major: v4. Current emitted version: `4.8.1`.
+Current major: v4. Current emitted version: `4.8.2`.
 
 Version `1.1.0` added display metadata:
 
@@ -666,6 +671,16 @@ Pages:
   when the range has any, and Top branches leads with the default branches and
   states the share of commits on one. A row from a producer that names no
   default branch is left out of that share rather than counted as a side branch.
+  A commit that names its change request (`details.change_request`) shows the
+  number as a chip on its row and a Change request row in its detail with the
+  item's title, state, review and CI when the item is loaded. The chip opens
+  the Items page narrowed to that item when it is one of that page's rows, and
+  the provider page when it is loaded only as a support row. The 2480px tier
+  adds a Change requests pane beside Largest commits (the range's commits
+  regrouped by the change request they belong to: commits, lines, and how long
+  a merged one was open) and a tile counting default-branch commits that landed
+  without one. That tile counts only explicit "none" answers on non-merge
+  commits, so a provider that cannot resolve every commit never inflates it.
   Selected content cards share a subtle theme-aware fill and border across
   Commits, Items, Live, Reviews, and the Graph list; selection paints the
   rounded card rather than virtual-row spacing. Keyboard focus remains visible.

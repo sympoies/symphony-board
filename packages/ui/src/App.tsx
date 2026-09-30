@@ -14,6 +14,8 @@ import {
   activityMatches,
   filterCommits,
   commitIsMerge,
+  type CommitChangeRequestLink,
+  type ResolvedChangeRequest,
   commitRepoOptions,
   commitBranchOptions,
   preferredDefaultTimeRange,
@@ -86,6 +88,7 @@ import {
   parseDebugTab,
   debugTabField,
   ITEM_REVIEW_VALUES,
+  changeRequestDestination,
   type ActivityFacetDim,
   type ActivityView,
   type GraphView,
@@ -1189,6 +1192,21 @@ export function App() {
     () => new Map((env?.sources ?? []).map((s) => [s.source_id, s.kind])),
     [env],
   );
+  // A commit's change request, joined with its item and given somewhere to go
+  // (see nav.changeRequestDestination). One resolver for the row chip, the
+  // detail pane, and the Change requests pane, so the three can never disagree
+  // about where a number leads.
+  const resolveChangeRequestLink = useCallback(
+    (link: CommitChangeRequestLink, sourceId: string): ResolvedChangeRequest => {
+      const item = itemsById.get(link.ref);
+      return changeRequestDestination(link, item, sourceKind.get(item?.source_id ?? sourceId), {
+        from: explicitRange?.from,
+        to: explicitRange?.to,
+        preset: explicitRange ? route.preset : null,
+      });
+    },
+    [itemsById, sourceKind, explicitRange, route.preset],
+  );
 
   const filteredItems = useMemo(
     () => primaryItems.filter((i) => itemMatches(i, itemFilters)),
@@ -2133,6 +2151,7 @@ export function App() {
           followLatest={commitsFollowLatest}
           onFollowLatest={() => setCommitsFollowLatest(true)}
           fileStats={commitFileStats}
+          resolveChangeRequestLink={resolveChangeRequestLink}
           mergeCount={windowMergeCount}
           hideMerges={commitsHideMerges}
           onHideMerges={setCommitsHideMerges}

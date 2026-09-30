@@ -17,7 +17,19 @@
 // `parseHashRoute`) and the matching predicate (`activityRouteMatches`); this
 // module owns the navigation INTENTS and the dim<->route-field mapping.
 
-import { buildHashRoute, graphFocusHref, parseHashRoute, routeList, type HashRoute, type TimeRangePresetId } from "./model.ts";
+import type { ItemDTO } from "@symphony-board/contract";
+import {
+  buildHashRoute,
+  changeRequestView,
+  graphFocusHref,
+  parseHashRoute,
+  routeList,
+  type CommitChangeRequestLink,
+  type HashRoute,
+  type ResolvedChangeRequest,
+  type TimeRangePresetId,
+} from "./model.ts";
+import { safeHref } from "./url.ts";
 
 // The board card -> graph focus link lives in model.ts (it needs ItemDTO); it is
 // re-exported here so every cross-page link has a single import home.
@@ -365,6 +377,45 @@ export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute
     to: ctx.range?.to ?? null,
     preset: ctx.range?.preset ?? null,
   });
+}
+
+// Commits -> Items, for one change request. The Items page has no route field
+// that selects a row, but its list auto-selects the first match, and an exact
+// `#<number>` search for a change request inside one pinned repository of one
+// source matches exactly one item. The kind is pinned too: GitLab numbers
+// issues and merge requests separately, so `#12` alone is both issue 12 and
+// merge request 12. The rest of the lens is replaced rather than carried:
+// whatever state or review filter the reader had on the board could hide the
+// very item the link names.
+export function changeRequestItemHref(opts: { source: string; repo: string; iid: number; range: RangeRoute }): string {
+  return tabHref("items", {
+    q: `#${opts.iid}`,
+    range: opts.range,
+    item: { isource: opts.source, irepo: opts.repo, istate: null, ikind: "change_request", ireview: null },
+  });
+}
+
+// Where a commit's change request leads, and the view to draw it with.
+//
+// Three cases. The item is one of the Items page's own rows: the Items page,
+// narrowed to it. The item is loaded only as a support row (emitted because a
+// commit names it): the Items page would not list it, so the provider page,
+// off-site. The item is not loaded at all: nowhere, and the number is drawn as
+// plain text. The Items link pins the ITEM's own source and repository, which
+// are what that page filters on.
+export function changeRequestDestination(
+  link: CommitChangeRequestLink,
+  item: ItemDTO | undefined,
+  // The provider kind of the commit's source: what decides `#` or `!` when the
+  // item is not loaded.
+  providerKind: string | undefined,
+  range: RangeRoute,
+): ResolvedChangeRequest {
+  const view = changeRequestView(link, item, providerKind);
+  if (item && view.primary && view.iid !== null && item.project_path) {
+    return { view, href: changeRequestItemHref({ source: item.source_id, repo: item.project_path, iid: view.iid, range }), external: false };
+  }
+  return { view, href: safeHref(view.url) ?? null, external: true };
 }
 
 // Clear the visible search/facet filters in one action while preserving view

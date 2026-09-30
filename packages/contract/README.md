@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.8.1`.
+Current contract version emitted by the backend: `4.8.2`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.8.1`. Important compatibility milestones:
+The current emitted contract is `4.8.2`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -142,6 +142,9 @@ The current emitted contract is `4.8.1`. Important compatibility milestones:
   ignore an unrecognized `window_reasons` value rather than reject it.
 - 4.8.1 documents optional `details.merge` (true only on a commit with more
   than one parent) and `details.default_branch` on commit activity rows.
+- 4.8.2 documents optional `details.change_request` on commit activity rows
+  (`{ ref, iid }`, `null` for "looked, none", absent for "unknown"), and a range
+  response emits the change requests its in-range commits name.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,
