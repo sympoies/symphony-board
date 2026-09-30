@@ -71,6 +71,7 @@ const COMMITS_FOLLOW_LATEST_KEY = "symphony-board:commits-follow-latest";
 // diffstat. Off by default: it is a per-selection provider read, not contract
 // data.
 const COMMIT_FILE_STATS_KEY = "symphony-board:commit-file-stats";
+const COMMITS_HIDE_MERGES_KEY = "symphony-board:commits-hide-merges";
 // HIDDEN Live event categories (an independent layer, like hidden sources): a
 // category in this set is dropped from the Live feed and its filter chip. Stored
 // as the hidden set so a new provider category defaults visible.
@@ -307,6 +308,29 @@ export function loadCommitsFollowLatest(): boolean {
 export function saveCommitsFollowLatest(enabled: boolean): void {
   try {
     localStorage.setItem(COMMITS_FOLLOW_LATEST_KEY, enabled ? "true" : "false");
+  } catch {
+    /* storage unavailable / over quota — the choice just won't persist */
+  }
+}
+
+// Whether the Commits page leaves merge commits out. Device-local and OFF by
+// default, like the other reading preferences: a merge is a real commit and the
+// page shows it, and a reader who finds "Merge branch ..." rows noise says so
+// once. Not route state — a shared link should not silently hide rows from
+// whoever opens it.
+export const DEFAULT_COMMITS_HIDE_MERGES = false;
+
+export function loadCommitsHideMerges(): boolean {
+  try {
+    return localStorage.getItem(COMMITS_HIDE_MERGES_KEY) === "true";
+  } catch {
+    return DEFAULT_COMMITS_HIDE_MERGES;
+  }
+}
+
+export function saveCommitsHideMerges(enabled: boolean): void {
+  try {
+    localStorage.setItem(COMMITS_HIDE_MERGES_KEY, enabled ? "true" : "false");
   } catch {
     /* storage unavailable / over quota — the choice just won't persist */
   }

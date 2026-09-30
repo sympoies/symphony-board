@@ -289,6 +289,7 @@ test("GitHub fetch and normalize includes commit and repository activity from RE
     body: "Body",
     branch: "main",
     ref: "refs/heads/main",
+    default_branch: "main",
   });
   const push = activityBundles.find((b) => b.activities[0]!.kind === "branch")!.activities[0]!;
   assert.equal(push.actorKey, "provider-user:github:github.com:octocat");
@@ -498,6 +499,7 @@ test("GitHub fetch expands live side branches via compare and merges branch memb
     ref: "refs/heads/main",
     branches: ["main", "feature/y"],
     refs: ["refs/heads/main", "refs/heads/feature/y"],
+    default_branch: "main",
   });
 
   const side = commits.find((a) => (a.details as any).sha === "bbb222")!;
@@ -508,6 +510,7 @@ test("GitHub fetch expands live side branches via compare and merges branch memb
     ref: "refs/heads/feature-x",
     branches: ["feature-x", "feature/y"],
     refs: ["refs/heads/feature-x", "refs/heads/feature/y"],
+    default_branch: "main",
   });
 });
 
@@ -614,7 +617,51 @@ test("a pre-expansion GitHub commit payload (defaultBranch, no branches) replays
     message: "Old shape",
     branch: "main",
     ref: "refs/heads/main",
+    default_branch: "main",
   });
+});
+
+test("a GitHub commit row says when it is a merge and names the default branch", () => {
+  // A merge carries no line counts by design, which made it indistinguishable
+  // from a commit whose counts could not be read; and `details.branch` is the
+  // commit's PRIMARY branch, so a side-branch-only commit hid which branch the
+  // repository's default is. Both facts are already in the stored payload.
+  const src = new GitHubSource(DESC, gql, ["o/r"]);
+  const commitRaw = (sha: string, parents: number, extra: Record<string, unknown>): RawRecord => ({
+    entityKind: "activity",
+    externalId: `commit:o%2Fr:${sha}`,
+    apiVersion: "github.graphql.v4.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "github_commit",
+      project: "o/r",
+      ...extra,
+      commit: {
+        sha,
+        html_url: `https://github.com/o/r/commit/${sha}`,
+        commit: { message: "Subject", author: { name: "A", date: "2026-06-09T10:00:00Z" }, committer: { name: "A", date: "2026-06-09T10:00:00Z" } },
+        author: { login: "octocat" },
+        parents: Array.from({ length: parents }, (_, i) => ({ sha: `000000${i}` })),
+      },
+    },
+  });
+  const details = (raw: RawRecord) => src.normalize(raw)!.activities[0]!.details as Record<string, unknown>;
+
+  const merge = details(commitRaw("aaa0001", 2, { defaultBranch: "main", branches: ["main"] }));
+  assert.equal(merge.merge, true);
+  assert.equal(merge.default_branch, "main");
+
+  const plain = details(commitRaw("aaa0002", 1, { defaultBranch: "main", branches: ["main"] }));
+  assert.ok(!("merge" in plain), "absent, not false: only a merge carries the key");
+  assert.equal(plain.default_branch, "main");
+
+  const side = details(commitRaw("aaa0003", 1, { defaultBranch: "main", branches: ["feature-x"] }));
+  assert.equal(side.branch, "feature-x", "the primary branch is still the side branch");
+  assert.equal(side.default_branch, "main", "and the default branch is named beside it");
+
+  const unknown = details(commitRaw("aaa0004", 1, {}));
+  assert.ok(!("default_branch" in unknown), "a payload that never read the default branch says nothing");
 });
 
 test("GitHub commit line counts batch through one GraphQL query and skip merges", async () => {
@@ -1763,6 +1810,7 @@ test("GitLab fetch and normalize includes commit body and default branch refs fr
     body: "Detailed body",
     branch: "main",
     ref: "refs/heads/main",
+    default_branch: "main",
   });
 });
 
@@ -1836,6 +1884,7 @@ test("GitLab fetch expands live side branches via compare and labels their commi
     message: "On a side branch",
     branch: "feature-x",
     ref: "refs/heads/feature-x",
+    default_branch: "main",
   });
   const main = commits.find((a) => (a.details as any).sha === "cafebabefeed")!;
   assert.deepEqual(main.details, {
@@ -1843,6 +1892,7 @@ test("GitLab fetch expands live side branches via compare and labels their commi
     message: "On main",
     branch: "main",
     ref: "refs/heads/main",
+    default_branch: "main",
   });
 });
 
@@ -1907,11 +1957,11 @@ test("GitLab asks the commit list for stats and resolves compare-only commits by
     .map((a) => a.details as any);
   assert.deepEqual(
     details.find((d) => d.sha === "cafebabefeed"),
-    { sha: "cafebabefeed", message: "On main", branch: "main", ref: "refs/heads/main", additions: 9, deletions: 1 },
+    { sha: "cafebabefeed", message: "On main", branch: "main", ref: "refs/heads/main", default_branch: "main", additions: 9, deletions: 1 },
   );
   assert.deepEqual(
     details.find((d) => d.sha === "feedfacecafe"),
-    { sha: "feedfacecafe", message: "On a side branch", branch: "feature-x", ref: "refs/heads/feature-x", additions: 3, deletions: 7 },
+    { sha: "feedfacecafe", message: "On a side branch", branch: "feature-x", ref: "refs/heads/feature-x", default_branch: "main", additions: 3, deletions: 7 },
   );
 });
 
@@ -1947,7 +1997,50 @@ test("a stored GitLab merge commit drops the stats its payload carries", () => {
     message: "Merge branch 'feature-x'",
     branch: "main",
     ref: "refs/heads/main",
+    default_branch: "main",
+    merge: true,
   });
+});
+
+test("a GitLab commit row says when it is a merge and names the default branch", () => {
+  const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
+  const commitRaw = (sha: string, parents: number, extra: Record<string, unknown>): RawRecord => ({
+    entityKind: "activity",
+    externalId: `commit:g%2Fp:${sha}`,
+    apiVersion: "gitlab.graphql.rest",
+    fetchedAt: "2026-06-09T00:00:00Z",
+    contentHash: "h",
+    payload: {
+      __activityKind: "gitlab_commit",
+      project: "g/p",
+      ...extra,
+      commit: {
+        id: sha,
+        title: "Subject",
+        message: "Subject",
+        web_url: `https://gitlab.com/g/p/-/commit/${sha}`,
+        committed_date: "2026-06-09T10:00:00Z",
+        author_name: "GitLab Dev",
+        author_email: "gitlab@example.com",
+        parent_ids: Array.from({ length: parents }, (_, i) => `000000${i}`),
+      },
+    },
+  });
+  const details = (raw: RawRecord) => src.normalize(raw)!.activities[0]!.details as Record<string, unknown>;
+
+  const merge = details(commitRaw("bbb0001", 2, { defaultBranch: "main", branches: ["main"] }));
+  assert.equal(merge.merge, true);
+  assert.equal(merge.default_branch, "main");
+
+  const plain = details(commitRaw("bbb0002", 1, { defaultBranch: "main", branches: ["main"] }));
+  assert.ok(!("merge" in plain), "absent, not false: only a merge carries the key");
+
+  const side = details(commitRaw("bbb0003", 1, { defaultBranch: "main", branches: ["feature-x"] }));
+  assert.equal(side.branch, "feature-x");
+  assert.equal(side.default_branch, "main");
+
+  const unknown = details(commitRaw("bbb0004", 1, {}));
+  assert.ok(!("default_branch" in unknown));
 });
 
 test("a pre-expansion GitLab commit payload (defaultBranch, no branches) replays unchanged", () => {
@@ -1978,6 +2071,7 @@ test("a pre-expansion GitLab commit payload (defaultBranch, no branches) replays
     message: "Old shape",
     branch: "main",
     ref: "refs/heads/main",
+    default_branch: "main",
   });
 });
 
@@ -2362,8 +2456,8 @@ test("GitLab: a null diff line position falls back to the other side instead of 
 test("source normalizer versions are bumped for canonical output changes", () => {
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
-  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/11");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/10");
+  assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/12");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/11");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {

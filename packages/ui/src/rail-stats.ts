@@ -1,6 +1,6 @@
 import type { ActivityDTO, ActorDirectoryDTO, ReviewThreadDTO } from "@symphony-board/contract";
 import { zonedDateOnly, zonedHour } from "./tz.ts";
-import { commitBranches, commitMessage, commitStats } from "./model.ts";
+import { commitBranches, commitDefaultBranch, commitIsMerge, commitMessage, commitOnDefaultBranch, commitStats } from "./model.ts";
 import { safeHref } from "./url.ts";
 
 // Aggregations for the Commits and Activity side rails. Every one of these reads
@@ -716,17 +716,56 @@ export type BranchDetail = {
   // A branch is ranked by NAME across repositories, so `main` is every repo's
   // main. This says how many that is.
   repos: number;
+  // Some repository with commits here names this branch as its default. By
+  // name, like the ranking itself: `main` is marked when it is any repo's
+  // default, even if another repo happens to use the name for a side branch.
+  isDefault: boolean;
 };
 
 export function branchDetails(activities: readonly ActivityDTO[]): Map<string, BranchDetail> {
   const repos = new Map<string, Set<string>>();
+  const defaults = new Set<string>();
   for (const a of activities) {
     const path = a.project_path?.trim();
+    const defaultBranch = commitDefaultBranch(a);
     for (const branch of commitBranches(a)) {
       const set = repos.get(branch) ?? new Set<string>();
       if (path) set.add(`${a.source_id}|${path}`);
       repos.set(branch, set);
+      if (branch === defaultBranch) defaults.add(branch);
     }
   }
-  return new Map([...repos.entries()].map(([branch, set]) => [branch, { repos: set.size }]));
+  return new Map([...repos.entries()].map(([branch, set]) => [branch, { repos: set.size, isDefault: defaults.has(branch) }]));
+}
+
+// Branch ranks with the default branches leading, whatever their count: they
+// are where work lands, and every row under them is a branch that has not
+// landed yet. Order within each group is the ranking's own.
+export function defaultBranchesFirst(ranks: readonly RailRank[], details: ReadonlyMap<string, BranchDetail>): RailRank[] {
+  return [...ranks.filter((rank) => details.get(rank.key)?.isDefault), ...ranks.filter((rank) => !details.get(rank.key)?.isDefault)];
+}
+
+// ---- how the range landed ---------------------------------------------------
+
+export type CommitLanding = {
+  merges: number;
+  // Commits on their repository's default branch, out of `known` -- the rows
+  // that name one. A row from a producer that does not say is a commit like any
+  // other but is left out of both, so the share is never diluted by "unknown".
+  onDefault: number;
+  known: number;
+};
+
+export function commitLanding(activities: readonly ActivityDTO[]): CommitLanding {
+  let merges = 0;
+  let onDefault = 0;
+  let known = 0;
+  for (const a of activities) {
+    if (commitIsMerge(a)) merges += 1;
+    const on = commitOnDefaultBranch(a);
+    if (on === null) continue;
+    known += 1;
+    if (on) onDefault += 1;
+  }
+  return { merges, onDefault, known };
 }

@@ -11,6 +11,7 @@ import {
   CONTENT_TAB_OPTIONS, loadContentTabOrder, saveContentTabOrder, normalizeContentTabOrder,
   loadLiveTabEnabled, saveLiveTabEnabled,
   loadCommitsFollowLatest, saveCommitsFollowLatest,
+  loadCommitsHideMerges, saveCommitsHideMerges,
   loadCommitFileStats, saveCommitFileStats,
   loadLivePulseOpenChoice, saveLivePulseOpen,
   loadBoardScope, saveBoardScope, defaultBoardScope,
@@ -222,6 +223,16 @@ test("commits follow-latest is a device-local setting that is OFF by default", (
   assert.equal(loadCommitsFollowLatest(), false);
   store._raw("symphony-board:commits-follow-latest", "yes");
   assert.equal(loadCommitsFollowLatest(), false, "non-boolean value -> default off");
+});
+
+test("hiding merge commits is a device-local setting that is OFF by default", () => {
+  assert.equal(loadCommitsHideMerges(), false, "default: merges are commits and are shown");
+  saveCommitsHideMerges(true);
+  assert.equal(loadCommitsHideMerges(), true);
+  saveCommitsHideMerges(false);
+  assert.equal(loadCommitsHideMerges(), false);
+  store._raw("symphony-board:commits-hide-merges", "yes");
+  assert.equal(loadCommitsHideMerges(), false, "non-boolean value -> default off");
 });
 
 test("commit file stats is a device-local setting that is OFF by default", () => {
