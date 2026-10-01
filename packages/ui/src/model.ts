@@ -1522,14 +1522,6 @@ export function commitVirtualRange({
   return { start, end, totalHeightPx };
 }
 
-export interface ActivityDisplay {
-  title: string;
-  repo: string | null; // project_path, rendered with the .card-repo accent (kept out of `meta`)
-  meta: string[];
-  chips: string[];
-}
-
-const WORK_ITEM_ACTIVITY_KINDS = new Set(["issue", "change_request"]);
 
 function cleanText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -1563,12 +1555,6 @@ function shortSha(value: string | null): string | null {
   return trimmed.length > 8 ? trimmed.slice(0, 8) : trimmed;
 }
 
-function shortNonZeroSha(value: string | null): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  return /^0+$/.test(trimmed) ? null : shortSha(trimmed);
-}
-
 function shortRef(value: string | null): string | null {
   const ref = cleanText(value);
   return ref?.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") ?? null;
@@ -1579,35 +1565,6 @@ export function displayKind(kind: string | null | undefined): string | null {
   if (!k) return null;
   if (k === "change_request") return "change request";
   return k.replace(/_/g, " ");
-}
-
-function isWorkItemKind(kind: string | null | undefined): boolean {
-  return !!kind && WORK_ITEM_ACTIVITY_KINDS.has(kind);
-}
-
-function workItemTargetLabel(activity: ActivityDTO): string | null {
-  const kind = isWorkItemKind(activity.target_kind)
-    ? activity.target_kind
-    : isWorkItemKind(activity.kind)
-      ? activity.kind
-      : null;
-  const label = displayKind(kind);
-  if (!label) return null;
-  return activity.target_iid != null ? `${label} #${activity.target_iid}` : label;
-}
-
-function activityRefKind(activity: ActivityDTO, ref: string | null): string {
-  if (activity.target_kind === "tag" || activity.kind === "tag" || ref?.startsWith("refs/tags/")) return "tag";
-  if (activity.target_kind === "branch" || activity.kind === "branch" || activity.kind === "push" || ref) return "branch";
-  return displayKind(activity.kind) ?? "ref";
-}
-
-function joinDistinct(parts: Array<string | null>): string {
-  const out: string[] = [];
-  for (const part of parts) {
-    if (part && !out.includes(part)) out.push(part);
-  }
-  return out.join(" · ");
 }
 
 // Short label for a change_request's review-thread state, or null when there is
@@ -1778,61 +1735,6 @@ export function reviewResolution(thread: ReviewThreadDTO): ReviewResolution | nu
 // unique per source — so the pair is globally unique).
 export function activityKey(a: Pick<ActivityDTO, "source_id" | "external_id">): string {
   return `${a.source_id}|${a.external_id}`;
-}
-
-export function activityDisplay(
-  activity: ActivityDTO,
-  // The target change_request's review threads, when the caller resolved
-  // `target_ref` to an item carrying them. Drives the review-resolution chip;
-  // omitted by non-Activity callers, which then show no such chip.
-  opts: { reviewThreads?: ReviewThreadsDTO | null } = {},
-): ActivityDisplay {
-  const title = cleanText(activity.title);
-  // 4.0.0 dropped the producer `summary`; the title is built entirely from the
-  // structured fields below (target / commit sha / ref / action+kind), which is
-  // what activityDisplay already used as the primary label — `summary` was only
-  // a rarely-hit final fallback. `${action} ${kind}` is the last-resort label.
-  const actionKind = `${activity.action.replace(/_/g, " ")} ${activity.kind}`.trim();
-  // repo is pulled out of `meta` so the feed can render it with the .card-repo
-  // accent (teal), matching the board / commits cards; the rest stays muted.
-  const repo = cleanText(activity.project_path);
-  const meta = [displayKind(activity.kind), activity.actor ? `@${activity.actor}` : null].filter(
-    (part): part is string => part !== null,
-  );
-
-  const chips: string[] = [];
-  const sha = shortSha(detailText(activity.details, "sha"));
-  if (sha) chips.push(`sha ${sha}`);
-
-  const rawRef = detailText(activity.details, "ref");
-  const ref = shortRef(rawRef);
-  if (ref) chips.push(`ref ${ref}`);
-
-  const from = shortNonZeroSha(detailText(activity.details, "commit_from") ?? detailText(activity.details, "before"));
-  const to = shortNonZeroSha(detailText(activity.details, "commit_to") ?? detailText(activity.details, "after"));
-  if (from) chips.push(`from ${from}`);
-  if (to) chips.push(`to ${to}`);
-
-  if (activity.kind === "review") {
-    const threadChip = reviewThreadsLabel(opts.reviewThreads);
-    if (threadChip) chips.push(threadChip);
-  }
-
-  const target = workItemTargetLabel(activity);
-  if (target) return { title: joinDistinct([target, title]) || actionKind, repo, meta, chips };
-
-  if (activity.kind === "commit" || activity.target_kind === "commit") {
-    const commitLabel = sha ? `commit ${sha}` : "commit";
-    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message")]), repo, meta, chips };
-  }
-
-  if (activity.kind === "push" || activity.kind === "branch" || activity.kind === "tag" || ref) {
-    const kind = activityRefKind(activity, rawRef);
-    return { title: ref ? `${kind} ${ref}` : (title ?? actionKind), repo, meta, chips };
-  }
-
-  const kind = displayKind(activity.kind);
-  return { title: joinDistinct([kind, title]) || actionKind, repo, meta, chips };
 }
 
 // Does an item satisfy the review-thread lens? "threads" = has any resolvable

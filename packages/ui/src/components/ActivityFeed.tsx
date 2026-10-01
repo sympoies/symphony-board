@@ -19,7 +19,6 @@ import {
   activityKey,
   activityVirtualRange,
   relativeTime,
-  reviewThreadsLabel,
   displayKind,
   type ColorOf,
 } from "../model.ts";
@@ -112,11 +111,7 @@ export function ActivityFeed({
           const accentColor = colorOf(a.source_id, a.project_path);
           const item = activityTargetItem(a, itemsById);
           const view = activityRowView(a, item, sourceKind.get(a.source_id));
-          const chips = [...view.chips];
-          if (a.kind === "review") {
-            const threads = reviewThreadsLabel(item?.review_threads);
-            if (threads) chips.push(threads);
-          }
+          const chips = view.chips;
           const selected = key === selectedKey;
           const copied = copiedKey === key;
           const kindLabel = displayKind(a.kind);

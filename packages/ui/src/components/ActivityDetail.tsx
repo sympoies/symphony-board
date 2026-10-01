@@ -10,7 +10,10 @@ import { ACTION_KIND } from "../activity-action-style.ts";
 import { safeHref } from "../url.ts";
 import {
   activityRowView,
+  detailLine,
+  detailText,
   itemRowState,
+  realSha,
   textExcerpt,
   workItemLabel,
   type CommentExcerpt,
@@ -61,15 +64,6 @@ function absoluteTime(iso: string, timezone: string): string {
     hour12: false,
     timeZone: timezone,
   }).format(ms);
-}
-
-function detailText(a: ActivityDTO, key: string): string | null {
-  const value = a.details && typeof a.details === "object" ? a.details[key] : undefined;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function realSha(sha: string | null): string | null {
-  return sha && !/^0+$/.test(sha) ? sha : null;
 }
 
 // One short phrase for a related row: a review's verdict, a comment's file and
@@ -137,7 +131,7 @@ export function ActivityDetail({
   const before = realSha(detailText(activity, "before") ?? detailText(activity, "commit_from"));
   const after = realSha(detailText(activity, "after") ?? detailText(activity, "commit_to"));
   const commentPath = detailText(activity, "path");
-  const commentLine = activity.details && typeof activity.details.line === "number" ? activity.details.line : null;
+  const commentLine = detailLine(activity);
   const reply = activity.details != null && activity.details.in_reply_to_id != null;
   const association = detailText(activity, "author_association");
   const itemLabel =

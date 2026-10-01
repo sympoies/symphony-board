@@ -1,4 +1,5 @@
 import type { ActivityDTO, ItemDTO, ReviewThreadDTO } from "@symphony-board/contract";
+import { activityKey, reviewThreadsLabel } from "./model.ts";
 
 // What the Activity page says about ONE event: the compact list row and the
 // detail pane. Pure, over the rows and items the page already holds, so it is
@@ -47,12 +48,17 @@ function detail(a: ActivityDTO, key: string): unknown {
   return a.details && typeof a.details === "object" ? a.details[key] : undefined;
 }
 
-function detailText(a: ActivityDTO, key: string): string | null {
+export function detailText(a: ActivityDTO, key: string): string | null {
   return cleanText(detail(a, key));
 }
 
 function count(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+// A review comment's line, when the producer wrote a whole one.
+export function detailLine(a: ActivityDTO): number | null {
+  return count(detail(a, "line"));
 }
 
 function shortSha(sha: string | null): string | null {
@@ -61,7 +67,7 @@ function shortSha(sha: string | null): string | null {
 }
 
 // An all-zero sha is a ref that did not exist on that side of the push.
-function realSha(sha: string | null): string | null {
+export function realSha(sha: string | null): string | null {
   return sha && !/^0+$/.test(sha) ? sha : null;
 }
 
@@ -148,10 +154,15 @@ export function activityRowView(a: ActivityDTO, item: ItemDTO | undefined, provi
     const iid = item?.iid ?? a.target_iid;
     const path = detailText(a, "path");
     if (path) {
-      const line = count(detail(a, "line"));
+      const line = detailLine(a);
       chips.push(line !== null ? `${path}:${line}` : path);
     }
     if (detail(a, "in_reply_to_id") != null) chips.push("reply");
+    // A review row says whether its change request's threads are resolved now.
+    if (a.kind === "review") {
+      const threads = reviewThreadsLabel(item?.review_threads);
+      if (threads) chips.push(threads);
+    }
     return {
       label: iid != null ? workItemLabel(kind, iid, providerKind) : null,
       title: cleanText(item?.title) ?? cleanText(a.title) ?? (kind === "change_request" ? "change request" : "issue"),
@@ -287,4 +298,49 @@ export function pushHeadCommit(activities: readonly ActivityDTO[], a: ActivityDT
   const to = realSha(detailText(a, "after") ?? detailText(a, "commit_to"));
   if (!to) return undefined;
   return activities.find((row) => isCommit(row) && row.source_id === a.source_id && detailText(row, "sha") === to);
+}
+
+// --- selection ----------------------------------------------------------------
+//
+// The detail pane follows the newest row, is pinned to one row by its key, or is
+// closed. The page holds the mode; these are its rules, kept here so they are
+// tested rather than buried in the component.
+
+export type ActivityDetailMode = { kind: "closed" } | { kind: "following" } | { kind: "pinned"; key: string };
+
+export function selectedActivity(activities: readonly ActivityDTO[], mode: ActivityDetailMode): ActivityDTO | null {
+  if (mode.kind === "following") return activities[0] ?? null;
+  if (mode.kind === "pinned") return activities.find((a) => activityKey(a) === mode.key) ?? null;
+  return null;
+}
+
+// A pin whose row a filter or a reload removed falls back to following the
+// newest row on a wide screen, or closes when nothing is left to follow. In the
+// reader it closes: a reader that swapped to another event would show
+// something the viewer never opened.
+export function reconcileDetailMode(mode: ActivityDetailMode, activities: readonly ActivityDTO[], readerMode = false): ActivityDetailMode {
+  if (mode.kind !== "pinned" || selectedActivity(activities, mode)) return mode;
+  return activities.length > 0 && !readerMode ? { kind: "following" } : { kind: "closed" };
+}
+
+// Where the pane starts. A wide screen opens on the newest row, PINNED: an
+// in-place reload (a sync, a refresh) must not swap the event under someone
+// reading it, so following is the reader's choice, as on Commits. The reader
+// tier starts closed and opens on a tap.
+export function initialDetailMode(activities: readonly ActivityDTO[], readerMode: boolean): ActivityDetailMode {
+  if (readerMode) return { kind: "closed" };
+  const newest = activities[0];
+  return newest ? { kind: "pinned", key: activityKey(newest) } : { kind: "following" };
+}
+
+// A click on a wide screen: the pinned row closes the pane, any other row pins.
+export function modeAfterRowClick(mode: ActivityDetailMode, key: string, selectedKey: string | null): ActivityDetailMode {
+  return mode.kind === "pinned" && key === selectedKey ? { kind: "closed" } : { kind: "pinned", key };
+}
+
+// The reader's route flag outlives it only by mistake: leaving the reader tier
+// (a wider window) or losing the selection must clear it, or Back would reopen
+// nothing and the flag would sit in a shared link.
+export function shouldClearDetailRoute(routeOpen: boolean, readerMode: boolean, hasSelection: boolean): boolean {
+  return routeOpen && (!readerMode || !hasSelection);
 }

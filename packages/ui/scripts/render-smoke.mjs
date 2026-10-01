@@ -7045,9 +7045,10 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
-  // The selected event (#768). A wide screen opens the detail following the
-  // newest row, above the overview; a click pins a row and the pane follows it,
-  // a second click on the pinned row closes it, and "follow latest" returns.
+  // The selected event (#768). A wide screen opens the detail on the newest
+  // row, above the overview, pinned so a reload cannot swap it; a click pins
+  // another row, a second click on the pinned row closes it, and "follow
+  // latest" is the viewer's choice.
   // The feed's two newest rows are the sample's comments: an issue comment,
   // whose words the board shows nowhere and so are not quoted, then a review
   // comment, whose words the Reviews page already shows and are.
@@ -7092,6 +7093,25 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelector('.activity-detail .live-mode-release')?.click()" });
   await waitValue("document.querySelector('.activity-detail .live-mode-following') ? true : null");
   const activityDetailRefollowed = await activityDetailProbe();
+  // The keyboard reaches the pane too: Enter on a focused row pins it, and
+  // Enter on a link inside a row is the link's, not the row's.
+  const activityKeyboard = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const rows = document.querySelectorAll('.activity-row');
+      const press = (el) => el?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      rows[3]?.focus();
+      press(rows[3]);
+      return { focused: document.activeElement === rows[3], tabIndex: rows[3]?.tabIndex ?? null };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await waitValue("document.querySelector('.activity-row-selected') === document.querySelectorAll('.activity-row')[3] ? true : null");
+  const activityKeyboardPinned = await activityDetailProbe();
+  await send("Runtime.evaluate", {
+    expression: "document.querySelectorAll('.activity-row')[4]?.querySelector('.activity-title')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))",
+  });
+  await sleep(120);
+  const activityKeyboardLink = await activityDetailProbe();
 
   // On a phone a row opens the event as a route-backed reader over the page;
   // its Back control closes the reader and the flag together.
@@ -7126,7 +7146,17 @@ try {
     expression: "({ hash: location.hash, reader: !!document.querySelector('.activity-reader'), rows: document.querySelectorAll('.activity-row').length })",
     returnByValue: true,
   })).result.value || {};
+  // Leaving the reader tier with the reader open (a phone rotated, a window
+  // widened) drops the reader and its route flag, and the wide page shows the
+  // same event in its pane.
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.activity-row')[1]?.click()" });
+  await waitValue("location.hash.includes('activityDetail=1') && document.querySelector('.activity-reader') ? true : null");
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await waitValue("!location.hash.includes('activityDetail=1') && !document.querySelector('.activity-reader') && document.querySelector('.activity-detail') ? true : null");
+  const activityReaderWidened = (await send("Runtime.evaluate", {
+    expression: "({ hash: location.hash, reader: !!document.querySelector('.activity-reader'), pane: document.querySelector('.activity-detail .activity-detail-title')?.textContent?.trim() || '' })",
+    returnByValue: true,
+  })).result.value || {};
   const paneGapPages = [
     { page: "live", hash: "#/live", ready: ".live-page", panes: [".live-pulse", ".live-split"] },
     { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
@@ -9008,7 +9038,7 @@ try {
     [has(activityHtml, "branch main") && has(activityHtml, "111 → 222"), "activity: push row shows ref and commit range chip"],
     [
       activityDetailFollowing.present === true &&
-        activityDetailFollowing.following === true &&
+        activityDetailFollowing.following === false &&
         activityDetailFollowing.aboveOverview === true &&
         activityDetailFollowing.selectedCount === 1 &&
         activityDetailFollowing.selectedTitle === activityDetailFollowing.rowTitles?.[0] &&
@@ -9017,7 +9047,7 @@ try {
         /open/.test(activityDetailFollowing.target) &&
         activityDetailFollowing.labels >= 1 &&
         activityDetailFollowing.excerpt === "",
-      `activity: a wide screen opens the newest event's detail above the overview, with its issue, state and labels, and no words for an issue comment (${JSON.stringify(activityDetailFollowing)})`,
+      `activity: a wide screen opens the newest event's detail above the overview, pinned, with its issue, state and labels, and no words for an issue comment (${JSON.stringify(activityDetailFollowing)})`,
     ],
     [
       activityDetailPinned.following === false &&
@@ -9050,6 +9080,21 @@ try {
         !/activityDetail=/.test(activityReaderClosed.hash || "") &&
         activityReaderClosed.rows > 0,
       `activity: a phone row opens a route-backed reader with previous / next, and Back closes it (${JSON.stringify({ before: activityReaderBefore, open: activityReaderOpen, closed: activityReaderClosed })})`,
+    ],
+    [
+      activityReaderWidened.reader === false &&
+        !/activityDetail=/.test(activityReaderWidened.hash || "") &&
+        /#15/.test(activityReaderWidened.pane || ""),
+      `activity: widening past the reader tier drops the reader and its route flag and keeps the event in the wide pane (${JSON.stringify(activityReaderWidened)})`,
+    ],
+    [
+      activityKeyboard.focused === true &&
+        activityKeyboard.tabIndex === 0 &&
+        activityKeyboardPinned.following === false &&
+        activityKeyboardPinned.selectedTitle !== "" &&
+        activityKeyboardPinned.title.endsWith(activityKeyboardPinned.selectedTitle) &&
+        activityKeyboardLink.selectedTitle === activityKeyboardPinned.selectedTitle,
+      `activity: Enter on a focused row pins it, and Enter on a row's link leaves the selection alone (${JSON.stringify({ keyboard: activityKeyboard, pinned: activityKeyboardPinned.selectedTitle, pane: activityKeyboardPinned.title, afterLink: activityKeyboardLink.selectedTitle })})`,
     ],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     [!activityHeatmap.present || activityHeatmap.summary === true, "activity: rhythm summary row rendered"],

@@ -667,7 +667,10 @@ Pages:
   everything the event knows: the item as it is now (state, review, CI, labels,
   comment and review-thread counts, the start of its description), the event's
   own facts, and the other in-range events on the same item. A wide screen opens
-  the pane following the newest row. Below the split floor the pane is a
+  the pane on the newest row, pinned, so a reload never swaps the event being
+  read; following the newest row is the viewer's choice, as on Commits. A pinned
+  row a filter removes falls back to following on a wide screen and closes the
+  reader on a phone. Below the split floor the pane is a
   route-backed reader (`activityDetail=1`) with previous / next and swipe, as
   on Commits. The pane quotes a comment's words only when the contract already
   carries them in `review_threads[]` (a GitHub review comment by node id, a

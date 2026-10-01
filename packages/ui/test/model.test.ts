@@ -27,7 +27,6 @@ import {
   graphFocusFilters,
   activityRouteMatches,
   activityMatches,
-  activityDisplay,
   reviewThreadsLabel,
   itemReviewMatches,
   reviewActivityIsUnresolved,
@@ -740,100 +739,12 @@ test("commit repo and branch options count only commits, busiest first", () => {
   ]);
 });
 
-test("activityDisplay promotes work-item titles instead of showing only #iid", () => {
-  const display = activity({
-    kind: "change_request",
-    action: "merged",
-    target_kind: "change_request",
-    target_iid: 297,
-    title: "docs(heuristic): record session closeout findings",
-    summary: "Merged change request #297",
-  });
-
-  assert.equal(
-    activityDisplay(display).title,
-    "change request #297 · docs(heuristic): record session closeout findings",
-  );
-});
-
 test("reviewThreadsLabel summarizes open/resolved threads and hides the empty case", () => {
   assert.equal(reviewThreadsLabel({ open: 2, total: 3 }), "2 open threads");
   assert.equal(reviewThreadsLabel({ open: 1, total: 1 }), "1 open thread");
   assert.equal(reviewThreadsLabel({ open: 0, total: 4 }), "threads resolved");
   assert.equal(reviewThreadsLabel({ open: 0, total: 0 }), null);
   assert.equal(reviewThreadsLabel(null), null);
-});
-
-test("activityDisplay adds a review-resolution chip only for review rows with threads", () => {
-  const review = activity({
-    kind: "review",
-    action: "reviewed",
-    target_kind: "change_request",
-    target_iid: 191,
-    title: "fix(ui): reflect Activity drill-down filters",
-    summary: "Reviewed change request #191",
-    details: null,
-  });
-  // With unresolved threads on the target -> chip present.
-  assert.deepEqual(activityDisplay(review, { reviewThreads: { open: 1, total: 1 } }).chips, ["1 open thread"]);
-  // Resolved -> "threads resolved".
-  assert.deepEqual(activityDisplay(review, { reviewThreads: { open: 0, total: 2 } }).chips, ["threads resolved"]);
-  // No thread data -> no chip.
-  assert.deepEqual(activityDisplay(review, { reviewThreads: null }).chips, []);
-  assert.deepEqual(activityDisplay(review).chips, []);
-  // A non-review row with thread data passed in -> never shows the chip.
-  const nonReview = activity({ kind: "issue", action: "closed", details: null });
-  assert.deepEqual(activityDisplay(nonReview, { reviewThreads: { open: 3, total: 3 } }).chips, []);
-});
-
-test("activityDisplay exposes commit and ref details without fake #iid labels", () => {
-  const commit = activity({
-    kind: "commit",
-    action: "committed",
-    target_kind: "commit",
-    target_iid: null,
-    title: "chore(deploy): update test full-flow agent id",
-    summary: "Committed 4eae5cc5 in gim/manifest/livekit-agents-deploy",
-    details: {
-      sha: "4eae5cc5e61eee22e269035e5c5055d47c34dd98",
-      message: "chore(deploy): update test full-flow agent id",
-    },
-  });
-  assert.equal(activityDisplay(commit).title, "commit 4eae5cc5 · chore(deploy): update test full-flow agent id");
-  assert.deepEqual(activityDisplay(commit).chips, ["sha 4eae5cc5"]);
-
-  const createdBranch = activity({
-    kind: "branch",
-    action: "created",
-    target_kind: "branch",
-    target_iid: null,
-    title: "feature/link-ui",
-    summary: "created branch feature/link-ui in owner/repo",
-    details: {
-      ref: "refs/heads/feature/link-ui",
-      before: "0000000000000000000000000000000000000000",
-      after: "abc1234def5678",
-    },
-  });
-  assert.deepEqual(activityDisplay(createdBranch).chips, ["ref feature/link-ui", "to abc1234d"]);
-
-  const deletedPush = activity({
-    kind: "push",
-    action: "deleted",
-    target_kind: "push",
-    target_iid: 1936,
-    title: "livekit-agents-deploy",
-    summary: "deleted push livekit-agents-deploy in gim/manifest/livekit-agents-deploy",
-    details: {
-      ref: "chore/deploy-test-full-flow-agent-9001",
-      commit_from: "4eae5cc5e61eee22e269035e5c5055d47c34dd98",
-      commit_to: "0000000000000000000000000000000000000000",
-    },
-  });
-  const pushDisplay = activityDisplay(deletedPush);
-  assert.equal(pushDisplay.title, "branch chore/deploy-test-full-flow-agent-9001");
-  assert.equal([...pushDisplay.meta, ...pushDisplay.chips].some((part) => part.includes("#1936")), false);
-  assert.deepEqual(pushDisplay.chips, ["ref chore/deploy-test-full-flow-agent-9001", "from 4eae5cc5"]);
 });
 
 test("rangeQueryWindow reads the loaded window back from range_query, else null (range-as-download landing convergence)", () => {

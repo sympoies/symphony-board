@@ -12,7 +12,13 @@ import {
   commentExcerptIndex,
   commentExcerptOf,
   eventsOnTarget,
+  initialDetailMode,
+  modeAfterRowClick,
   pushHeadCommit,
+  reconcileDetailMode,
+  selectedActivity,
+  shouldClearDetailRoute,
+  type ActivityDetailMode,
 } from "../activity-detail.ts";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
 import { MOBILE_VIEWPORT_QUERY, type ColorOf, type TimeRange } from "../model.ts";
@@ -115,24 +121,21 @@ export function ActivityPage({
   // Like the Commits page: page-local, keyed by activityKey so a re-filter that
   // moves the row keeps it, and explicit about following the newest row versus
   // a pinned one. On a wide screen the pane opens following the latest event,
-  // so the page shows an event's detail without a click; a phone shows the feed
-  // and opens the reader on a tap.
-  const [detailMode, setDetailMode] = useState<{ kind: "closed" } | { kind: "following" } | { kind: "pinned"; key: string }>(() =>
-    typeof window !== "undefined" && window.matchMedia?.(SPLIT_STACK_QUERY).matches ? { kind: "closed" } : { kind: "following" },
+  // so the page shows an event's detail without a click (pinned to that row, so a
+  // reload does not swap it; see initialDetailMode); a phone shows the feed and
+  // opens the reader on a tap.
+  const [detailMode, setDetailMode] = useState<ActivityDetailMode>(() =>
+    initialDetailMode(activities, typeof window !== "undefined" && !!window.matchMedia?.(SPLIT_STACK_QUERY).matches),
   );
-  const selected = useMemo(() => {
-    if (detailMode.kind === "following") return activities[0] ?? null;
-    if (detailMode.kind === "pinned") return activities.find((a) => activityKey(a) === detailMode.key) ?? null;
-    return null;
-  }, [activities, detailMode]);
-  // A pin whose row a filter removed falls back to following the latest.
+  const selected = useMemo(() => selectedActivity(activities, detailMode), [activities, detailMode]);
   useEffect(() => {
-    if (detailMode.kind === "pinned" && !selected) setDetailMode(activities.length > 0 ? { kind: "following" } : { kind: "closed" });
-  }, [detailMode, selected, activities.length]);
+    const next = reconcileDetailMode(detailMode, activities, readerMode);
+    if (next !== detailMode) setDetailMode(next);
+  }, [detailMode, activities, readerMode]);
   const selectedKey = selected ? activityKey(selected) : null;
   const mobileDetailOpen = readerMode && detailRouteOpen && selected !== null;
   useEffect(() => {
-    if (detailRouteOpen && (!readerMode || !selected)) onClearDetailRoute?.();
+    if (shouldClearDetailRoute(detailRouteOpen, readerMode, selected !== null)) onClearDetailRoute?.();
   }, [detailRouteOpen, readerMode, selected, onClearDetailRoute]);
   const excerptIndex = useMemo(() => commentExcerptIndex(reviewThreads), [reviewThreads]);
   const selectedItem = selected ? activityTargetItem(selected, itemsById) : undefined;
@@ -162,8 +165,7 @@ export function ActivityPage({
       onOpenDetailRoute?.();
       return;
     }
-    if (key === selectedKey && detailMode.kind === "pinned") setDetailMode({ kind: "closed" });
-    else pin(row);
+    setDetailMode(modeAfterRowClick(detailMode, key, selectedKey));
   };
   const closeDetail = () => {
     if (mobileDetailOpen) onCloseDetailRoute?.();

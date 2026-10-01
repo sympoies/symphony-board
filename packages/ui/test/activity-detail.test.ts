@@ -8,7 +8,12 @@ import {
   commentExcerptIndex,
   commentExcerptOf,
   eventsOnTarget,
+  initialDetailMode,
+  modeAfterRowClick,
   pushHeadCommit,
+  reconcileDetailMode,
+  selectedActivity,
+  shouldClearDetailRoute,
   textExcerpt,
 } from "../src/activity-detail.ts";
 
@@ -128,6 +133,24 @@ test("activityRowView names the target with its provider prefix and state", () =
   assert.equal(unloaded.label, "#36");
   assert.equal(unloaded.title, "change request");
   assert.equal(unloaded.state, null);
+
+  // A GitLab note whose item is not loaded names its target kind "comment";
+  // its URL still says merge request, so the number reads !12.
+  const note = activityRowView(
+    activity({ source_id: "gitlab:gitlab.com", target_kind: "comment", target_ref: null, target_iid: 12, title: "Tune the loop", url: "https://gitlab.com/o/r/-/merge_requests/12#note_5" }),
+    undefined,
+    "gitlab",
+  );
+  assert.equal(note.label, "!12");
+  assert.equal(note.title, "Tune the loop");
+});
+
+test("only a review row carries its change request's thread state", () => {
+  const threaded = item({ review_threads: { open: 1, total: 2 } });
+  assert.deepEqual(activityRowView(activity({ kind: "review", action: "reviewed" }), threaded, "github").chips, ["1 open thread"]);
+  assert.deepEqual(activityRowView(activity({ kind: "review", action: "approved" }), item({ review_threads: { open: 0, total: 2 } }), "github").chips, ["threads resolved"]);
+  assert.deepEqual(activityRowView(activity({ kind: "review", action: "reviewed" }), item({ review_threads: null }), "github").chips, []);
+  assert.deepEqual(activityRowView(activity({ kind: "comment" }), threaded, "github").chips, [], "a comment on the same PR does not");
 });
 
 test("activityRowView carries the kind's own fact", () => {
@@ -176,9 +199,18 @@ test("comment excerpts come only from review thread comments the contract alread
   assert.equal(github?.resolved, false);
   assert.equal(github?.truncated, false);
 
-  const gitlab = commentExcerptOf(activity({ source_id: "github:github.com", url: "https://gitlab.com/o/r/-/merge_requests/12#note_517490", details: {} }), index);
+  // A GitLab note names its comment by the `#note_<id>` anchor; GitLab review
+  // threads carry the note id as the comment id.
+  const gitlabIndex = commentExcerptIndex([
+    thread({ source_id: "gitlab:gitlab.com", target_ref: "gitlab:gitlab.com|gid://gitlab/MergeRequest/7" }),
+  ]);
+  const gitlabNote = (url: string) =>
+    activity({ source_id: "gitlab:gitlab.com", target_kind: "comment", target_ref: null, target_iid: 12, url, details: { action_name: "commented on" } });
+  const gitlab = commentExcerptOf(gitlabNote("https://gitlab.com/o/r/-/merge_requests/12#note_517490"), gitlabIndex);
   assert.equal(gitlab?.body.length, 600, "capped");
   assert.equal(gitlab?.truncated, true);
+  assert.equal(commentExcerptOf(gitlabNote("https://gitlab.com/o/r/-/issues/5#note_999"), gitlabIndex), null, "an issue note has no thread");
+  assert.equal(commentExcerptOf(gitlabNote("https://gitlab.com/o/r/-/merge_requests/12#note_517490"), index), null, "another source's thread never matches");
 
   // An issue comment has no thread: no text.
   assert.equal(commentExcerptOf(activity({ details: { node_id: "IC_1" }, url: "https://github.com/o/r/issues/5#issuecomment-9" }), index), null);
@@ -216,4 +248,44 @@ test("textExcerpt trims, caps at a word boundary and reports truncation", () => 
   assert.deepEqual(textExcerpt(null, 10), null);
   assert.deepEqual(textExcerpt("   ", 10), null);
   assert.deepEqual(textExcerpt("alpha beta gamma", 12), { text: "alpha beta", truncated: true });
+});
+
+test("the detail follows the newest row, holds a pin, and falls back when the pin is gone", () => {
+  const rows = [activity({ external_id: "a" }), activity({ external_id: "b" })];
+  assert.equal(selectedActivity(rows, { kind: "following" })?.external_id, "a");
+  assert.equal(selectedActivity(rows, { kind: "pinned", key: "github:github.com|b" })?.external_id, "b");
+  assert.equal(selectedActivity(rows, { kind: "closed" }), null);
+  assert.equal(selectedActivity([], { kind: "following" }), null);
+
+  const pinned = { kind: "pinned", key: "github:github.com|b" } as const;
+  assert.equal(reconcileDetailMode(pinned, rows), pinned, "a visible pin stays");
+  assert.deepEqual(reconcileDetailMode(pinned, [rows[0]!]), { kind: "following" }, "a filtered-out pin follows the newest row");
+  assert.deepEqual(reconcileDetailMode(pinned, []), { kind: "closed" }, "and closes when nothing is left");
+  assert.deepEqual(reconcileDetailMode(pinned, [rows[0]!], true), { kind: "closed" }, "the reader closes rather than swapping events");
+  const following = { kind: "following" } as const;
+  assert.equal(reconcileDetailMode(following, []), following);
+});
+
+test("a wide screen opens on the newest row pinned, so a reload does not swap it; the reader starts closed", () => {
+  const rows = [activity({ external_id: "a" }), activity({ external_id: "b" })];
+  const start = initialDetailMode(rows, false);
+  assert.deepEqual(start, { kind: "pinned", key: "github:github.com|a" });
+  const reloaded = [activity({ external_id: "z" }), ...rows];
+  assert.equal(selectedActivity(reloaded, start)?.external_id, "a", "a newer row arriving keeps the open event");
+  assert.deepEqual(initialDetailMode(rows, true), { kind: "closed" });
+  assert.deepEqual(initialDetailMode([], false), { kind: "following" }, "nothing to pin yet");
+});
+
+test("a click pins a row, and a click on the pinned row closes the pane", () => {
+  assert.deepEqual(modeAfterRowClick({ kind: "following" }, "k1", "k1"), { kind: "pinned", key: "k1" }, "clicking the followed row pins it");
+  assert.deepEqual(modeAfterRowClick({ kind: "pinned", key: "k1" }, "k1", "k1"), { kind: "closed" });
+  assert.deepEqual(modeAfterRowClick({ kind: "pinned", key: "k1" }, "k2", "k1"), { kind: "pinned", key: "k2" });
+  assert.deepEqual(modeAfterRowClick({ kind: "closed" }, "k2", null), { kind: "pinned", key: "k2" });
+});
+
+test("the reader's route flag clears outside the reader tier or without a selection", () => {
+  assert.equal(shouldClearDetailRoute(true, false, true), true, "a wider window leaves the reader");
+  assert.equal(shouldClearDetailRoute(true, true, false), true, "nothing selected");
+  assert.equal(shouldClearDetailRoute(true, true, true), false);
+  assert.equal(shouldClearDetailRoute(false, false, false), false);
 });
