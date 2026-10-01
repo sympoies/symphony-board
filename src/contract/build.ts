@@ -1216,13 +1216,16 @@ function buildRangeProjection(
     endpointIds.add(edge.to);
   }
   // Items an in-range activity points at, emitted as support rows even when
-  // their own updated_at is outside the range: the change request a review is
-  // on, and the change request a commit belongs to (`details.change_request`,
-  // 4.8.2) — both are what the row's consumer shows beside it.
+  // their own updated_at is outside the range: the item any row names as its
+  // target (a review's change request, a comment's issue, a transition's item;
+  // 4.9.1, which widened it from reviews alone), and the change request a
+  // commit belongs to (`details.change_request`, 4.8.2). The row's consumer
+  // shows that item's title and state beside it.
   const activityTargetIds = new Set<string>();
   for (const activity of rangedActivities) {
-    const ref = activity.kind === "review" ? activity.target_ref : activity.kind === "commit" ? commitChangeRequestRef(activity) : null;
-    if (ref && byId.has(ref)) activityTargetIds.add(ref);
+    for (const ref of [activity.target_ref, activity.kind === "commit" ? commitChangeRequestRef(activity) : null]) {
+      if (ref && byId.has(ref)) activityTargetIds.add(ref);
+    }
   }
 
   const emittedIds = new Set([...primaryIds, ...endpointIds, ...activityTargetIds]);
@@ -1624,8 +1627,11 @@ export function mapRows(input: BuildInput): {
   const edges = droppedItemIds ? mappedEdges.filter((e) => !droppedItemIds.has(e.from) && !droppedItemIds.has(e.to)) : mappedEdges;
 
   const mappedActivities = (input.activities ?? []).map(toActivityDTO);
-  const activities = sortActivitiesByInstantDesc(
-    configuredRepoKeys ? mappedActivities.filter((a) => repoAllowed(a.source_id, a.project_path)) : mappedActivities,
+  const activities = resolveActivityTargets(
+    sortActivitiesByInstantDesc(
+      configuredRepoKeys ? mappedActivities.filter((a) => repoAllowed(a.source_id, a.project_path)) : mappedActivities,
+    ),
+    items,
   );
 
   const mappedSources = input.sources.map((s) => toSourceDTO(s, sourceColors));
@@ -1643,6 +1649,42 @@ export function mapRows(input: BuildInput): {
     items,
     edges,
   };
+}
+
+// Fills `target_ref` and `title` on activity rows whose producer could not
+// (4.9.1). A GitHub REST comment carries no node id for the issue or pull
+// request it is on, so its row is stored with a repository and number only. The
+// row's repository, kind and number find the live item, and the row carries
+// that item's immutable ref. The number is only how the item is found: when the
+// repository was renamed after the row was stored, or the item is not live, the
+// lookup misses and the row keeps `null`. A number two live items share is
+// left alone.
+//
+// A row with a target and no title of its own carries the target's title, the
+// way review rows carry their pull request's.
+function resolveActivityTargets(activities: ActivityDTO[], items: ItemDTO[]): ActivityDTO[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const byNumber = new Map<string, ItemDTO | null>();
+  for (const item of items) {
+    if (item.iid === null || !item.project_path) continue;
+    const key = JSON.stringify([item.source_id, item.project_path, item.kind, item.iid]);
+    byNumber.set(key, byNumber.has(key) ? null : item);
+  }
+  return activities.map((activity) => {
+    let target = activity.target_ref ? byId.get(activity.target_ref) : undefined;
+    let target_ref = activity.target_ref;
+    if (
+      !target_ref &&
+      (activity.target_kind === "issue" || activity.target_kind === "change_request") &&
+      activity.target_iid !== null &&
+      activity.project_path
+    ) {
+      target = byNumber.get(JSON.stringify([activity.source_id, activity.project_path, activity.target_kind, activity.target_iid])) ?? undefined;
+      if (target) target_ref = target.id;
+    }
+    const title = activity.title ?? target?.title ?? null;
+    return target_ref === activity.target_ref && title === activity.title ? activity : { ...activity, target_ref, title };
+  });
 }
 
 // All-time per-repo activity coverage bounds, supplied on the range path so

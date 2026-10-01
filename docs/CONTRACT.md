@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.9.0`.
+Current emitted version: `4.9.1`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.9.1` | clarification | `target_ref` / `title` filled on comment rows; any in-range row's target is a range support row | Activities |
 | `4.9.0` | additive | optional top-level `commit_file_stats` | Commit File Stats |
 | `4.8.2` | clarification | `details.change_request` on commit activity rows; in-range commits pull their change request into a range response | Activities |
 | `4.8.1` | clarification | `details.merge` / `details.default_branch` on commit activity rows | Activities |
@@ -357,7 +358,8 @@ Important fields:
   `item_window`; `edge_endpoint` means it is included to resolve an emitted edge
   endpoint; `activity_target` means it is included to resolve an emitted review
   activity's target change request and current review-thread state, or (4.8.2+)
-  the change request an emitted commit row names in `details.change_request`;
+  the change request an emitted commit row names in `details.change_request`,
+  or (4.9.1+) the item any other emitted activity row names in `target_ref`;
   `program_tracker` (4.8.0+) means it is an open program tracker labeled
   `workflow::tracking`, which is emitted whatever the window (see Item Window).
   A row can carry several reasons. Missing means "primary" when reading old v1
@@ -443,7 +445,10 @@ below):
 - `project_path`: mutable repo/project display path, when known.
 - `target_kind`, `target_ref`, `target_iid`: optional target metadata. Only set
   `target_ref` when the producer can identify the tracked item by provider
-  immutable id.
+  immutable id. Comment rows carry it too from `4.9.1` (see below).
+- `title`: optional display title. Rows about an issue or change request carry
+  that item's title; a comment row whose producer stored none carries its
+  target's title from `4.9.1`.
 - `occurred_at`: provider event timestamp.
 - `url`: optional primary provider link for the activity row. Current producers
   fill it only when the target is reliable: issue / change-request pages,
@@ -594,6 +599,38 @@ copy is bounded for payload and sync-write safety; when a source body exceeds
 the cap, the producer appends a visible truncation marker and the provider URL
 remains the full-text destination. Old payloads without the field remain valid;
 consumers read it as `item.body ?? null`.
+
+Version `4.9.1` is a clarification + producer-behavior patch: comment rows now
+name the issue or change request they are on, and a range response emits the
+item every in-range row names. No field was added, and `target_ref` and `title`
+were already nullable, so no shape changed.
+
+- GitLab names the item in `normalize`, from the identity the events API
+  reports: `note.noteable_id` for a comment, `target_id` for an issue or merge
+  request event. That is the database id a GraphQL global id is built from, so
+  the row's `target_ref` is `<source_id>|gid://gitlab/MergeRequest/<id>` (or
+  `Issue`), the same string the item row carries. A commit comment and a push
+  name no item. `target_kind` keeps its value (`comment` on a GitLab note).
+  Rows stored before `gitlab/13` gain the ref when a sweep re-reads them.
+- A GitHub REST comment carries no node id for the issue or pull request it is
+  on. `emit` resolves a row that has no `target_ref` but a `target_kind` of
+  `issue` or `change_request`, a repository, and a number against the live item
+  with the same source, repository, kind and number, and emits that item's
+  immutable ref. The number only finds the item; the emitted identity is still
+  `source_id|external_id`. When the repository was renamed after the row was
+  stored, the item is not live, or two live items share the number, the row
+  keeps `null`. This applies to every stored row at once, since nothing is
+  re-read.
+- A row with a target and no stored title carries the target's title, the way
+  review rows already carry their pull request's.
+- `buildRangeContract` adds the item any in-range row names in `target_ref` to
+  `items[]` with `window_reasons: ["activity_target"]`. Before `4.9.1` only a
+  review's target was added, plus (4.8.2) a commit's change request.
+
+No comment text enters the contract. A consumer that wants a comment's words
+reads them where the contract already carries them: a GitHub review comment's
+`details.node_id`, or the `#note_<id>` anchor of a GitLab comment's `url`,
+matches a `review_threads[].comments[].id`.
 
 Version `4.8.2` is a clarification + producer-behavior patch: commit activity
 rows may now carry `details.change_request`, and a range response emits the
@@ -1183,6 +1220,9 @@ The range response is a projection, not a second schema:
 - the change requests in-range commit rows name in `details.change_request`
   (4.8.2+) are included the same way, so a consumer can show the change request
   a commit belongs to.
+- the item any other in-range row names in `target_ref` (4.9.1+) is included
+  the same way: a comment's issue or change request, or the item an
+  `opened` / `closed` / `merged` row is about.
 - `activities[]` is filtered by `occurred_at` inside `[from, to]`.
 - `aggregates[]` is populated in range responses from the full live item/edge
   set (the same computation the static contract uses), so a windowed board keeps
