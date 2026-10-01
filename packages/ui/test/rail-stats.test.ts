@@ -915,9 +915,23 @@ test("busiestItems groups the range's rows by the item they are about", () => {
   );
   assert.equal(items[0]!.lastAt, "2026-09-11T12:00:00Z");
   assert.equal(busiestItems(rows, 1).length, 1);
-  // Ties go to the more recent item.
-  const tied = busiestItems([rows[4]!, rows[0]!], 10);
+  // Ties go to the more recent item, whatever order the rows come in.
+  const tied = busiestItems([rows[0]!, rows[4]!], 10);
   assert.deepEqual(tied.map((i) => i.ref), ["gh|I_2", "gh|PR_1"]);
+});
+
+test("busiestItems names an item a commit introduces, and an item row with no target kind", () => {
+  const items = busiestItems(
+    [
+      activity({ external_id: "k9", kind: "commit", action: "committed", details: { sha: "a", change_request: { ref: "gh|PR_9", iid: 9 } }, occurred_at: "2026-09-10T12:00:00Z" }),
+      activity({ external_id: "o5", kind: "issue", action: "opened", target_kind: null, target_ref: "gh|I_5", target_iid: 5, occurred_at: "2026-09-09T12:00:00Z" }),
+    ],
+    0,
+  );
+  assert.deepEqual(items.map((i) => [i.ref, i.iid, i.kind, i.commits]), [
+    ["gh|PR_9", 9, "change_request", 1],
+    ["gh|I_5", 5, "issue", 0],
+  ]);
 });
 
 test("repoActivityDetails gives each repository its people, last event and per-day series", () => {

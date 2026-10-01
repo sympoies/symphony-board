@@ -2583,6 +2583,12 @@ try {
   // (excluding the legend) vs the in-range subset to prove the overlay renders and
   // stays scoped to the range — not the whole grid. Guarded by `present` so this
   // no-ops if the sample contract ever ages past the trailing-12-month window.
+  // Probed at 1280px: from the pane tiers (1400px) the page draws its pane
+  // overview instead, and a probe there would find nothing and pass every
+  // guarded check vacuously. activityPlainOverview below requires it present.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  await waitHtml("document.querySelector('.activity-heatmap')");
   const activityHeatmap = (await send("Runtime.evaluate", {
     expression: `(() => {
       const heatmap = document.querySelector('.activity-heatmap');
@@ -6169,8 +6175,8 @@ try {
 
   // --- Commits / Activity side rails --------------------------------------
   // The two pages that idle width used to strand. Commits now pairs a
-  // measure-capped list with a digest rail; Activity gains a third column above
-  // WIDE_RAIL_MIN_WIDTH_PX. Both are asserted at a viewport where they must
+  // measure-capped list with a digest rail; Activity gains a third column from
+  // the pane tiers (COMMITS_STACK_MIN_WIDTH_PX). Both are asserted at a viewport where they must
   // appear AND at one where they must not, so "the rail renders" cannot pass by
   // rendering everywhere and breaking the narrow tiers.
   //
@@ -7192,6 +7198,14 @@ try {
           punchCells: overview ? overview.querySelectorAll('.punch-cell').length : 0,
           stackOptions: overview ? [...overview.querySelectorAll('.pane-seg-option')].map((b) => b.textContent.trim()) : [],
           overflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+          // The detail opens by default; it must leave the overview visible and
+          // stay inside the middle column.
+          overviewHeight: overview ? Math.round(overview.clientHeight) : 0,
+          detailInside: (() => {
+            const detail = document.querySelector('.activity-detail');
+            const column = document.querySelector('.activity-context');
+            return !detail || !column || detail.getBoundingClientRect().bottom <= column.getBoundingClientRect().bottom + 1;
+          })(),
           railSideways: rail ? Math.max(0, rail.scrollWidth - rail.clientWidth) : -1,
           overviewSideways: overview ? Math.max(0, overview.scrollWidth - overview.clientWidth) : -1,
         };
@@ -7231,7 +7245,24 @@ try {
       const pressed = where ? [...where.querySelectorAll('.live-rank-item')].some((b) => b.getAttribute('aria-pressed') === 'true') : false;
       [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Where')?.querySelector('.live-rank-item[aria-pressed="true"]')?.click();
       await wait(250);
-      return { before, after, actorPressed, label, detailTitle, detailNamesItem, hashOn, pressed, hashOff: location.hash };
+      const hashOff = location.hash;
+      // A review verdict toggles the action facet with the action's own value.
+      const verdict = [...document.querySelectorAll('.activity-overview .activity-verdict-row')].find((b) => b.querySelector('.activity-verdict-name')?.textContent?.trim() === 'approved');
+      verdict?.click();
+      await wait(250);
+      const verdictHash = location.hash;
+      const verdictPressed = [...document.querySelectorAll('.activity-overview .activity-verdict-row')].find((b) => b.querySelector('.activity-verdict-name')?.textContent?.trim() === 'approved')?.getAttribute('aria-pressed');
+      [...document.querySelectorAll('.activity-overview .activity-verdict-row')].find((b) => b.getAttribute('aria-pressed') === 'true')?.click();
+      await wait(250);
+      const verdictCleared = location.hash;
+      // A What row toggles the kind facet.
+      const whatBlock = () => [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'What');
+      whatBlock()?.querySelector('.live-rank-item')?.click();
+      await wait(250);
+      const kindHash = location.hash;
+      whatBlock()?.querySelector('.live-rank-item[aria-pressed="true"]')?.click();
+      await wait(250);
+      return { before, after, actorPressed, label, detailTitle, detailNamesItem, hashOn, pressed, hashOff, verdictHash, verdictPressed, verdictCleared, kindHash, kindCleared: location.hash };
     })()`,
     awaitPromise: true,
     returnByValue: true,
@@ -9187,7 +9218,8 @@ try {
           p.whereRows > 1 && p.whereSparks === p.whereRows &&
           p.busiestRows > 0 && p.verdictRows > 0 && p.punchCells > 0 &&
           JSON.stringify(p.stackOptions) === JSON.stringify(["kind", "action", "repo", "actor"]) &&
-          p.overflow === 0 && p.railSideways <= 1 && p.overviewSideways <= 1,
+          p.overflow === 0 && p.railSideways <= 1 && p.overviewSideways <= 1 &&
+          p.overviewHeight >= 200 && p.detailInside === true,
         ) &&
         activityPanes.find((p) => p.viewport === "wide")?.railColumns === 2 &&
         activityPanes.find((p) => p.viewport === "stack")?.railColumns === 1,
@@ -9200,10 +9232,16 @@ try {
         activityPanesActs.detailNamesItem === true &&
         /[?&]repo=/.test(activityPanesActs.hashOn || "") &&
         activityPanesActs.pressed === true &&
-        !/[?&]repo=/.test(activityPanesActs.hashOff || ""),
-      `activity: events per day re-split by actor, a busiest item opens its newest event, and a Where row toggles the repo facet (${JSON.stringify(activityPanesActs)})`,
+        !/[?&]repo=/.test(activityPanesActs.hashOff || "") &&
+        /[?&]action=approved(&|$)/.test(activityPanesActs.verdictHash || "") &&
+        activityPanesActs.verdictPressed === "true" &&
+        !/[?&]action=/.test(activityPanesActs.verdictCleared || "") &&
+        /[?&]kind=/.test(activityPanesActs.kindHash || "") &&
+        !/[?&]kind=/.test(activityPanesActs.kindCleared || ""),
+      `activity: events per day re-split by actor, a busiest item opens its newest event, and Where, review-verdict and What rows toggle their facets (${JSON.stringify(activityPanesActs)})`,
     ],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
+    [activityHeatmap.present === true, "activity: below the pane tiers (1280px) the page draws its plain overview"],
     [!activityHeatmap.present || activityHeatmap.summary === true, "activity: rhythm summary row rendered"],
     [!activityHeatmap.present || JSON.stringify(activityHeatmap.overviewLabels) === JSON.stringify(["events", "busiest day", "active days", "commit", "change request", "review"]), `activity: overview summary keeps rhythm metrics above kind counts (${(activityHeatmap.overviewLabels || []).join(", ")})`],
     [!activityHeatmap.present || activityHeatmap.scope === true, "activity: rhythm section shows its 12-month date range"],

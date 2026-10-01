@@ -1207,12 +1207,13 @@ a.rf-node-title:hover { color: var(--accent); }
    checked against it. */
 .commits-split {
   display: grid;
-  /* 40/30/30 rather than Activity's 30/35/35. The Commits list is the column
-     with the long strings on it — a conventional-commit subject, an org/repo
-     path, an actor and a branch chip, all on two fixed-height lines — so an
-     even split made every one of them ellipsize while the two supporting
-     columns had room to spare. Activity's feed wraps instead of truncating, so
-     it keeps its own proportions. */
+  /* 40/30/30 rather than an even split. The Commits list is the column with
+     the long strings on it — a conventional-commit subject, an org/repo path,
+     an actor and a branch chip, all on two fixed-height lines — so an even
+     split made every one of them ellipsize while the two supporting columns
+     had room to spare. From the pane tiers (1400px) the Activity layout is a
+     .commits-split too and takes these same tracks, so changing them changes
+     both pages. */
   grid-template-columns: minmax(0, 40fr) minmax(0, 30fr) minmax(0, 30fr);
   justify-content: start;
   gap: var(--pane-gap);
@@ -1592,9 +1593,10 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-layout {
   display: grid;
   /* The overview takes the remainder rather than stopping at 680px. Two capped
-     tracks stranded width at every size from ~1412px up to the 1700px rail tier:
-     the same dead gutter the page caps were removed to fix, one level further
-     in. Commits' rail and Activity's own rail already follow this rule. */
+     tracks stranded width at every size from ~1412px up to where the third
+     column began: the same dead gutter the page caps were removed to fix, one
+     level further in. From 1400px the page is a .commits-split (the pane
+     tiers) and these two tracks no longer apply. */
   grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 1fr);
   justify-content: start;
   align-items: start;
@@ -1769,10 +1771,10 @@ a.rf-node-title:hover { color: var(--accent); }
    and the six-bar chart labels become too narrow. This is independent of
    Activity's rail tier and mirrors COMMIT_THREE_COLUMN_MIN_WIDTH_PX.
 
-   Activity has no equivalent rule because its rail is JS-gated on
-   WIDE_RAIL_QUERY and simply does not render below 1700px. The Commits rail
-   predates its overview and always rendered, so hiding it here would take away
-   what the page already showed. */
+   Activity has no equivalent rule because its third column is JS-gated on
+   the pane tiers and does not render below 1400px. The Commits rail predates
+   its overview and always rendered, so hiding it here would take away what the
+   page already showed. */
 @media (min-width: 1212px) and (max-width: 1279px) {
   .commits-split { grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr); }
   .commits-split > :first-child { grid-row: span 2; }
@@ -2090,9 +2092,10 @@ a.rf-node-title:hover { color: var(--accent); }
    charts to the pane's height is what drew five tall bars on a 14" screen.
 
    It deliberately repeats the rows tier's relayout (the 2200px block) for its
-   own rail instead of widening that tier: that block also lays out Activity's
-   rail and the wide tier, and this one must not move either. Nothing here
-   names the wide tier. */
+   own rail instead of widening that tier: that block also lays out the wide
+   tier, which this one must not move. Activity's rail in this tier takes these
+   same rules, being a .commits-rail[data-panes]. Nothing here names the wide
+   tier. */
 @media (min-width: 1400px) and (max-width: 2479px) {
   /* The list gives up a little width to two columns that now hold more. At
      1512px it keeps ~520px, still the wrapping card it already was. */
@@ -3078,6 +3081,19 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-context {
   display: flex; flex-direction: column; gap: var(--pane-gap); min-width: 0;
 }
+/* In the pane tiers the column has the pane's height (the .commits-context
+   rule), and Activity opens the detail by default, which Commits does not. So
+   the two share it: the detail scrolls inside at most about three fifths of the
+   column, and the overview keeps a floor that shows its tiles and the head of
+   the next pane. */
+.activity-panes > .commits-context > .activity-detail {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 60%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.activity-panes > .commits-context > .activity-overview { min-height: 240px; }
 .activity-detail .commit-detail-card { display: flex; flex-direction: column; }
 .activity-detail-kicker {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px;

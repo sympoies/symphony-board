@@ -18,7 +18,7 @@ import {
   type BusiestItem,
 } from "../rail-stats.ts";
 import { itemRowState, workItemLabel } from "../activity-detail.ts";
-import { displayKind, pluralize, relativeTime, type TimeRange } from "../model.ts";
+import { activityKey, displayKind, pluralize, relativeTime, type TimeRange } from "../model.ts";
 import { COMMITS_PANES_RANK_LIMIT, type CommitsPanes } from "../layout-tier.ts";
 
 // The Activity overview in the pane tiers: the SHAPE of the selected range, as
@@ -146,7 +146,7 @@ export function ActivityOverview({
       </div>
       <CommitRhythm activityDaily={activityDaily} range={range} onTip={setTip} facts kind={null} title="Activity rhythm" noun="event" />
       <StackedDayChart rows={activities} timezone={timezone} range={range} title="Events per day" noun="event" options={options} />
-      <CommitPunchCard commits={activities} timezone={timezone} range={range} noun="event" />
+      <CommitPunchCard rows={activities} timezone={timezone} range={range} noun="event" />
       <ReviewVerdicts activities={activities} selectedActions={selectedActions} onAction={onAction} />
       <BusiestItems
         activities={activities}
@@ -247,7 +247,7 @@ const BusiestItems = memo(function BusiestItems({
                 row={row}
                 item={itemsById?.get(row.ref)}
                 providerKind={sourceKind.get(row.sourceId)}
-                selected={selectedKey !== null && selectedKey === `${row.latest.source_id}|${row.latest.external_id}`}
+                selected={selectedKey !== null && selectedKey === activityKey(row.latest)}
                 onSelect={onSelect}
               />
             </li>

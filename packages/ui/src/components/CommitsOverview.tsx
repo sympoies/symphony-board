@@ -511,7 +511,7 @@ export function CommitsOverview({
         <>
           <CommitDayChart commits={commits} timezone={timezone} range={range} actorIndex={actorIndex} />
           {churnDays ? <CommitChurn days={churnDays} range={range} /> : null}
-          <CommitPunchCard commits={commits} timezone={timezone} range={range} />
+          <CommitPunchCard rows={commits} timezone={timezone} range={range} />
           <LargestCommits
             commits={commits}
             selectedKey={selectedKey}

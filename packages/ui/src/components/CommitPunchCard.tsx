@@ -29,13 +29,13 @@ function levelOf(count: number, max: number): number {
 // Memoized for the same reason as the other wide panes: nothing it draws
 // depends on which commit is selected.
 export const CommitPunchCard = memo(function CommitPunchCard({
-  commits,
+  rows,
   timezone,
   range,
   noun = "commit",
 }: {
-  // Any rows: the Activity page draws its events with the same grid.
-  commits: ActivityDTO[];
+  // Any rows: commits on the Commits page, events on the Activity page.
+  rows: ActivityDTO[];
   timezone: string;
   range: TimeRange;
   // Singular, for the counts and labels.
@@ -44,7 +44,7 @@ export const CommitPunchCard = memo(function CommitPunchCard({
   const plural = `${noun}s`;
   const commitCountLabel = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? noun : plural}`;
   const Plural = plural.charAt(0).toUpperCase() + plural.slice(1);
-  const card = useMemo(() => punchCard(commits, timezone, range.from, range.to), [commits, timezone, range.from, range.to]);
+  const card = useMemo(() => punchCard(rows, timezone, range.from, range.to), [rows, timezone, range.from, range.to]);
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   if (card.rows.length === 0) return null;
 

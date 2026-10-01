@@ -7,7 +7,7 @@ import { sparkBuckets } from "../rail-stats.ts";
 // rails in the pane tiers.
 
 // A row's share of the visible range, as a whole percent. Under half a percent
-// reads "<1%" rather than "0%": the row is there because it has commits.
+// reads "<1%" rather than "0%": the row is there because it counts something.
 export function share(count: number, total: number): string {
   if (total <= 0) return "—";
   const pct = Math.round((count / total) * 100);
