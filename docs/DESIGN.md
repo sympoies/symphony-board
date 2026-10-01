@@ -1215,7 +1215,13 @@ dozens of distinct cache keys, each of them a real provider call. The project
 must be one the deployment already tracks: the configured project list is the
 allowlist, and it is checked on every request BEFORE the cache, so removing a
 project or disabling a source stops the route answering for it immediately.
-Provider access stays read-only (GET).
+The project path reaches the provider inside a URL path as well, so it must be
+plain segments: letters, digits, `_`, `.` and `-`. A segment never starts with
+`-` and is never `.` or `..`, and there is no empty, encoded, query or
+fragment part. A path that fails is a `400` before config is read. The provider
+readers apply the same check, and GitHub's narrower owner rule, to any path
+they are handed, a configured one included. They also encode every segment
+they send. Provider access stays read-only (GET).
 
 One honest limit on that guarantee: GitHub resolves `commits/{sha}` within the
 repository's whole fork network, so a caller who already knows such a sha can
