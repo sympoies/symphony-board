@@ -7214,6 +7214,91 @@ try {
     })).result.value || {};
     activityPanes.push({ viewport: vp.name, width: vp.width, ...r });
   }
+  // Rank-row hover in the stack tier (#775), at 2048px: a 13" to 27" desktop
+  // window, the width the maintainer reviewed at. A row's name tip repeated a
+  // label that was fully visible, hung over the NEXT row ("committed" hid
+  // "reviewed"), and the hover rule for the vertical layout's count tooltip
+  // moved the count column half its width to the left. Hovered with real
+  // pointer events, since :hover is the whole question.
+  await send("Emulation.setDeviceMetricsOverride", { width: 2048, height: 1152, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.activity-layout[data-panes=\"stack\"] .activity-panes-rail .live-rank-item')");
+  const rankHoverProbe = (title, pick) => `(() => {
+    const block = [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === ${JSON.stringify(title)});
+    const rows = block ? [...block.querySelectorAll('.live-rank-item')] : [];
+    const row = rows.find(${pick});
+    if (!row) return null;
+    row.scrollIntoView({ block: 'center' });
+    const index = rows.indexOf(row);
+    const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }; };
+    const bar = row.querySelector('.live-rank-bar-cell');
+    const b = bar.getBoundingClientRect();
+    return {
+      index,
+      label: row.querySelector('.live-rank-footer')?.textContent || '',
+      x: b.left + 4, y: b.top + b.height / 2,
+      row: rect(row),
+      next: rect(rows[index + 1]),
+      count: rect(row.querySelector('.live-rank-tooltip')),
+      extra: rect(row.querySelector('.live-rank-extra')),
+    };
+  })()`;
+  const rankHoverRead = (title, index) => `(() => {
+    const block = [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === ${JSON.stringify(title)});
+    const row = block ? block.querySelectorAll('.live-rank-item')[${index}] : null;
+    const tip = row?.querySelector('.rank-name-tip');
+    const style = tip ? getComputedStyle(tip) : null;
+    const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }; };
+    return {
+      hovered: !!row && row.matches(':hover'),
+      tipVisible: !!style && style.visibility !== 'hidden' && Number(style.opacity) > 0,
+      tipText: (tip?.textContent || '').trim(),
+      tip: rect(tip),
+      count: rect(row?.querySelector('.live-rank-tooltip')),
+      extra: rect(row?.querySelector('.live-rank-extra')),
+    };
+  })()`;
+  const rankHover = {};
+  for (const [name, title, pick] of [
+    // A filter row whose name fits: its tip says what a click does, in place.
+    ["filterRow", "What", "(r) => true"],
+    // A read-only row whose name fits: nothing to add, so no tip.
+    ["plainRow", "Branches", "(r) => { const n = r.querySelector('.live-rank-name'); return n && n.scrollWidth <= n.clientWidth + 1 && n.scrollHeight <= n.clientHeight + 1; }"],
+    // A read-only row whose name is cut: the tip is the only way to read it.
+    ["clippedRow", "Branches", "(r) => { const n = r.querySelector('.live-rank-name'); return n && (n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1); }"],
+  ]) {
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+    await sleep(150);
+    const before = (await send("Runtime.evaluate", { expression: rankHoverProbe(title, pick), returnByValue: true })).result.value;
+    if (!before) {
+      rankHover[name] = { missing: true };
+      continue;
+    }
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: before.x, y: before.y });
+    await sleep(200);
+    const after = (await send("Runtime.evaluate", { expression: rankHoverRead(title, before.index), returnByValue: true })).result.value || {};
+    const moved = (a, b) => (!a && !b ? 0 : !a || !b ? 99 : Math.max(Math.abs(a.left - b.left), Math.abs(a.top - b.top), Math.abs(a.width - b.width)));
+    rankHover[name] = {
+      label: before.label,
+      hovered: after.hovered,
+      tipVisible: after.tipVisible,
+      tipText: after.tipText,
+      countMoved: moved(before.count, after.count),
+      extraMoved: moved(before.extra, after.extra),
+      // Inside its own row: not over the next one, nor hanging under the pane.
+      tipInRow: !after.tip || (after.tip.top >= before.row.top - 1 && after.tip.bottom <= before.row.bottom + 1 && after.tip.right <= before.row.right + 1),
+      tipOverNext: !!after.tip && !!before.next && after.tipVisible && after.tip.bottom > before.next.top + 1,
+    };
+  }
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+  // A list cut at its row limit offers the rest. The fixture's lists all fit,
+  // so none may offer anything.
+  const rankMore = (await send("Runtime.evaluate", {
+    expression: `[...document.querySelectorAll('.activity-panes-rail .rail-block')].map((b) => ({ title: (b.querySelector('.rail-block-title')?.textContent || '').trim(), rows: b.querySelectorAll('.live-rank-item').length, more: !!b.querySelector('.rank-more') }))`,
+    returnByValue: true,
+  })).result.value || [];
+
   // Interactions, at the wide tier: the per-day chart re-splits, a busiest item
   // opens its newest event, and a Where row toggles the repo facet.
   await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
@@ -9239,6 +9324,20 @@ try {
         /[?&]kind=/.test(activityPanesActs.kindHash || "") &&
         !/[?&]kind=/.test(activityPanesActs.kindCleared || ""),
       `activity: events per day re-split by actor, a busiest item opens its newest event, and Where, review-verdict and What rows toggle their facets (${JSON.stringify(activityPanesActs)})`,
+    ],
+    [
+      ["filterRow", "plainRow", "clippedRow"].every((k) => rankHover[k] && !rankHover[k].missing && rankHover[k].hovered === true && rankHover[k].countMoved < 0.5 && rankHover[k].extraMoved < 0.5 && rankHover[k].tipInRow === true && rankHover[k].tipOverNext === false) &&
+        rankHover.filterRow.tipVisible === true &&
+        /· click to filter$/.test(rankHover.filterRow.tipText) &&
+        rankHover.plainRow.tipVisible === false &&
+        rankHover.clippedRow.tipVisible === true &&
+        rankHover.clippedRow.tipText.length > 0 &&
+        rankHover.clippedRow.label.includes(rankHover.clippedRow.tipText.replace(/ · .*$/, "").slice(0, 20)),
+      `activity: in the 2048px stack tier a ranked row's hover moves no cell and its tip stays inside the row: a filter row says what a click does, a fitting name shows no tip, a clipped one shows the whole name (${JSON.stringify(rankHover)})`,
+    ],
+    [
+      rankMore.length >= 5 && rankMore.every((b) => b.more === false && b.rows <= 8),
+      `activity: no stack-tier list offers more rows when every row is already shown (${JSON.stringify(rankMore)})`,
     ],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     [activityHeatmap.present === true, "activity: below the pane tiers (1280px) the page draws its plain overview"],

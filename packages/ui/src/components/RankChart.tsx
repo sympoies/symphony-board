@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { formatAxisValue, niceAxisMax, rankBarHeight } from "../rank-scale.ts";
+import { formatAxisValue, labelClipped, labelShortened, nameTipText, niceAxisMax, rankBarHeight, showsNameTip } from "../rank-scale.ts";
 
 // The ranked-bar chart shared by the Live pulse cards and the Commits / Activity
 // rails: a handful of bars on a two-gridline axis, each with a footer slot for an
@@ -28,6 +28,25 @@ export type RankChartItem = {
   onSelect?: () => void;
   selected?: boolean;
 };
+
+// Decides a row's name tip when it is hovered or focused, not when it renders:
+// whether the label clips depends on the layout the stylesheet chose for this
+// width. Written to the row directly, so a hover costs no React render.
+//
+// In a row layout the tip sits over its own row, starting at the name, so it
+// reads as the name continued and never covers the row beside it; the two
+// custom properties place it there. The vertical-bar layout ignores them.
+function armNameTip(row: HTMLElement, label: string, selectable: boolean) {
+  const footer = row.querySelector<HTMLElement>(".live-rank-footer");
+  const shown = footer?.querySelector<HTMLElement>(".live-rank-name, .activity-rank-actor-name");
+  const name = shown && shown.getClientRects().length > 0 ? shown : null;
+  const clipped = labelClipped(name) || (name !== null && labelShortened(name.textContent ?? "", label));
+  row.dataset.nameTip = showsNameTip({ clipped, selectable }) ? "show" : "none";
+  if (!footer || !name) return;
+  const nameLeft = name.getBoundingClientRect().left;
+  row.style.setProperty("--tip-x", `${Math.round(nameLeft - footer.getBoundingClientRect().left)}px`);
+  row.style.setProperty("--tip-max", `${Math.max(0, Math.round(row.getBoundingClientRect().right - nameLeft))}px`);
+}
 
 export function RankChart({
   items,
@@ -73,6 +92,8 @@ export function RankChart({
         <span className="live-rank-baseline" aria-hidden="true" />
         {items.map((item) => {
           const label = `${item.label} · ${countLabel(item.count)}${item.detail ? ` · ${item.detail}` : ""}`;
+          const selectable = item.onSelect !== undefined;
+          const arm = (event: { currentTarget: HTMLElement }) => armNameTip(event.currentTarget, item.label, selectable);
           const bar = (
             <>
               <span
@@ -91,10 +112,13 @@ export function RankChart({
               {/* The footer is clipped to one line, so the full value lives on
                   hover — as a CSS tip rather than a native `title`, which waits
                   about a second, dismisses on the smallest pointer move, and will
-                  not re-arm until the pointer leaves and comes back. */}
+                  not re-arm until the pointer leaves and comes back. It shows
+                  only when it adds something (see armNameTip). */}
               <span className="live-rank-footer">
                 {item.footer}
-                <span className="rank-name-tip" aria-hidden="true">{item.label}</span>
+                <span className="rank-name-tip" aria-hidden="true">
+                  {nameTipText(item.label, { selectable, selected: item.selected === true })}
+                </span>
               </span>
             </>
           );
@@ -102,7 +126,7 @@ export function RankChart({
           // tab renders exactly as before.
           if (!item.onSelect) {
             return (
-              <div key={item.key} className="live-rank-item" role="listitem" tabIndex={0} aria-label={label}>
+              <div key={item.key} className="live-rank-item" role="listitem" tabIndex={0} aria-label={label} onPointerEnter={arm} onFocus={arm}>
                 {bar}
               </div>
             );
@@ -120,6 +144,8 @@ export function RankChart({
                 aria-label={label}
                 aria-pressed={item.selected === true}
                 onClick={item.onSelect}
+                onPointerEnter={arm}
+                onFocus={arm}
               >
                 {bar}
               </button>

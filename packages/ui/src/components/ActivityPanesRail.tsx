@@ -1,5 +1,5 @@
 import type { ActivityDTO } from "@symphony-board/contract";
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { RankChart } from "./RankChart.tsx";
 import { ActorAvatar } from "./ActorAvatar.tsx";
 import { RankHead, Sparkline, share } from "./RankParts.tsx";
@@ -17,6 +17,7 @@ import {
   type ActorIndex,
 } from "../rail-stats.ts";
 import { displayKind, pluralize, relativeTime, type TimeRange } from "../model.ts";
+import { rankMoreLabel } from "../rank-scale.ts";
 import { COMMITS_PANES_AUTHOR_LIMIT, COMMITS_PANES_KIND_LIMIT, COMMITS_PANES_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, type CommitsPanes } from "../layout-tier.ts";
 import type { ActivityFacets } from "../nav.ts";
 
@@ -59,10 +60,25 @@ export function ActivityPanesRail({
   // The wide tier's lists scroll inside their pane, so they hold everything
   // worth scrolling to; the laptop tier's column scrolls as a whole, so each
   // list stops at a sidebar's row count.
+  //
+  // A list cut there ends in a control that opens it in place, up to the wide
+  // tier's own limit: WHERE of a busy week is 37 repositories, and eight of them
+  // with no way to the rest read as all there was. The column already scrolls,
+  // so the opened list only moves the panes under it down.
   const wide = panes === "wide";
-  const listLimit = wide ? COMMITS_PANES_RANK_LIMIT : RAIL_RANK_LIMIT_ROWS;
-  const whoLimit = wide ? COMMITS_PANES_AUTHOR_LIMIT : RAIL_RANK_LIMIT_ROWS;
-  const kindLimit = wide ? COMMITS_PANES_KIND_LIMIT : RAIL_RANK_LIMIT_ROWS;
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleOpened = (key: string) =>
+    setOpened((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const stackLimit = (key: string) => (opened.has(key) ? COMMITS_PANES_RANK_LIMIT : RAIL_RANK_LIMIT_ROWS);
+  const more = (key: string, total: number) =>
+    wide ? null : <RankMore total={total} open={opened.has(key)} onToggle={() => toggleOpened(key)} />;
+  const listLimit = (key: string) => (wide ? COMMITS_PANES_RANK_LIMIT : stackLimit(key));
+  const whoLimit = wide ? COMMITS_PANES_AUTHOR_LIMIT : stackLimit("who");
+  const kindLimit = (key: string) => (wide ? COMMITS_PANES_KIND_LIMIT : stackLimit(key));
   const total = activities.length;
 
   const people = useMemo(() => rankActors(activities, 0, actorIndex), [activities, actorIndex]);
@@ -122,6 +138,7 @@ export function ActivityPanesRail({
             };
           })}
         />
+        {more("who", people.length)}
       </div>
 
       <div className="rail-block pane-fill">
@@ -143,7 +160,7 @@ export function ActivityPanesRail({
           empty="no repos in range"
           countLabel={eventCountLabel}
           scale="max"
-          items={repos.slice(0, listLimit).map((rank) => {
+          items={repos.slice(0, listLimit("where")).map((rank) => {
             const path = rank.key.slice(rank.key.indexOf("|") + 1);
             const facts = repoFacts.get(rank.key);
             return {
@@ -170,6 +187,7 @@ export function ActivityPanesRail({
             };
           })}
         />
+        {more("where", repos.length)}
       </div>
 
       <div className="rail-block pane-fill">
@@ -184,7 +202,7 @@ export function ActivityPanesRail({
           empty="no branch refs in range"
           countLabel={eventCountLabel}
           scale="max"
-          items={branches.slice(0, listLimit).map((rank) => {
+          items={branches.slice(0, listLimit("branches")).map((rank) => {
             const facts = branchFacts.get(rank.key);
             return {
               key: rank.key,
@@ -201,10 +219,11 @@ export function ActivityPanesRail({
             };
           })}
         />
+        {more("branches", branches.length)}
       </div>
 
-      <FacetBlock title="What" label="kind" ariaLabel="Activity kinds in the selected range" ranks={kinds.slice(0, kindLimit)} totalKinds={kinds.length} unit={["kind", "kinds"]} total={total} selected={facets.kinds} onSelect={onFacet ? (value) => onFacet("kinds", value) : undefined} labelOf={(key) => displayKind(key) ?? key} />
-      <FacetBlock title="How" label="action" ariaLabel="Activity actions in the selected range" ranks={actions.slice(0, kindLimit)} totalKinds={actions.length} unit={["action", "actions"]} total={total} selected={facets.actions} onSelect={onFacet ? (value) => onFacet("actions", value) : undefined} labelOf={(key) => key.replace(/_/g, " ")} />
+      <FacetBlock title="What" label="kind" ariaLabel="Activity kinds in the selected range" ranks={kinds.slice(0, kindLimit("what"))} totalKinds={kinds.length} more={more("what", kinds.length)} unit={["kind", "kinds"]} total={total} selected={facets.kinds} onSelect={onFacet ? (value) => onFacet("kinds", value) : undefined} labelOf={(key) => displayKind(key) ?? key} />
+      <FacetBlock title="How" label="action" ariaLabel="Activity actions in the selected range" ranks={actions.slice(0, kindLimit("how"))} totalKinds={actions.length} more={more("how", actions.length)} unit={["action", "actions"]} total={total} selected={facets.actions} onSelect={onFacet ? (value) => onFacet("actions", value) : undefined} labelOf={(key) => key.replace(/_/g, " ")} />
     </aside>
   );
 }
@@ -220,6 +239,7 @@ function FacetBlock({
   selected,
   onSelect,
   labelOf,
+  more,
 }: {
   title: string;
   label: string;
@@ -231,6 +251,7 @@ function FacetBlock({
   selected: ReadonlySet<string>;
   onSelect?: (value: string) => void;
   labelOf: (key: string) => string;
+  more?: ReactNode;
 }) {
   return (
     <div className="rail-block">
@@ -260,6 +281,18 @@ function FacetBlock({
           ),
         }))}
       />
+      {more}
     </div>
+  );
+}
+
+// The control under a stack-tier list that is cut at its row limit. Nothing
+// when every row is already shown.
+function RankMore({ total, open, onToggle }: { total: number; open: boolean; onToggle: () => void }) {
+  if (total <= RAIL_RANK_LIMIT_ROWS) return null;
+  return (
+    <button type="button" className="rank-more" aria-expanded={open} onClick={onToggle}>
+      {open ? "Show fewer" : rankMoreLabel(total, COMMITS_PANES_RANK_LIMIT)}
+    </button>
   );
 }
