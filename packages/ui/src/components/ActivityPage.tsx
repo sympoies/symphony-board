@@ -22,12 +22,13 @@ import {
 } from "../activity-detail.ts";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
 import { MOBILE_VIEWPORT_QUERY, type ColorOf, type TimeRange } from "../model.ts";
-import { SPLIT_STACK_QUERY, WIDE_RAIL_QUERY } from "../layout-tier.ts";
-import { ActivityRail } from "./ActivityRail.tsx";
+import { COMMITS_PANES_QUERY, COMMITS_STACK_QUERY, SPLIT_STACK_QUERY, type CommitsPanes } from "../layout-tier.ts";
+import { ActivityOverview } from "./ActivityOverview.tsx";
+import { ActivityPanesRail } from "./ActivityPanesRail.tsx";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import { EMPTY_ACTOR_INDEX, type ActorIndex } from "../rail-stats.ts";
-import type { ActivityView } from "../nav.ts";
+import type { ActivityFacets, ActivityView } from "../nav.ts";
 
 export function ActivityPage({
   activities,
@@ -53,6 +54,8 @@ export function ActivityPage({
   onOpenDetailRoute,
   onCloseDetailRoute,
   onClearDetailRoute,
+  facets,
+  onFacet,
 }: {
   activities: ActivityDTO[];
   // Raw fallback for the trailing-12-month heatmap when `activityDaily` is
@@ -96,6 +99,10 @@ export function ActivityPage({
   onOpenDetailRoute?: () => void;
   onCloseDetailRoute?: () => void;
   onClearDetailRoute?: () => void;
+  // The route-backed facets, and the way to toggle one, for the pane tiers'
+  // rows (a repository, a kind, an action, a review verdict).
+  facets?: ActivityFacets;
+  onFacet?: (dim: "repos" | "kinds" | "actions", value: string) => void;
 }) {
   const [heatmapPanel, setHeatmapPanel] = useState<HTMLElement | null>(null);
   const [heatmapHeight, setHeatmapHeight] = useState(0);
@@ -111,7 +118,13 @@ export function ActivityPage({
   // replacement: below its breakpoint the page keeps exactly today's two-column
   // (then single-pane) behaviour, and the mobile Feed / Overview toggle is
   // untouched — a third sub-view would make the phone layout worse, not better.
-  const showRail = useMediaQuery(WIDE_RAIL_QUERY);
+  // The pane tiers, the Commits page's: from the laptop tier both supporting
+  // columns carry the full set of panes, stacked; from the wide tier they lay
+  // them out two-up. Decided here, once, for both columns. Below them the page
+  // keeps its two columns and the plain overview.
+  const widePanes = useMediaQuery(COMMITS_PANES_QUERY);
+  const stackPanes = useMediaQuery(COMMITS_STACK_QUERY);
+  const panes: CommitsPanes | null = widePanes ? "wide" : stackPanes ? "stack" : null;
 
   // ---- selection --------------------------------------------------------------
   // Below the split floor the overview stacks UNDER the feed, so a detail
@@ -220,7 +233,7 @@ export function ActivityPage({
     activities.length,
     showFeed,
     showOverview,
-    showRail,
+    panes,
   ]);
   const layoutStyle: CSSProperties | undefined =
     heatmapHeight > 0 || paneHeightStyle
@@ -291,7 +304,10 @@ export function ActivityPage({
         </span>
       </div>
       {isMobile ? <ActivityViewToggle view={view} onView={onView} /> : null}
-      <div className="activity-layout" ref={splitPaneRef} style={layoutStyle}>
+      {/* In the pane tiers the layout is also a .commits-split, so the two pages
+          share one set of tier rules: the column split, the middle column that
+          stacks the detail over a scrolling overview, the rail's two-up grid. */}
+      <div className={`activity-layout${panes ? " commits-split activity-panes" : ""}`} data-panes={panes ?? undefined} ref={splitPaneRef} style={layoutStyle}>
         {showFeed ? (
           <ActivityFeed
             activities={activities}
@@ -309,23 +325,53 @@ export function ActivityPage({
           ) : (
             // The middle column: the selected event above the range overview,
             // which moves down intact (the Commits page's .commits-context).
-            <div className="activity-context">
+            <div className={`activity-context${panes ? " commits-context" : ""}`}>
               {readerMode ? null : detailPane}
-              <ActivityHeatmap
-                activities={allActivities}
-                activityDaily={activityDaily}
-                generatedAt={generatedAt}
-                trendActivities={activities}
-                timezone={timezone}
-                range={range}
-                panelRef={heatmapPanelRef}
-              />
+              {panes ? (
+                <ActivityOverview
+                  activities={activities}
+                  activityDaily={activityDaily}
+                  timezone={timezone}
+                  range={range}
+                  actorIndex={actorIndex}
+                  panes={panes}
+                  itemsById={itemsById}
+                  sourceKind={sourceKind}
+                  selectedKey={selectedKey}
+                  onSelect={pin}
+                  selectedActions={facets?.actions ?? EMPTY_SET}
+                  onAction={onFacet ? (action) => onFacet("actions", action) : undefined}
+                  panelRef={heatmapPanelRef}
+                />
+              ) : (
+                <ActivityHeatmap
+                  activities={allActivities}
+                  activityDaily={activityDaily}
+                  generatedAt={generatedAt}
+                  trendActivities={activities}
+                  timezone={timezone}
+                  range={range}
+                  panelRef={heatmapPanelRef}
+                />
+              )}
             </div>
           )
         ) : null}
-        {/* Third column. Gated on the viewport rather than only hidden in CSS so
-            a phone never pays to rank actors and repos it will not show. */}
-        {showRail ? <ActivityRail activities={activities} timezone={timezone} avatarOf={actorAvatars} actorIndex={actorIndex} /> : null}
+        {/* Third column, in the pane tiers only. Gated on the viewport rather
+            than only hidden in CSS so a smaller screen never pays to rank what
+            it will not show. */}
+        {panes ? (
+          <ActivityPanesRail
+            activities={activities}
+            timezone={timezone}
+            range={range}
+            panes={panes}
+            actorIndex={actorIndex}
+            avatarOf={actorAvatars}
+            facets={facets ?? EMPTY_FACETS}
+            onFacet={onFacet}
+          />
+        ) : null}
       </div>
     </main>
   );
@@ -352,3 +398,6 @@ function ActivityViewToggle({ view, onView }: { view: ActivityView; onView: (vie
     </nav>
   );
 }
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
+const EMPTY_FACETS: ActivityFacets = { sources: EMPTY_SET, repos: EMPTY_SET, kinds: EMPTY_SET, actions: EMPTY_SET };

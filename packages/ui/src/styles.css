@@ -1207,12 +1207,13 @@ a.rf-node-title:hover { color: var(--accent); }
    checked against it. */
 .commits-split {
   display: grid;
-  /* 40/30/30 rather than Activity's 30/35/35. The Commits list is the column
-     with the long strings on it — a conventional-commit subject, an org/repo
-     path, an actor and a branch chip, all on two fixed-height lines — so an
-     even split made every one of them ellipsize while the two supporting
-     columns had room to spare. Activity's feed wraps instead of truncating, so
-     it keeps its own proportions. */
+  /* 40/30/30 rather than an even split. The Commits list is the column with
+     the long strings on it — a conventional-commit subject, an org/repo path,
+     an actor and a branch chip, all on two fixed-height lines — so an even
+     split made every one of them ellipsize while the two supporting columns
+     had room to spare. From the pane tiers (1400px) the Activity layout is a
+     .commits-split too and takes these same tracks, so changing them changes
+     both pages. */
   grid-template-columns: minmax(0, 40fr) minmax(0, 30fr) minmax(0, 30fr);
   justify-content: start;
   gap: var(--pane-gap);
@@ -1592,9 +1593,10 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-layout {
   display: grid;
   /* The overview takes the remainder rather than stopping at 680px. Two capped
-     tracks stranded width at every size from ~1412px up to the 1700px rail tier:
-     the same dead gutter the page caps were removed to fix, one level further
-     in. Commits' rail and Activity's own rail already follow this rule. */
+     tracks stranded width at every size from ~1412px up to where the third
+     column began: the same dead gutter the page caps were removed to fix, one
+     level further in. From 1400px the page is a .commits-split (the pane
+     tiers) and these two tracks no longer apply. */
   grid-template-columns: minmax(0, clamp(640px, 40vw, 720px)) minmax(560px, 1fr);
   justify-content: start;
   align-items: start;
@@ -1624,22 +1626,17 @@ a.rf-node-title:hover { color: var(--accent); }
    working; only the axis and gridlines drop out, because a shared vertical axis
    means nothing once the bars run horizontally. */
 @media (min-width: 2200px) {
-  .commits-rail .live-rank-chart,
-  .activity-rail .live-rank-chart {
+  .commits-rail .live-rank-chart {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
     margin-top: 4px;
   }
   .commits-rail .live-rank-axis,
-  .activity-rail .live-rank-axis,
   .commits-rail .live-rank-grid,
-  .activity-rail .live-rank-grid,
-  .commits-rail .live-rank-baseline,
-  .activity-rail .live-rank-baseline {
+  .commits-rail .live-rank-baseline {
     display: none;
   }
-  .commits-rail .live-rank-plot,
-  .activity-rail .live-rank-plot {
+  .commits-rail .live-rank-plot {
     grid-auto-flow: row;
     grid-auto-columns: auto;
     grid-auto-rows: 26px;
@@ -1647,8 +1644,7 @@ a.rf-node-title:hover { color: var(--accent); }
     column-gap: 0;
     height: auto;
   }
-  .commits-rail .live-rank-item,
-  .activity-rail .live-rank-item {
+  .commits-rail .live-rank-item {
     grid-template-rows: none;
     grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
     align-items: center;
@@ -1665,11 +1661,8 @@ a.rf-node-title:hover { color: var(--accent); }
      here -- so they won, and every repo row drew a 14px stub whatever its count,
      under a name a line above it. The longer selector is what outranks them. */
   .commits-rail .live-rank-footer,
-  .activity-rail .live-rank-footer,
   .commits-rail .live-rank-chart-repos .live-rank-footer,
-  .activity-rail .live-rank-chart-repos .live-rank-footer,
-  .commits-rail .live-rank-chart-labels .live-rank-footer,
-  .activity-rail .live-rank-chart-labels .live-rank-footer {
+  .commits-rail .live-rank-chart-labels .live-rank-footer {
     order: -1;
     width: auto;
     height: auto;
@@ -1678,7 +1671,6 @@ a.rf-node-title:hover { color: var(--accent); }
     justify-content: start;
     gap: 6px;
   }
-  .activity-rail .activity-rank-actor,
   .commits-rail .activity-rank-actor {
     display: flex;
     align-items: center;
@@ -1686,7 +1678,6 @@ a.rf-node-title:hover { color: var(--accent); }
     width: 100%;
     min-width: 0;
   }
-  .activity-rail .activity-rank-actor-name,
   .commits-rail .activity-rank-actor-name {
     display: block;
     min-width: 0;
@@ -1696,8 +1687,7 @@ a.rf-node-title:hover { color: var(--accent); }
     color: color-mix(in srgb, var(--text) 84%, var(--muted));
     font-size: 12px;
   }
-  .commits-rail .live-rank-name,
-  .activity-rail .live-rank-name {
+  .commits-rail .live-rank-name {
     max-width: none;
     text-align: left;
     -webkit-line-clamp: 1;
@@ -1709,14 +1699,12 @@ a.rf-node-title:hover { color: var(--accent); }
      none, and hiding the tip would leave those with no way to be read at all.
      It only anchors left instead of under a bar, since the label is no longer
      centred beneath one. */
-  .commits-rail .rank-name-tip,
-  .activity-rail .rank-name-tip {
+  .commits-rail .rank-name-tip {
     left: 0;
     transform: none;
     top: calc(100% + 2px);
   }
-  .commits-rail .live-rank-bar-cell,
-  .activity-rail .live-rank-bar-cell {
+  .commits-rail .live-rank-bar-cell {
     display: grid;
     grid-template-columns: minmax(0, 1fr) max-content;
     align-items: center;
@@ -1724,11 +1712,8 @@ a.rf-node-title:hover { color: var(--accent); }
     gap: 8px;
   }
   .commits-rail .live-rank-bar,
-  .activity-rail .live-rank-bar,
   .commits-rail .live-rank-chart-repos .live-rank-bar,
-  .activity-rail .live-rank-chart-repos .live-rank-bar,
-  .commits-rail .live-rank-chart-labels .live-rank-bar,
-  .activity-rail .live-rank-chart-labels .live-rank-bar {
+  .commits-rail .live-rank-chart-labels .live-rank-bar {
     width: var(--rank-h);
     height: 10px;
     min-height: 0;
@@ -1740,8 +1725,7 @@ a.rf-node-title:hover { color: var(--accent); }
      end -- the axis it used to be read against is gone. It is therefore body
      text, not chrome: 10px in --muted measured 3.3:1 against the panel, which is
      a hover tip's budget and not a column a reader scans. */
-  .commits-rail .live-rank-tooltip,
-  .activity-rail .live-rank-tooltip {
+  .commits-rail .live-rank-tooltip {
     position: static;
     order: 1;
     opacity: 1;
@@ -1787,10 +1771,10 @@ a.rf-node-title:hover { color: var(--accent); }
    and the six-bar chart labels become too narrow. This is independent of
    Activity's rail tier and mirrors COMMIT_THREE_COLUMN_MIN_WIDTH_PX.
 
-   Activity has no equivalent rule because its rail is JS-gated on
-   WIDE_RAIL_QUERY and simply does not render below 1700px. The Commits rail
-   predates its overview and always rendered, so hiding it here would take away
-   what the page already showed. */
+   Activity has no equivalent rule because its third column is JS-gated on
+   the pane tiers and does not render below 1400px. The Commits rail predates
+   its overview and always rendered, so hiding it here would take away what the
+   page already showed. */
 @media (min-width: 1212px) and (max-width: 1279px) {
   .commits-split { grid-template-columns: minmax(0, 1180px) minmax(300px, 1fr); }
   .commits-split > :first-child { grid-row: span 2; }
@@ -2056,6 +2040,9 @@ a.rf-node-title:hover { color: var(--accent); }
     top: auto;
     bottom: calc(100% + 2px);
   }
+  /* Where sits in a half-width pane here, so its tracks are the narrow ones:
+     the repository's short name, share, active days and a compact sparkline. */
+  .commits-rail[data-panes="wide"] .rank-cols-places { --rank-label-w: 6.5rem; --rank-count-w: 2.8rem; --rank-extra-cols: 2.6rem 2.4rem 3.6rem; }
   .commits-rail[data-panes="wide"] .live-rank-extra {
     display: grid;
     grid-template-columns: var(--rank-extra-cols, max-content);
@@ -2105,9 +2092,10 @@ a.rf-node-title:hover { color: var(--accent); }
    charts to the pane's height is what drew five tall bars on a 14" screen.
 
    It deliberately repeats the rows tier's relayout (the 2200px block) for its
-   own rail instead of widening that tier: that block also lays out Activity's
-   rail and the wide tier, and this one must not move either. Nothing here
-   names the wide tier. */
+   own rail instead of widening that tier: that block also lays out the wide
+   tier, which this one must not move. Activity's rail in this tier takes these
+   same rules, being a .commits-rail[data-panes]. Nothing here names the wide
+   tier. */
 @media (min-width: 1400px) and (max-width: 2479px) {
   /* The list gives up a little width to two columns that now hold more. At
      1512px it keeps ~520px, still the wrapping card it already was. */
@@ -2316,31 +2304,19 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-rail[data-panes="stack"] .rank-cols-repos { --rank-label-w: 8.5rem; --rank-count-w: 2.6rem; }
   .commits-rail[data-panes="stack"] .rank-cols-branches { --rank-label-w: 10rem; --rank-count-w: 2.6rem; }
   .commits-rail[data-panes="stack"] .rank-cols-share { --rank-count-w: 2.6rem; }
+  /* Who keeps share, active days and the sparkline in a ~430px column; its
+     repos column is hidden by POSITION (the second extra), here and in the
+     head, and stays in the row's accessible name. */
+  .commits-rail[data-panes="stack"] .rank-cols-people { --rank-label-w: 7.5rem; --rank-count-w: 2.6rem; --rank-extra-cols: 2.6rem 2.6rem 4.2rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-places { --rank-label-w: 7rem; --rank-count-w: 2.6rem; --rank-extra-cols: 2.6rem 2.6rem 4.2rem; }
+  .commits-rail[data-panes="stack"] .rank-cols-people .live-rank-extra > :nth-child(2),
+  .commits-rail[data-panes="stack"] .rank-head.rank-cols-people > :nth-child(5) {
+    display: none;
+  }
   .commits-rail[data-panes="stack"] .rank-cols-files { --rank-label-w: 8rem; }
   .commits-rail[data-panes="stack"] .rank-cols-files-multi { --rank-label-w: 10rem; }
   .commits-rail[data-panes="stack"] .rank-head { grid-template-columns: minmax(0, var(--rank-label-w, 11rem)) minmax(40px, 1fr) var(--rank-count-w, 3rem) var(--rank-extra-cols); }
 }
-/* Third column: the who / where / when rail. Mirrors WIDE_RAIL_MIN_WIDTH_PX in
-   layout-tier.ts, which is what gates the component actually rendering —
-   layout-tier.test.ts keeps the two in step. The overview column may give up its
-   slack (680 -> 560) to make room, since its charts still read at that width
-   while the rail below 300px does not. */
-@media (min-width: 1700px) {
-  /* The rail takes the remainder rather than stopping at a ceiling, for the same
-     reason the Commits rail does: a fixed cap leaves the leftover as dead space
-     on a 4K panel (feed 720 + overview 680 + rail 420 uses barely half of it),
-     and it also meant the rail never grew before the two-up rule below split it,
-     which overflowed its charts. */
-  /* 30 / 35 / 35 by ratio rather than three pixel ceilings. The feed no longer
-     takes the lion's share: its rows wrap instead of truncating, so it reads
-     fine narrower, while the overview's charts and the rail's six-bar charts
-     both needed the width they were not getting — the rail sat at 420px and
-     clipped almost every label to three characters. */
-  .activity-layout {
-    grid-template-columns: minmax(0, 30fr) minmax(0, 35fr) minmax(0, 35fr);
-  }
-}
-
 /* Mobile-only segmented control choosing the single visible pane: the Activity
    page (Feed / Overview) and the Graph page (List / Graph) share this chrome.
    Only rendered below the breakpoint; styled as a filled segmented track so it
@@ -3105,6 +3081,19 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-context {
   display: flex; flex-direction: column; gap: var(--pane-gap); min-width: 0;
 }
+/* In the pane tiers the column has the pane's height (the .commits-context
+   rule), and Activity opens the detail by default, which Commits does not. So
+   the two share it: the detail scrolls inside at most about three fifths of the
+   column, and the overview keeps a floor that shows its tiles and the head of
+   the next pane. */
+.activity-panes > .commits-context > .activity-detail {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 60%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.activity-panes > .commits-context > .activity-overview { flex: 1 1 0; min-height: 240px; }
 .activity-detail .commit-detail-card { display: flex; flex-direction: column; }
 .activity-detail-kicker {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
@@ -5669,8 +5658,7 @@ span.live-avatar { cursor: default; }
    Both rails are stacks of small titled blocks on the page surface, deliberately
    quieter than the Live pulse cards: they sit beside a list that owns the
    reading attention, so they read as reference, not as the subject. */
-.commits-rail,
-.activity-rail {
+.commits-rail {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--pane-gap);
@@ -5680,27 +5668,6 @@ span.live-avatar { cursor: default; }
      viewport would otherwise strand its last block off-screen. */
   position: sticky;
   top: 12px;
-}
-/* Once a rail is genuinely wide — an ultrawide or 4K panel, where BOTH rails now
-   take the slack their main column does not need — a single column of blocks
-   becomes a tall thin ribbon with empty space beside it. Flow them two-up.
-   This only holds because each rail actually gains width first: splitting a rail
-   that is still at a fixed ceiling halves its blocks below the width a ranked
-   chart needs (six bars at 26px plus five 8px gaps) and the bars spill out of the
-   card, which .rail-block does not clip.
-   The commit detail is excluded: it is a single card, and half of a wide rail
-   would leave the other half empty. */
-@media (min-width: 2200px) {
-  /* Commits is deliberately absent AT THIS WIDTH. Its rail is 30fr, about 650px
-     at 2200px, and its four ranked charts stacked already fill the height
-     beside the list; halving them to ~320px would leave no room for a label, a
-     bar and a count on one row. It goes two-up later, at the wide-panes tier
-     (COMMITS_PANES_MIN_WIDTH_PX, 2480px), where the split also gives each
-     supporting column the width for two modules -- see "The Commits wide-panes
-     tier" above. */
-  .activity-rail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 .rail-block {
   background: var(--panel);
@@ -6112,6 +6079,28 @@ a.pane-row-cr:hover { text-decoration: none; }
 .pane-row-cr-number { font-family: var(--mono); font-weight: 600; color: var(--link); }
 .pane-row-cr[data-inert="true"] .pane-row-cr-number { color: var(--muted); }
 .pane-row-cr .commit-diffstat { justify-content: flex-end; }
+/* A busiest-item row: the item, then its state and event count. A button: it
+   opens the item's newest event in the detail pane. */
+.activity-busiest-row { grid-template-columns: minmax(0, 1fr) auto; height: 40px; }
+.activity-busiest-side { display: inline-flex; align-items: center; gap: 8px; }
+.activity-busiest-count { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 4.5rem; text-align: right; }
+/* Review verdicts: name, bar, count, share. A row toggles the action facet. */
+.activity-verdict-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.activity-verdict-row {
+  appearance: none; display: grid; grid-template-columns: minmax(0, 8.5rem) minmax(40px, 1fr) 3rem 2.8rem; align-items: center; column-gap: 10px;
+  inline-size: 100%; height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: none;
+  font: inherit; font-size: 12px; color: var(--text); text-align: left; cursor: pointer;
+}
+.activity-verdict-row:disabled { cursor: default; }
+.activity-verdict-row:hover:not(:disabled) { background: var(--hover-soft); }
+.activity-verdict-row[aria-pressed="true"] { background: var(--selection-bg); }
+.activity-verdict-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-verdict-bar { display: block; height: 10px; }
+.activity-verdict-bar > i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--accent); opacity: 0.55; }
+.activity-verdict-bar > i[data-verdict="approved"] { background: var(--open); opacity: 0.8; }
+.activity-verdict-bar > i[data-verdict="changes_requested"] { background: var(--broken); opacity: 0.8; }
+.activity-verdict-count, .activity-verdict-share { text-align: right; font-variant-numeric: tabular-nums; }
+.activity-verdict-share { color: var(--muted); }
 
 /* The year under the rhythm calendar, and the range against the one before it. */
 .hm-facts {
@@ -6176,6 +6165,10 @@ a.pane-row-cr:hover { text-decoration: none; }
 .rank-cols-repos { --rank-label-w: 9rem; --rank-extra-cols: 3rem 2.6rem; }
 .rank-cols-branches { --rank-label-w: 12rem; --rank-extra-cols: 2.6rem; }
 .rank-cols-share { --rank-label-w: 8rem; --rank-extra-cols: 2.8rem; }
+/* The Activity rail's tables: a person's share, repos, active days and
+   sparkline; a repository's share, active days and sparkline. */
+.rank-cols-people { --rank-label-w: 11rem; --rank-extra-cols: 2.8rem 2.4rem 2.6rem 5.4rem; }
+.rank-cols-places { --rank-label-w: 8rem; --rank-extra-cols: 2.8rem 2.6rem 4.8rem; }
 /* Hot files share half a column with a bar, a count and line counts, so the
    count track is cut to three digits. With one repository on screen the last
    column is its authors; with several, the name needs that room for the

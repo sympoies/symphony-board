@@ -2140,6 +2140,8 @@ export function App() {
           reviewThreads={visibleEnv.review_threads}
           resolveChangeRequestLink={resolveChangeRequestLink}
           itemDestination={activityItemDestination}
+          facets={activityFacetState}
+          onFacet={setActivityFacet}
           detailRouteOpen={route.activityDetail === "1"}
           onOpenDetailRoute={openActivityDetailRoute}
           onCloseDetailRoute={closeActivityDetailRoute}

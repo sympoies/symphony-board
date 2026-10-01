@@ -146,7 +146,11 @@ commit's line counts on the right. Selecting a row opens the event's detail
 above the overview: the item as it is now, the event's own facts, a review
 comment's words when `review_threads[]` carries them, and the other events in
 the range on the same item. Below 1212px the detail is a reader over the page
-(`activityDetail=1`).
+(`activityDetail=1`). From 1400px the page takes the Commits pane tiers: the
+overview becomes panes (summary tiles, rhythm, events per day stacked by kind,
+action, repo or actor, a day-by-hour grid, review verdicts, busiest items) and a
+third column ranks people, repositories, branches, kinds and actions as tables
+with share, active days and per-day sparklines.
 
 Rows link to `activities[].url` when the producer supplied a reliable provider
 destination. Unlinked rows are intentional; the UI does not reconstruct provider
@@ -357,7 +361,10 @@ a row narrows the page to the commits that touched it, and that the pane falls
 back to scopes under an author filter. Activity checks cover the compact
 two-line row, the detail pane following the newest event and pinning a clicked
 one, the quoted review-comment words (and none for an issue comment), and the
-phone reader's route flag and Back. It also mocks the daemon's sync control surface to assert the
+phone reader's route flag and Back, and the pane tiers at 2560px and 1512px:
+the overview's panes and the rail's tables, two-up and stacked, the per-day
+re-split, a busiest item opening its event, and a Where row toggling the repo
+facet. It also mocks the daemon's sync control surface to assert the
 Header Sync action renders, enters the running (disabled) state on click, shows
 the reloaded status on completion, and that Settings exposes the advanced
 manual-sync controls.

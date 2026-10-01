@@ -10,6 +10,7 @@ import {
   commitStats,
 } from "./model.ts";
 import { safeHref } from "./url.ts";
+import { activityTargetRef } from "./activity-detail.ts";
 
 // Aggregations for the Commits and Activity side rails. Every one of these reads
 // the SAME array the page already renders, so a rail can never disagree with the
@@ -962,4 +963,157 @@ export function shortPathLabel(path: string): string {
   const parts = path.split("/").filter(Boolean);
   const tail = parts.slice(-2).join("/");
   return dir ? `${tail}/` : tail;
+}
+
+// ---- the Activity page's panes ------------------------------------------------
+// Over the same rows the feed renders, like everything above.
+
+export type ActivityTotals = {
+  events: number;
+  // Distinct people, merged and with bots left out the way rankActors counts them.
+  people: number;
+  repos: number;
+  comments: number;
+  reviews: number;
+  approvals: number;
+  changesRequested: number;
+  // Change requests merged (GitLab's project events say "accepted").
+  merged: number;
+  // Issues and change requests opened, and closed without merging.
+  opened: number;
+  closed: number;
+  pushes: number;
+  commits: number;
+};
+
+const PUSH_ACTIONS = new Set(["pushed", "force_pushed"]);
+const WORK_ITEM_KINDS = new Set(["issue", "change_request"]);
+
+export function activityTotals(activities: readonly ActivityDTO[], index: ActorIndex = EMPTY_ACTOR_INDEX): ActivityTotals {
+  const totals: ActivityTotals = { events: activities.length, people: 0, repos: 0, comments: 0, reviews: 0, approvals: 0, changesRequested: 0, merged: 0, opened: 0, closed: 0, pushes: 0, commits: 0 };
+  const repos = new Set<string>();
+  for (const a of activities) {
+    const path = a.project_path?.trim();
+    if (path) repos.add(`${a.source_id}|${path}`);
+    if (a.kind === "comment") totals.comments += 1;
+    else if (a.kind === "review") {
+      totals.reviews += 1;
+      if (a.action === "approved") totals.approvals += 1;
+      if (a.action === "changes_requested") totals.changesRequested += 1;
+    } else if (a.kind === "commit") totals.commits += 1;
+    else if (WORK_ITEM_KINDS.has(a.kind)) {
+      if (a.action === "merged" || a.action === "accepted") totals.merged += 1;
+      else if (a.action === "opened") totals.opened += 1;
+      else if (a.action === "closed") totals.closed += 1;
+    }
+    if (PUSH_ACTIONS.has(a.action)) totals.pushes += 1;
+  }
+  totals.repos = repos.size;
+  totals.people = rankActors(activities, 0, index).length;
+  return totals;
+}
+
+const VERDICT_LABELS: Record<string, string> = {
+  approved: "approved",
+  changes_requested: "changes requested",
+  reviewed: "commented",
+  dismissed: "dismissed",
+};
+
+// The range's reviews by verdict. The key stays the action (the Activity
+// action facet's value); the label says it in words.
+export function rankReviewVerdicts(activities: readonly ActivityDTO[], limit: number): RailRank[] {
+  const counts = new Map<string, number>();
+  for (const a of activities) if (a.kind === "review") counts.set(a.action, (counts.get(a.action) ?? 0) + 1);
+  return topRanks(counts, limit).map((rank) => ({ ...rank, label: VERDICT_LABELS[rank.key] ?? rank.key.replace(/_/g, " ") }));
+}
+
+export type BusiestItem = {
+  ref: string;
+  sourceId: string;
+  projectPath: string | null;
+  iid: number | null;
+  // The item's kind when a row names it: a target kind, or change_request for
+  // a commit that names its change request.
+  kind: "issue" | "change_request" | null;
+  events: number;
+  comments: number;
+  reviews: number;
+  commits: number;
+  lastAt: string;
+  // The newest row about the item: what selecting the item opens.
+  latest: ActivityDTO;
+};
+
+// The issues and change requests with the most events in the range, by the
+// item each row is about (activity-detail.activityTargetRef). Ties go to the
+// item touched most recently.
+export function busiestItems(activities: readonly ActivityDTO[], limit: number): BusiestItem[] {
+  const items = new Map<string, BusiestItem>();
+  for (const a of activities) {
+    const ref = activityTargetRef(a);
+    if (!ref) continue;
+    const isCommit = a.kind === "commit" || a.target_kind === "commit";
+    let item = items.get(ref);
+    if (!item) {
+      const link = isCommit ? (a.details?.change_request as { iid?: unknown } | undefined) : undefined;
+      const kind = isCommit ? "change_request" : WORK_ITEM_KINDS.has(a.target_kind ?? "") ? (a.target_kind as "issue" | "change_request") : WORK_ITEM_KINDS.has(a.kind) ? (a.kind as "issue" | "change_request") : null;
+      item = {
+        ref,
+        sourceId: a.source_id,
+        projectPath: a.project_path,
+        iid: isCommit ? (typeof link?.iid === "number" ? link.iid : null) : a.target_iid,
+        kind,
+        events: 0,
+        comments: 0,
+        reviews: 0,
+        commits: 0,
+        lastAt: a.occurred_at,
+        latest: a,
+      };
+      items.set(ref, item);
+    }
+    item.events += 1;
+    if (a.kind === "comment") item.comments += 1;
+    else if (a.kind === "review") item.reviews += 1;
+    else if (isCommit) item.commits += 1;
+    if (item.iid === null && !isCommit && a.target_iid !== null) item.iid = a.target_iid;
+    if (item.kind === null && WORK_ITEM_KINDS.has(a.target_kind ?? "")) item.kind = a.target_kind as "issue" | "change_request";
+    if (a.occurred_at > item.lastAt) {
+      item.lastAt = a.occurred_at;
+      item.latest = a;
+    }
+  }
+  const ranked = [...items.values()].sort((x, y) => y.events - x.events || (y.lastAt > x.lastAt ? 1 : y.lastAt < x.lastAt ? -1 : 0));
+  return limit > 0 ? ranked.slice(0, limit) : ranked;
+}
+
+export type RepoActivityDetail = RepoDetail & {
+  perDay: number[];
+  activeDays: number;
+};
+
+// A repository's people and last event (repoDetails), plus its per-day series
+// for the row's sparkline, keyed like rankRepos.
+export function repoActivityDetails(
+  activities: readonly ActivityDTO[],
+  index: ActorIndex,
+  tz: string,
+  fromDate: string,
+  toDate: string,
+): Map<string, RepoActivityDetail> {
+  const dates = enumerateDays(fromDate, toDate);
+  const dayIndex = new Map(dates.map((date, i) => [date, i]));
+  const out = new Map<string, RepoActivityDetail>();
+  for (const [key, detail] of repoDetails(activities, index)) out.set(key, { ...detail, perDay: dates.map(() => 0), activeDays: 0 });
+  for (const a of activities) {
+    const path = a.project_path?.trim();
+    if (!path) continue;
+    const detail = out.get(`${a.source_id}|${path}`);
+    const date = zonedDateOf(a, tz);
+    const slot = date === null ? undefined : dayIndex.get(date);
+    if (detail && slot !== undefined) detail.perDay[slot] = (detail.perDay[slot] ?? 0) + 1;
+  }
+  for (const detail of out.values()) detail.activeDays = detail.perDay.filter((count) => count > 0).length;
+  return out;
 }

@@ -2583,6 +2583,12 @@ try {
   // (excluding the legend) vs the in-range subset to prove the overlay renders and
   // stays scoped to the range — not the whole grid. Guarded by `present` so this
   // no-ops if the sample contract ever ages past the trailing-12-month window.
+  // Probed at 1280px: from the pane tiers (1400px) the page draws its pane
+  // overview instead, and a probe there would find nothing and pass every
+  // guarded check vacuously. activityPlainOverview below requires it present.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(150);
+  await waitHtml("document.querySelector('.activity-heatmap')");
   const activityHeatmap = (await send("Runtime.evaluate", {
     expression: `(() => {
       const heatmap = document.querySelector('.activity-heatmap');
@@ -2712,7 +2718,7 @@ try {
   await sleep(80);
   const heatmapWeekdays = (await send("Runtime.evaluate", {
     expression: `(() => { try {
-      const scroll = document.querySelector('.activity-heatmap .hm-calendar-scroll');
+      const scroll = document.querySelector('.activity-heatmap .hm-calendar-scroll, .activity-overview .hm-calendar-scroll');
       if (!scroll) return { present: false };
       scroll.scrollLeft = scroll.scrollWidth;
       const box = scroll.getBoundingClientRect();
@@ -6169,8 +6175,8 @@ try {
 
   // --- Commits / Activity side rails --------------------------------------
   // The two pages that idle width used to strand. Commits now pairs a
-  // measure-capped list with a digest rail; Activity gains a third column above
-  // WIDE_RAIL_MIN_WIDTH_PX. Both are asserted at a viewport where they must
+  // measure-capped list with a digest rail; Activity gains a third column from
+  // the pane tiers (COMMITS_STACK_MIN_WIDTH_PX). Both are asserted at a viewport where they must
   // appear AND at one where they must not, so "the rail renders" cannot pass by
   // rendering everywhere and breaking the narrow tiers.
   //
@@ -6906,7 +6912,7 @@ try {
 
   // Activity's third column: present above the breakpoint, absent below it.
   const activityRailByViewport = [];
-  for (const vp of [{ name: "wide", width: 1880 }, { name: "at-breakpoint", width: 1700 }, { name: "below", width: 1500 }]) {
+  for (const vp of [{ name: "wide", width: 1880 }, { name: "at-breakpoint", width: 1400 }, { name: "below", width: 1399 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: 1080, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
     await sleep(400);
@@ -6914,7 +6920,7 @@ try {
     const r = (await send("Runtime.evaluate", {
       expression: `(() => {
         const layout = document.querySelector('.activity-layout');
-        const rail = document.querySelector('.activity-rail');
+        const rail = document.querySelector('.activity-panes-rail');
         const columns = layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\\s+/).length : 0;
         const titles = rail ? [...rail.querySelectorAll('.rail-block-title')].map((el) => (el.textContent || '').trim()) : [];
         const who = rail ? [...rail.querySelectorAll('.rail-block')]
@@ -6923,7 +6929,7 @@ try {
           .find((el) => (el.querySelector('.activity-rank-actor-name')?.textContent || '').trim() === 'maintainer') : null;
         const list = document.querySelector('.activity-list');
         const row = list ? list.querySelector('.activity-row') : null;
-        const overview = document.querySelector('.activity-heatmap');
+        const overview = document.querySelector('.activity-context');
         return {
           hasRail: !!rail,
           columns,
@@ -7061,7 +7067,7 @@ try {
       expression: `(() => {
         const d = document.querySelector('.activity-detail');
         const sel = document.querySelector('.activity-row-selected');
-        const overview = document.querySelector('.activity-heatmap');
+        const overview = document.querySelector('.activity-overview, .activity-heatmap');
         return {
           present: !!d,
           title: d?.querySelector('.activity-detail-title')?.textContent?.trim() || '',
@@ -7157,6 +7163,111 @@ try {
     expression: "({ hash: location.hash, reader: !!document.querySelector('.activity-reader'), pane: document.querySelector('.activity-detail .activity-detail-title')?.textContent?.trim() || '' })",
     returnByValue: true,
   })).result.value || {};
+  // The Activity pane tiers (#768): the Commits page's two tiers, with the
+  // overview's panes in the middle column and the who / where / what tables in
+  // the rail. Measured at the wide tier and at a 14" laptop.
+  const activityPanes = [];
+  for (const vp of [{ name: "wide", width: 2560, height: 1440 }, { name: "stack", width: 1512, height: 945 }]) {
+    await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+    await sleep(400);
+    await waitHtml("document.querySelector('.activity-overview') && document.querySelector('.activity-panes-rail')");
+    const r = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const overview = document.querySelector('.activity-overview');
+        const rail = document.querySelector('.activity-panes-rail');
+        const titles = (el) => el ? [...el.querySelectorAll('.rail-block-title')].map((t) => (t.textContent || '').trim()) : [];
+        const block = (el, title) => el ? [...el.querySelectorAll('.rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === title) : null;
+        const who = block(rail, 'Who');
+        const where = block(rail, 'Where');
+        const wideBlocks = [...(rail?.children || [])].filter((c) => c.classList.contains('rail-block'));
+        return {
+          layout: document.querySelector('.activity-layout')?.dataset.panes || '',
+          overviewPanes: overview?.dataset.panes || '',
+          overviewTitles: titles(overview),
+          tiles: overview ? overview.querySelectorAll('.hm-summary > div').length : 0,
+          railTitles: titles(rail),
+          whoRows: who ? who.querySelectorAll('.live-rank-item').length : 0,
+          whoSparks: who ? who.querySelectorAll('.rank-spark').length : 0,
+          whoShare: who ? /\\d+%|<1%/.test(who.querySelector('.live-rank-extra')?.textContent || '') : false,
+          whereRows: where ? where.querySelectorAll('.live-rank-item').length : 0,
+          whereSparks: where ? where.querySelectorAll('.rank-spark').length : 0,
+          railColumns: new Set(wideBlocks.map((b) => Math.round(b.getBoundingClientRect().left))).size,
+          busiestRows: overview ? overview.querySelectorAll('.activity-busiest-row').length : 0,
+          verdictRows: overview ? overview.querySelectorAll('.activity-verdict-row').length : 0,
+          punchCells: overview ? overview.querySelectorAll('.punch-cell').length : 0,
+          stackOptions: overview ? [...overview.querySelectorAll('.pane-seg-option')].map((b) => b.textContent.trim()) : [],
+          overflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+          // The detail opens by default; it must leave the overview visible and
+          // stay inside the middle column.
+          overviewHeight: overview ? Math.round(overview.clientHeight) : 0,
+          detailInside: (() => {
+            const detail = document.querySelector('.activity-detail');
+            const column = document.querySelector('.activity-context');
+            return !detail || !column || detail.getBoundingClientRect().bottom <= column.getBoundingClientRect().bottom + 1;
+          })(),
+          railSideways: rail ? Math.max(0, rail.scrollWidth - rail.clientWidth) : -1,
+          overviewSideways: overview ? Math.max(0, overview.scrollWidth - overview.clientWidth) : -1,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    activityPanes.push({ viewport: vp.name, width: vp.width, ...r });
+  }
+  // Interactions, at the wide tier: the per-day chart re-splits, a busiest item
+  // opens its newest event, and a Where row toggles the repo facet.
+  await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(400);
+  await waitHtml("document.querySelector('.activity-overview .activity-busiest-row')");
+  const activityPanesActs = (await send("Runtime.evaluate", {
+    expression: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const legend = () => [...document.querySelectorAll('.activity-overview .stack-legend-item')].map((li) => li.firstChild?.nextSibling?.textContent || li.textContent).join('|');
+      const before = legend();
+      [...document.querySelectorAll('.activity-overview .pane-seg-option')].find((b) => b.textContent.trim() === 'actor')?.click();
+      await wait(150);
+      const actorPressed = [...document.querySelectorAll('.activity-overview .pane-seg-option')].find((b) => b.textContent.trim() === 'actor')?.getAttribute('aria-pressed');
+      const after = legend();
+      const row = document.querySelectorAll('.activity-overview .activity-busiest-row')[1];
+      const label = row?.querySelector('.pane-row-cr-number')?.textContent?.trim() || '';
+      row?.click();
+      await wait(200);
+      const detailTitle = document.querySelector('.activity-detail .activity-detail-title')?.textContent?.trim() || '';
+      // The item's newest event may be a commit that names it as its change
+      // request; either way the pane names the item.
+      const detailNamesItem = (document.querySelector('.activity-detail')?.textContent || '').includes(label);
+      const where = [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Where');
+      const repoButton = where?.querySelector('.live-rank-item');
+      repoButton?.click();
+      await wait(250);
+      const hashOn = location.hash;
+      const pressed = where ? [...where.querySelectorAll('.live-rank-item')].some((b) => b.getAttribute('aria-pressed') === 'true') : false;
+      [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Where')?.querySelector('.live-rank-item[aria-pressed="true"]')?.click();
+      await wait(250);
+      const hashOff = location.hash;
+      // A review verdict toggles the action facet with the action's own value.
+      const verdict = [...document.querySelectorAll('.activity-overview .activity-verdict-row')].find((b) => b.querySelector('.activity-verdict-name')?.textContent?.trim() === 'approved');
+      verdict?.click();
+      await wait(250);
+      const verdictHash = location.hash;
+      const verdictPressed = [...document.querySelectorAll('.activity-overview .activity-verdict-row')].find((b) => b.querySelector('.activity-verdict-name')?.textContent?.trim() === 'approved')?.getAttribute('aria-pressed');
+      [...document.querySelectorAll('.activity-overview .activity-verdict-row')].find((b) => b.getAttribute('aria-pressed') === 'true')?.click();
+      await wait(250);
+      const verdictCleared = location.hash;
+      // A What row toggles the kind facet.
+      const whatBlock = () => [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'What');
+      whatBlock()?.querySelector('.live-rank-item')?.click();
+      await wait(250);
+      const kindHash = location.hash;
+      whatBlock()?.querySelector('.live-rank-item[aria-pressed="true"]')?.click();
+      await wait(250);
+      return { before, after, actorPressed, label, detailTitle, detailNamesItem, hashOn, pressed, hashOff, verdictHash, verdictPressed, verdictCleared, kindHash, kindCleared: location.hash };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
   const paneGapPages = [
     { page: "live", hash: "#/live", ready: ".live-page", panes: [".live-pulse", ".live-split"] },
     { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
@@ -7280,7 +7391,7 @@ try {
   })).result.value;
   const paneGapOdd = paneGaps.filter((g) => g.missing || g.column !== paneGapToken || g.row !== paneGapToken);
   const railTwoUp = [];
-  for (const page of [{ name: "commits", hash: "#/commits", rail: ".commits-rail" }, { name: "activity", hash: "#/activity", rail: ".activity-rail" }]) {
+  for (const page of [{ name: "commits", hash: "#/commits", rail: ".commits-rail" }, { name: "activity", hash: "#/activity", rail: ".activity-panes-rail" }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: `location.hash = ${JSON.stringify(page.hash)}` });
     await sleep(400);
@@ -8430,17 +8541,16 @@ try {
         const wide = at("wide");
         const edge = at("at-breakpoint");
         const below = at("below");
-        const hasAll = (r) => ["Who", "Where", "When", "What", "How"].every((t) => (r.titles || []).includes(t));
+        const hasAll = (r) => ["Who", "Where", "Branches", "What", "How"].every((t) => (r.titles || []).includes(t));
         return (
-          wide.hasRail === true && wide.columns === 3 && hasAll(wide) && wide.hours === 24 &&
+          wide.hasRail === true && wide.columns === 3 && hasAll(wide) &&
           edge.hasRail === true && edge.columns === 3 &&
-          // Below the breakpoint the page must be EXACTLY the layout it had
-          // before the rail existed: no third column, and still the two-column
-          // feed + overview grid (the single-column tier starts lower, at 1450).
+          // Below the pane tiers the page keeps its two columns, feed and
+          // overview, and draws no rail at all.
           below.hasRail === false && below.columns === 2
         );
       })(),
-      `activity: the who/where/when rail is the third column above the breakpoint only (${JSON.stringify(activityRailByViewport)})`,
+      `activity: the who/where/what rail is the third column from the pane tiers only (${JSON.stringify(activityRailByViewport)})`,
     ],
     [
       activityRailByViewport.find((r) => r.viewport === "wide")?.maintainerAvatarSrc === SMOKE_AUTHOR_AVATAR,
@@ -8717,8 +8827,8 @@ try {
         activityRowFit.wrappedTitles === 0 &&
         activityRowFit.rowHeight > 0 &&
         activityRowFit.rowHeight <= 64 &&
-        JSON.stringify(activityRowFit.ratio) === JSON.stringify([30, 35, 35]),
-      `activity: columns split 30/35/35 and a compact two-line row fits its content (${JSON.stringify(activityRowFit)})`,
+        JSON.stringify(activityRowFit.ratio) === JSON.stringify([36, 32, 32]),
+      `activity: columns split 36/32/32 (the Commits laptop tier) and a compact two-line row fits its content (${JSON.stringify(activityRowFit)})`,
     ],
     [
       rankAvatarAffordance.found === true &&
@@ -9096,7 +9206,42 @@ try {
         activityKeyboardLink.selectedTitle === activityKeyboardPinned.selectedTitle,
       `activity: Enter on a focused row pins it, and Enter on a row's link leaves the selection alone (${JSON.stringify({ keyboard: activityKeyboard, pinned: activityKeyboardPinned.selectedTitle, pane: activityKeyboardPinned.title, afterLink: activityKeyboardLink.selectedTitle })})`,
     ],
+    [
+      activityPanes.length === 2 &&
+        activityPanes.every((p) =>
+          p.layout === p.viewport &&
+          p.overviewPanes === p.viewport &&
+          ["Activity rhythm", "Events per day", "When", "Review verdicts", "Busiest items"].every((t) => p.overviewTitles.includes(t)) &&
+          p.tiles >= 9 &&
+          ["Who", "Where", "Branches", "What", "How"].every((t) => p.railTitles.includes(t)) &&
+          p.whoRows > 1 && p.whoSparks === p.whoRows && p.whoShare === true &&
+          p.whereRows > 1 && p.whereSparks === p.whereRows &&
+          p.busiestRows > 0 && p.verdictRows > 0 && p.punchCells > 0 &&
+          JSON.stringify(p.stackOptions) === JSON.stringify(["kind", "action", "repo", "actor"]) &&
+          p.overflow === 0 && p.railSideways <= 1 && p.overviewSideways <= 1 &&
+          p.overviewHeight >= 200 && p.detailInside === true,
+        ) &&
+        activityPanes.find((p) => p.viewport === "wide")?.railColumns === 2 &&
+        activityPanes.find((p) => p.viewport === "stack")?.railColumns === 1,
+      `activity: the pane tiers draw the overview's panes and the who / where / what tables, two-up when wide and stacked on a laptop, with nothing wider than its pane (${JSON.stringify(activityPanes)})`,
+    ],
+    [
+      activityPanesActs.actorPressed === "true" &&
+        activityPanesActs.after !== activityPanesActs.before &&
+        activityPanesActs.label !== "" &&
+        activityPanesActs.detailNamesItem === true &&
+        /[?&]repo=/.test(activityPanesActs.hashOn || "") &&
+        activityPanesActs.pressed === true &&
+        !/[?&]repo=/.test(activityPanesActs.hashOff || "") &&
+        /[?&]action=approved(&|$)/.test(activityPanesActs.verdictHash || "") &&
+        activityPanesActs.verdictPressed === "true" &&
+        !/[?&]action=/.test(activityPanesActs.verdictCleared || "") &&
+        /[?&]kind=/.test(activityPanesActs.kindHash || "") &&
+        !/[?&]kind=/.test(activityPanesActs.kindCleared || ""),
+      `activity: events per day re-split by actor, a busiest item opens its newest event, and Where, review-verdict and What rows toggle their facets (${JSON.stringify(activityPanesActs)})`,
+    ],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
+    [activityHeatmap.present === true, "activity: below the pane tiers (1280px) the page draws its plain overview"],
     [!activityHeatmap.present || activityHeatmap.summary === true, "activity: rhythm summary row rendered"],
     [!activityHeatmap.present || JSON.stringify(activityHeatmap.overviewLabels) === JSON.stringify(["events", "busiest day", "active days", "commit", "change request", "review"]), `activity: overview summary keeps rhythm metrics above kind counts (${(activityHeatmap.overviewLabels || []).join(", ")})`],
     [!activityHeatmap.present || activityHeatmap.scope === true, "activity: rhythm section shows its 12-month date range"],
@@ -9115,7 +9260,8 @@ try {
     [!activityHeatmap.present || trendHover.focus === true, "activity: hovering a trend point enlarges it (focus dot)"],
     [!activityHeatmap.present || activityHeatmap.balancedHeight === true, `activity: feed height balances rhythm panel on wide layout (${activityHeatmap.listHeight}px/${activityHeatmap.panelHeight}px)`],
     [activityBreakpoint["1211"]?.stacked === true && activityBreakpoint["1212"]?.sideBySide === true && activityBreakpoint["1212"]?.gap === "12px", `activity: the rhythm split flips at the 1212px floor (${JSON.stringify(activityBreakpoint)})`],
-    [activityBreakpoint["3008"]?.trendRightGap != null && activityBreakpoint["3008"].trendRightGap <= 24, `activity: trend line reaches the ultrawide panel's right edge (${activityBreakpoint["3008"]?.trendRightGap}px gap)`],
+    // The trend line belongs to the plain overview, below the pane tiers.
+    [activityBreakpoint["1280"]?.trendRightGap != null && activityBreakpoint["1280"].trendRightGap <= 24, `activity: trend line reaches the overview panel's right edge (${activityBreakpoint["1280"]?.trendRightGap}px gap)`],
     // 1280 is what the Android wide-layout setting pins the viewport to. It has
     // to land on the side-by-side rule with no stranded width, or a foldable gets
     // desktop chrome with mobile stacking -- the defect this probe exists for.
