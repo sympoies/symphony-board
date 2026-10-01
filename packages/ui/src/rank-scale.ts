@@ -31,3 +31,39 @@ export function rankBarHeight(count: number, axisMax: number): string {
   if (axisMax <= 0) return "3%";
   return `${Math.max(3, Math.round((count / axisMax) * 100))}%`;
 }
+
+// A ranked row's name tip says something the row does not: the whole name when
+// the row cuts it, and what a click does on a row that toggles a filter. A tip
+// that only repeats a name already in full view is noise, and in a row layout it
+// covered the row beside it.
+
+// The label's box, or null when the footer draws no name (an avatar only). A
+// one-pixel difference is sub-pixel rounding, not a clip; an ellipsis clips by
+// width and a line clamp by height.
+export type LabelBox = { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number };
+export function labelClipped(box: LabelBox | null): boolean {
+  if (!box || box.clientWidth === 0) return true;
+  return box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1;
+}
+
+// A footer may draw a shorter form of the name than the row's label: a
+// repository without its group, a branch's last segment. The tip then carries
+// the full name even though nothing is cut. Extra text around the name, such as
+// a "default" tag, does not count.
+export function labelShortened(shownText: string, label: string): boolean {
+  return !shownText.includes(label);
+}
+
+export function showsNameTip({ clipped, selectable }: { clipped: boolean; selectable: boolean }): boolean {
+  return clipped || selectable;
+}
+
+export function nameTipText(label: string, { selectable, selected }: { selectable: boolean; selected: boolean }): string {
+  if (!selectable) return label;
+  return `${label} · ${selected ? "click to clear the filter" : "click to filter"}`;
+}
+
+// The control under a list cut at its row limit, which expands it up to `cap`.
+export function rankMoreLabel(total: number, cap: number): string {
+  return total > cap ? `Show top ${cap} of ${total.toLocaleString("en-US")}` : `Show all ${total}`;
+}

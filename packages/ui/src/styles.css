@@ -1694,15 +1694,19 @@ a.rf-node-title:hover { color: var(--accent); }
     line-clamp: 1;
     font-size: 12px;
   }
-  /* The tip STAYS. The label column is 13rem, so a long repository or branch
-     name still clips here -- fewer of them than before, which is not the same as
-     none, and hiding the tip would leave those with no way to be read at all.
-     It only anchors left instead of under a bar, since the label is no longer
-     centred beneath one. */
-  .commits-rail .rank-name-tip {
-    left: 0;
-    transform: none;
-    top: calc(100% + 2px);
+  /* In a row the tip sits over its OWN row, from the name's left edge (set by
+     RankChart when the row is hovered), so it reads as the name continued. A
+     tip hung under the row covered the next one, and under a pane's last row it
+     hung below the scrolling column. */
+  .commits-rail .live-rank-plot .live-rank-footer > .rank-name-tip {
+    top: 50%;
+    bottom: auto;
+    left: calc(var(--tip-x, 0px) - 7px);
+    right: auto;
+    transform: translateY(-50%);
+    max-width: calc(var(--tip-max, 100%) + 7px);
+    padding: 2px 6px;
+    font-size: 12px;
   }
   .commits-rail .live-rank-bar-cell {
     display: grid;
@@ -2032,14 +2036,6 @@ a.rf-node-title:hover { color: var(--accent); }
     text-align: right;
     font-size: 12px;
   }
-  /* A row's name tip hangs under its row. Under the LAST row of a pane that
-     does not scroll, that is under the pane -- and the rail is a scroller now,
-     so an invisible tip below its lowest pane gave it a few pixels of scroll
-     with nothing to scroll to. That one tip opens upward instead. */
-  .commits-rail[data-panes="wide"] > .rail-block:not(.pane-fill) .live-rank-plot > :last-child .rank-name-tip {
-    top: auto;
-    bottom: calc(100% + 2px);
-  }
   /* Where sits in a half-width pane here, so its tracks are the narrow ones:
      the repository's short name, share, active days and a compact sparkline. */
   .commits-rail[data-panes="wide"] .rank-cols-places { --rank-label-w: 6.5rem; --rank-count-w: 2.8rem; --rank-extra-cols: 2.6rem 2.4rem 3.6rem; }
@@ -2239,10 +2235,19 @@ a.rf-node-title:hover { color: var(--accent); }
     line-clamp: 1;
     font-size: 12px;
   }
-  .commits-rail[data-panes="stack"] .rank-name-tip {
-    left: 0;
-    transform: none;
-    top: calc(100% + 2px);
+  /* In a row the tip sits over its OWN row, from the name's left edge (set by
+     RankChart when the row is hovered), so it reads as the name continued. A
+     tip hung under the row covered the next one, and under a pane's last row it
+     hung below the scrolling column. */
+  .commits-rail[data-panes="stack"] .live-rank-plot .live-rank-footer > .rank-name-tip {
+    top: 50%;
+    bottom: auto;
+    left: calc(var(--tip-x, 0px) - 7px);
+    right: auto;
+    transform: translateY(-50%);
+    max-width: calc(var(--tip-max, 100%) + 7px);
+    padding: 2px 6px;
+    font-size: 12px;
   }
   .commits-rail[data-panes="stack"] .live-rank-bar-cell {
     display: grid;
@@ -2282,12 +2287,6 @@ a.rf-node-title:hover { color: var(--accent); }
     column-gap: 10px;
     align-items: center;
     justify-items: end;
-  }
-  /* The last row's name tip opens upward: under the last row of the last pane
-     it would hang below the column, which scrolls. */
-  .commits-rail[data-panes="stack"] > .rail-block .live-rank-plot > :last-child .rank-name-tip {
-    top: auto;
-    bottom: calc(100% + 2px);
   }
 
   /* One module per column is ~430px, so each ranking keeps the facts that fit
@@ -5115,14 +5114,19 @@ span.commit-cr-chip { color: var(--muted); border-color: var(--chip-border); }
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transform: translate(-50%, 2px);
+  transform: translate(-50%, var(--rank-tip-rise, 2px));
   transition: opacity 100ms ease, transform 100ms ease, visibility 100ms ease;
 }
+/* The hover lifts the tooltip through a custom property, never by setting
+   `transform` itself: in the row layouts this element is the count COLUMN, with
+   its own `transform: none`, and a hover rule that set the transform outranked
+   it (equal specificity, later in the file) and moved every count half its
+   width to the left, over the bar. */
 .live-rank-item:hover .live-rank-tooltip,
 .live-rank-item:focus-within .live-rank-tooltip {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, 0);
+  --rank-tip-rise: 0px;
 }
 .live-rank-item:hover .live-rank-bar,
 .live-rank-item:focus-within .live-rank-bar {
@@ -5692,6 +5696,10 @@ span.live-avatar { cursor: default; }
   color: var(--muted);
 }
 .rail-block-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+/* "Show all 37" under a stack-tier list cut at its row limit: the same quiet
+   marker as a lane's "Closed (N)" fold, at the list's own left edge. */
+.rank-more { align-self: start; margin-top: 4px; padding: 3px 6px; border: none; border-radius: 4px; background: none; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.rank-more:hover, .rank-more:focus-visible { color: var(--text); background: var(--hover-soft); }
 .rail-rank-chart { height: 104px; }
 
 /* Per-day / per-hour strips. Bars share the rank chart's --rank-h contract so the
@@ -6472,10 +6480,11 @@ a.pane-row-cr:hover { text-decoration: none; }
   right: 0;
   transform: none;
 }
-.live-rank-item:hover .rank-name-tip,
-.live-rank-item:focus-within .rank-name-tip,
-.live-rank-item-slot:hover .rank-name-tip,
-.live-rank-item-slot:focus-within .rank-name-tip {
+/* Only when the tip adds something: the row measures that on hover or focus
+   (RankChart's armNameTip) -- the name is cut or shortened, or the row toggles
+   a filter. A tip that repeated a name in full view was noise. */
+.live-rank-item[data-name-tip="show"]:hover .rank-name-tip,
+.live-rank-item[data-name-tip="show"]:focus-within .rank-name-tip {
   opacity: 1;
   visibility: visible;
 }

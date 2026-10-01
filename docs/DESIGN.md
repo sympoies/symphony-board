@@ -685,7 +685,8 @@ Pages:
   requests, each of which opens its newest event. The rail holds Who (share,
   repositories, active days, per-day sparkline), Where (share, active days,
   sparkline), Branches, What and How. Where, What, How and a verdict toggle
-  the route-backed facets. Every pane reads the rows the feed renders, except
+  the route-backed facets. In the laptop tier a rail list cut at its eight rows
+  ends in "Show all N" (or "Show top 50 of N"), which opens it in place. Every pane reads the rows the feed renders, except
   the rhythm, which reads `activity_daily`. Below 1400px the page keeps its two
   columns and the plain overview; the old who / where / when rail is gone.
 - **Items**: newest-updated issue and PR/MR list over `items[]`, scoped by the
@@ -744,7 +745,11 @@ Pages:
   (`COMMITS_PANES_MIN_WIDTH_PX`) they are two-up grids instead, the split is
   32 / 34 / 34, and spare height goes to lists rather than to marks: every
   chart keeps a designed height, and Largest commits, Top repos, and Top
-  branches take what is left and scroll inside their pane. In the three-column
+  branches take what is left and scroll inside their pane. A ranked row's hover
+  tip, on every page, shows only when it adds something: the whole name of a
+  label the row cuts or shortens, and on a filter row what a click does. In
+  the row layouts it sits over its own row from the name, and the count column
+  never moves. In the three-column
   layouts the list's wrapping card puts the sha and its actions beside the
   subject only, so the repository, author and chips below it use the card's
   full width. The pane tiers add a stacked per-day chart (by type, repo, or
