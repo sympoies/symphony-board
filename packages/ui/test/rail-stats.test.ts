@@ -35,6 +35,10 @@ import {
   shortRepoLabel,
   sparkBuckets,
   stackedDays,
+  activityTotals,
+  busiestItems,
+  rankReviewVerdicts,
+  repoActivityDetails,
 } from "../src/rail-stats.ts";
 
 function activity(over: Partial<ActivityDTO>): ActivityDTO {
@@ -841,4 +845,90 @@ test("shortPathLabel keeps the end of a path, which is the part that names the f
   assert.equal(shortPathLabel("packages/ui/"), "packages/ui/", "a directory keeps its trailing slash");
   assert.equal(shortPathLabel("a/b/c/"), "b/c/");
   assert.equal(shortPathLabel("./"), "(root)");
+});
+
+test("activityTotals counts what the Activity overview tiles say", () => {
+  const index = actorIndex({ identities: [{ name: "Ada", actors: ["ada", "ada-l"], bot: false }, { name: "ci[bot]", actors: ["ci[bot]"], bot: true }] });
+  const rows = [
+    activity({ kind: "comment", action: "commented", actor: "ada" }),
+    activity({ kind: "comment", action: "commented", actor: "ada-l", project_path: "acme/web" }),
+    activity({ kind: "review", action: "approved", actor: "grace" }),
+    activity({ kind: "review", action: "changes_requested", actor: "grace" }),
+    activity({ kind: "review", action: "reviewed", actor: "linus" }),
+    activity({ kind: "change_request", action: "merged" }),
+    activity({ kind: "change_request", action: "accepted", source_id: "gl" }),
+    activity({ kind: "change_request", action: "opened" }),
+    activity({ kind: "issue", action: "opened" }),
+    activity({ kind: "issue", action: "closed" }),
+    activity({ kind: "branch", action: "pushed", actor: "ci[bot]" }),
+    activity({ kind: "push", action: "force_pushed", source_id: "gl" }),
+    activity({ kind: "commit", action: "committed", actor: null }),
+  ];
+  assert.deepEqual(activityTotals(rows, index), {
+    events: 13,
+    people: 3,
+    repos: 3,
+    comments: 2,
+    reviews: 3,
+    approvals: 1,
+    changesRequested: 1,
+    merged: 2,
+    opened: 2,
+    closed: 1,
+    pushes: 2,
+    commits: 1,
+  });
+});
+
+test("rankReviewVerdicts ranks review rows by verdict, in words", () => {
+  const rows = [
+    activity({ kind: "review", action: "approved" }),
+    activity({ kind: "review", action: "approved" }),
+    activity({ kind: "review", action: "reviewed" }),
+    activity({ kind: "review", action: "changes_requested" }),
+    activity({ kind: "comment", action: "commented" }),
+  ];
+  assert.deepEqual(rankReviewVerdicts(rows, 0).map((r) => [r.key, r.label, r.count]), [
+    ["approved", "approved", 2],
+    ["changes_requested", "changes requested", 1],
+    ["reviewed", "commented", 1],
+  ]);
+});
+
+test("busiestItems groups the range's rows by the item they are about", () => {
+  const rows = [
+    activity({ external_id: "c1", kind: "comment", action: "commented", target_kind: "change_request", target_ref: "gh|PR_1", target_iid: 7, occurred_at: "2026-09-10T12:00:00Z" }),
+    activity({ external_id: "c2", kind: "comment", action: "commented", target_kind: "change_request", target_ref: "gh|PR_1", target_iid: 7, occurred_at: "2026-09-11T12:00:00Z" }),
+    activity({ external_id: "r1", kind: "review", action: "approved", target_kind: "change_request", target_ref: "gh|PR_1", target_iid: 7, occurred_at: "2026-09-10T13:00:00Z" }),
+    activity({ external_id: "k1", kind: "commit", action: "committed", details: { sha: "a", change_request: { ref: "gh|PR_1", iid: 7 } }, occurred_at: "2026-09-09T12:00:00Z" }),
+    activity({ external_id: "i1", kind: "issue", action: "opened", target_kind: "issue", target_ref: "gh|I_2", target_iid: 3, occurred_at: "2026-09-12T12:00:00Z" }),
+    activity({ external_id: "i2", kind: "comment", action: "commented", target_kind: "issue", target_ref: "gh|I_2", target_iid: 3, occurred_at: "2026-09-12T13:00:00Z" }),
+    activity({ external_id: "b1", kind: "branch", action: "pushed" }),
+  ];
+  const items = busiestItems(rows, 10);
+  assert.deepEqual(
+    items.map((i) => [i.ref, i.events, i.comments, i.reviews, i.commits, i.latest.external_id, i.iid, i.kind]),
+    [
+      ["gh|PR_1", 4, 2, 1, 1, "c2", 7, "change_request"],
+      ["gh|I_2", 2, 1, 0, 0, "i2", 3, "issue"],
+    ],
+  );
+  assert.equal(items[0]!.lastAt, "2026-09-11T12:00:00Z");
+  assert.equal(busiestItems(rows, 1).length, 1);
+  // Ties go to the more recent item.
+  const tied = busiestItems([rows[4]!, rows[0]!], 10);
+  assert.deepEqual(tied.map((i) => i.ref), ["gh|I_2", "gh|PR_1"]);
+});
+
+test("repoActivityDetails gives each repository its people, last event and per-day series", () => {
+  const index = actorIndex({ identities: [{ name: "Ada", actors: ["ada", "ada-l"], bot: false }] });
+  const rows = [
+    activity({ actor: "ada", occurred_at: "2026-09-10T12:00:00Z" }),
+    activity({ actor: "ada-l", occurred_at: "2026-09-12T12:00:00Z" }),
+    activity({ actor: "grace", occurred_at: "2026-09-12T13:00:00Z" }),
+    activity({ actor: "grace", project_path: "acme/web", occurred_at: "2026-09-11T12:00:00Z" }),
+  ];
+  const details = repoActivityDetails(rows, index, "UTC", "2026-09-10", "2026-09-12");
+  assert.deepEqual(details.get("gh|acme/api"), { authors: 2, lastAt: "2026-09-12T13:00:00Z", perDay: [1, 0, 2], activeDays: 2 });
+  assert.deepEqual(details.get("gh|acme/web"), { authors: 1, lastAt: "2026-09-11T12:00:00Z", perDay: [0, 1, 0], activeDays: 1 });
 });

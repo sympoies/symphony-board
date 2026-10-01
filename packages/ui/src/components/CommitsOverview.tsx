@@ -116,11 +116,14 @@ function DayBars({ days, range }: { days: readonly DayBucket[]; range: TimeRange
 // buckets per kind per day, so charting commits alone costs nothing extra and
 // needs no contract change — the emitted `activities[]` is windowed and could
 // not reach back a year.
-function CommitRhythm({
+export function CommitRhythm({
   activityDaily,
   range,
   onTip,
   facts = false,
+  kind = "commit",
+  title = "Commit rhythm",
+  noun = "commit",
 }: {
   activityDaily: ActivityDailyDTO | null;
   range: TimeRange;
@@ -129,11 +132,15 @@ function CommitRhythm({
   // these above its own calendar; this column's tiles are about the selected
   // range, so the year had no figures of its own here at all.
   facts?: boolean;
+  // The activity kind the calendar counts; null counts every event.
+  kind?: string | null;
+  title?: string;
+  noun?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const heatmap = useMemo(
-    () => (activityDaily ? buildActivityHeatmapFromDaily(activityDaily, "commit") : null),
-    [activityDaily],
+    () => (activityDaily ? buildActivityHeatmapFromDaily(activityDaily, kind ?? undefined) : null),
+    [activityDaily, kind],
   );
 
   // Open on the most recent week rather than a year ago.
@@ -182,14 +189,14 @@ function CommitRhythm({
   return (
     <div className="rail-block pane-span">
       <div className="rail-block-head">
-        <span className="rail-block-title">Commit rhythm</span>
-        <span className="rail-block-meta">{`last 12 months · ${heatmap.total.toLocaleString("en-US")} commits`}</span>
+        <span className="rail-block-title">{title}</span>
+        <span className="rail-block-meta">{`last 12 months · ${heatmap.total.toLocaleString("en-US")} ${pluralize(heatmap.total, noun)}`}</span>
       </div>
       <div ref={scrollRef} className="hm-calendar-scroll">
         <HeatmapCalendar
           heatmap={heatmap}
-          label={`Daily commits from ${heatmap.from} to ${heatmap.to}`}
-          cellTip={(cell) => `${cell.date} · ${cell.count.toLocaleString("en-US")} ${pluralize(cell.count, "commit")}`}
+          label={`Daily ${pluralize(2, noun)} from ${heatmap.from} to ${heatmap.to}`}
+          cellTip={(cell) => `${cell.date} · ${cell.count.toLocaleString("en-US")} ${pluralize(cell.count, noun)}`}
           inSelectedRange={(date) => hasRange && date >= range.from && date <= range.to}
           onTip={onTip}
         />
@@ -237,7 +244,7 @@ function CommitRhythm({
 // aggregate does not reach back that far, or the list is filtered -- the
 // aggregate counts every commit, so a filtered count beside it would compare a
 // part with a whole.
-function PeriodDelta({ current, previous }: { current: number; previous: number | null }) {
+export function PeriodDelta({ current, previous }: { current: number; previous: number | null }) {
   if (previous === null) return null;
   if (previous === 0) {
     return current > 0 ? <span className="hm-delta" data-dir="up">new</span> : null;

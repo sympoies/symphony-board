@@ -37,10 +37,6 @@ const CAP_LABEL_DAYS_MAX = 14;
 // Past this many a weekday prefix no longer fits beside the date.
 const WEEKDAY_TICK_DAYS_MAX = 10;
 
-function commitCountLabel(count: number): string {
-  return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
-}
-
 function keyOfBy(by: StackBy, actorIndex: ActorIndex): (a: ActivityDTO) => { key: string; label: string } {
   if (by === "repo") {
     return (a) => {
@@ -90,10 +86,40 @@ export const CommitDayChart = memo(function CommitDayChart({
   range: TimeRange;
   actorIndex: ActorIndex;
 }) {
-  const [by, setBy] = useState<StackBy>("type");
+  const options = useMemo(() => STACK_BY.map((by) => ({ id: by, keyOf: keyOfBy(by, actorIndex) })), [actorIndex]);
+  return <StackedDayChart rows={commits} timezone={timezone} range={range} title="Commits per day" noun="commit" options={options} />;
+});
+
+// One way to split the per-day bars: an id for the switch, and the series a
+// row belongs to under it.
+export type StackOption = { id: string; keyOf: (a: ActivityDTO) => { key: string; label: string } };
+
+// The per-day stacked chart, for any rows: the Commits page splits commits by
+// type, repo, author, branch or merge; the Activity page splits events by kind,
+// action, repo or actor. Same plot, same four series and a fold.
+export const StackedDayChart = memo(function StackedDayChart({
+  rows,
+  timezone,
+  range,
+  title,
+  noun,
+  options,
+}: {
+  rows: ActivityDTO[];
+  timezone: string;
+  range: TimeRange;
+  title: string;
+  // Singular, for the counts: "commit" -> "3 commits".
+  noun: string;
+  options: readonly StackOption[];
+}) {
+  const [byId, setBy] = useState<string>(options[0]?.id ?? "");
+  const option = options.find((o) => o.id === byId) ?? options[0];
+  const by = option?.id ?? "";
+  const countLabel = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? noun : `${noun}s`}`;
   const stack = useMemo(
-    () => stackedDays(commits, timezone, range.from, range.to, keyOfBy(by, actorIndex), STACK_SERIES_LIMIT),
-    [commits, timezone, range.from, range.to, by, actorIndex],
+    () => (option ? stackedDays(rows, timezone, range.from, range.to, option.keyOf, STACK_SERIES_LIMIT) : { days: [], series: [], max: 0 }),
+    [rows, timezone, range.from, range.to, option],
   );
   if (stack.days.length === 0) return null;
 
@@ -109,26 +135,26 @@ export const CommitDayChart = memo(function CommitDayChart({
   return (
     <div className="rail-block pane-span commit-day-chart">
       <div className="rail-block-head">
-        <span className="rail-block-title">Commits per day</span>
-        <span className="pane-seg" role="group" aria-label="Split commits per day by">
-          {STACK_BY.map((option) => (
+        <span className="rail-block-title">{title}</span>
+        <span className="pane-seg" role="group" aria-label={`Split ${title.toLowerCase()} by`}>
+          {options.map((o) => (
             <button
-              key={option}
+              key={o.id}
               type="button"
               className="pane-seg-option"
-              aria-pressed={by === option}
-              onClick={() => setBy(option)}
+              aria-pressed={by === o.id}
+              onClick={() => setBy(o.id)}
             >
-              {option}
+              {o.id}
             </button>
           ))}
         </span>
         <span className="rail-block-meta">
-          {total > 0 ? `peak ${stack.max.toLocaleString("en-US")} · ${commitCountLabel(total)}` : commitCountLabel(total)}
+          {total > 0 ? `peak ${stack.max.toLocaleString("en-US")} · ${countLabel(total)}` : countLabel(total)}
         </span>
       </div>
 
-      <ul className="stack-legend" aria-label={`Commits by ${by}`}>
+      <ul className="stack-legend" aria-label={`${title} by ${by}`}>
         {stack.series.map((series, index) => (
           <li key={series.key} className="stack-legend-item">
             <span className="stack-swatch" data-series={slotOf(index)} aria-hidden="true" />
@@ -141,7 +167,7 @@ export const CommitDayChart = memo(function CommitDayChart({
       <div
         className="stack-plot"
         role="img"
-        aria-label={`Commits per day by ${by}, ${range.from} to ${range.to}: ${commitCountLabel(total)}, busiest day ${stack.max.toLocaleString("en-US")}`}
+        aria-label={`${title} by ${by}, ${range.from} to ${range.to}: ${countLabel(total)}, busiest day ${stack.max.toLocaleString("en-US")}`}
       >
         <div className="stack-yaxis" aria-hidden="true">
           <span>{formatAxisValue(axisMax)}</span>
@@ -161,7 +187,7 @@ export const CommitDayChart = memo(function CommitDayChart({
             return (
               <span key={day.date} className="stack-col" data-empty={day.total === 0 ? "true" : undefined}>
                 <span className="rail-daybar-tip">
-                  {`${weekdayLabel(day.date)} ${day.date} · ${commitCountLabel(day.total)}${parts.length > 1 ? ` · ${parts.join(" · ")}` : ""}`}
+                  {`${weekdayLabel(day.date)} ${day.date} · ${countLabel(day.total)}${parts.length > 1 ? ` · ${parts.join(" · ")}` : ""}`}
                 </span>
                 <span className="stack-bar" style={{ "--stack-h": `${(day.total / axisMax) * 100}%` } as CSSProperties}>
                   {capLabels && day.total > 0 ? <span className="stack-cap">{day.total.toLocaleString("en-US")}</span> : null}

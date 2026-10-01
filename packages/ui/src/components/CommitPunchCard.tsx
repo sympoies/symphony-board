@@ -18,10 +18,6 @@ import type { HeatmapTip } from "./HeatmapCalendar.tsx";
 // Five intensity steps on the accent hue, the same ramp the rhythm calendar
 // uses for the selected range, so the two read as one family.
 
-function commitCountLabel(count: number): string {
-  return `${count.toLocaleString("en-US")} ${count === 1 ? "commit" : "commits"}`;
-}
-
 const HOUR_TICKS = new Set([0, 6, 12, 18, 23]);
 
 // 0 for an empty hour, then four steps by share of the busiest cell.
@@ -36,11 +32,18 @@ export const CommitPunchCard = memo(function CommitPunchCard({
   commits,
   timezone,
   range,
+  noun = "commit",
 }: {
+  // Any rows: the Activity page draws its events with the same grid.
   commits: ActivityDTO[];
   timezone: string;
   range: TimeRange;
+  // Singular, for the counts and labels.
+  noun?: string;
 }) {
+  const plural = `${noun}s`;
+  const commitCountLabel = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? noun : plural}`;
+  const Plural = plural.charAt(0).toUpperCase() + plural.slice(1);
   const card = useMemo(() => punchCard(commits, timezone, range.from, range.to), [commits, timezone, range.from, range.to]);
   const [tip, setTip] = useState<HeatmapTip | null>(null);
   if (card.rows.length === 0) return null;
@@ -55,7 +58,7 @@ export const CommitPunchCard = memo(function CommitPunchCard({
       <div className="rail-block-head">
         <span className="rail-block-title">When</span>
         <span className="rail-block-meta">
-          {peak ? `peak ${rowLabel(peak.key, peak.weekday)} ${formatHour(peak.hour)} · ${commitCountLabel(peak.count)}` : "no commits in range"}
+          {peak ? `peak ${rowLabel(peak.key, peak.weekday)} ${formatHour(peak.hour)} · ${commitCountLabel(peak.count)}` : `no ${plural} in range`}
         </span>
       </div>
       <div
@@ -63,8 +66,8 @@ export const CommitPunchCard = memo(function CommitPunchCard({
         role="img"
         aria-label={
           peak
-            ? `Commits by ${card.byWeekday ? "weekday" : "day"} and hour; busiest ${rowLabel(peak.key, peak.weekday)} at ${formatHour(peak.hour)} with ${commitCountLabel(peak.count)}`
-            : "Commits by day and hour; none in range"
+            ? `${Plural} by ${card.byWeekday ? "weekday" : "day"} and hour; busiest ${rowLabel(peak.key, peak.weekday)} at ${formatHour(peak.hour)} with ${commitCountLabel(peak.count)}`
+            : `${Plural} by day and hour; none in range`
         }
         onMouseLeave={() => setTip(null)}
       >

@@ -675,6 +675,19 @@ Pages:
   on Commits. The pane quotes a comment's words only when the contract already
   carries them in `review_threads[]` (a GitHub review comment by node id, a
   GitLab note by its `#note_<id>` anchor); an issue comment shows no text.
+  From 1400px the page takes the Commits pane tiers (`COMMITS_STACK_QUERY`,
+  `COMMITS_PANES_QUERY`), and its layout is also a `.commits-split`, so the two
+  pages share one set of tier rules. The middle column holds the detail above
+  an overview of panes: summary tiles (events, people, repos, active and busiest
+  days, comments, reviews, merges, opened items, pushes); the year's rhythm
+  with its facts; events per day stacked by kind, action, repository or person;
+  a day-by-hour grid; review verdicts; and the busiest issues and change
+  requests, each of which opens its newest event. The rail holds Who (share,
+  repositories, active days, per-day sparkline), Where (share, active days,
+  sparkline), Branches, What and How. Where, What, How and a verdict toggle
+  the route-backed facets. Every pane reads the rows the feed renders, except
+  the rhythm, which reads `activity_daily`. Below 1400px the page keeps its two
+  columns and the plain overview; the old who / where / when rail is gone.
 - **Items**: newest-updated issue and PR/MR list over `items[]`, scoped by the
   shared date range and item lens. It is a lookup surface for cross-source,
   cross-repo work items, not a replacement for the Board's relationship/status

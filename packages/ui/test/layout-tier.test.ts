@@ -12,8 +12,6 @@ import {
   SHORT_MAX_HEIGHT_PX,
   SHORT_VIEWPORT_QUERY,
   SPLIT_MAX_WIDTH_PX,
-  WIDE_RAIL_MIN_WIDTH_PX,
-  WIDE_RAIL_QUERY,
   RAIL_ROWS_MIN_WIDTH_PX,
   RAIL_ROWS_QUERY,
   RAIL_RANK_LIMIT,
@@ -199,25 +197,18 @@ test("the pane floor is published once and consumed everywhere", () => {
   }
 });
 
-test("the Activity rail breakpoint is published once and mirrored in the stylesheet", () => {
-  assert.equal(WIDE_RAIL_MIN_WIDTH_PX, 1700);
-  assert.equal(WIDE_RAIL_QUERY, "(min-width: 1700px)");
-  // The component gates on the constant and the grid gains its third column in
-  // the stylesheet; if those two drift the rail renders into a two-column grid
-  // (or a third column sits empty), which is exactly the class of bug the rest
-  // of this file exists to prevent.
-  const railTier = mediaBlock(WIDE_RAIL_QUERY);
-  assert.match(railTier, /\.activity-layout\s*\{[^}]*grid-template-columns:[^}]*\}/, "the rail tier must widen .activity-layout to three columns");
-  const columns = railTier.match(/grid-template-columns:([^;]+);/)?.[1] ?? "";
-  assert.equal(columns.split("minmax").length - 1, 3, `the rail tier must declare three columns (got "${columns.trim()}")`);
-
+test("Activity takes the Commits pane tiers for its third column", () => {
+  // Activity's third column arrives with the pane tiers, decided by the same
+  // two queries the Commits page reads, and in those tiers the layout is also a
+  // .commits-split so the two pages share one set of tier rules. Below them the
+  // page keeps its two columns, so the narrow tiers cannot have been rewritten.
   const page = readFileSync(new URL("../src/components/ActivityPage.tsx", import.meta.url), "utf8");
-  assert.match(page, /WIDE_RAIL_QUERY/, "ActivityPage must gate the rail on the shared query, not a local copy");
+  assert.match(page, /useMediaQuery\(COMMITS_PANES_QUERY\)/, "ActivityPage must read the wide pane tier from the shared query");
+  assert.match(page, /useMediaQuery\(COMMITS_STACK_QUERY\)/, "ActivityPage must read the laptop pane tier from the shared query");
+  assert.match(page, /commits-split activity-panes/, "the pane tiers must lay Activity out as a .commits-split");
   assert.doesNotMatch(page, /min-width:\s*\d+px/, "ActivityPage must not inline a breakpoint of its own");
-
-  // The rail must be additive: below its breakpoint the page keeps the existing
-  // two-column grid, so the narrow tiers cannot have been rewritten under it.
   assert.match(mediaBlock(SPLIT_STACK_QUERY), /\.activity-layout\s*\{[^}]*minmax\(0, 720px\)/);
+  assert.doesNotMatch(styles, /\.activity-rail(?![\w-])/, "the old Activity rail's rules are gone with it");
 });
 
 test("Commits keeps a reading measure on its list, not on the page", () => {
@@ -300,7 +291,7 @@ test("the Live metric strip can always be collapsed", () => {
     "the collapse rule must not be tier-gated, or the button is inert outside that tier",
   );
   assert.ok(
-    !mediaBlock(WIDE_RAIL_QUERY).includes('.live-pulse[data-open="false"]'),
+    !mediaBlock(COMMITS_STACK_QUERY).includes('.live-pulse[data-open="false"]'),
     "nor may it be gated the other way",
   );
   const page = readFileSync(new URL("../src/components/LivePage.tsx", import.meta.url), "utf8");
@@ -344,19 +335,10 @@ test("Commits leads with its list across three ratio columns, left-aligned", () 
   assert.deepEqual(ratios, [40, 30, 30], "the list leads; the two supporting columns share the rest evenly");
   assert.match(split, /justify-content:\s*start/, "the split stays flush with the chrome above it");
 
-  // Deliberately NOT Activity's proportions. Both pages are three ratio columns,
-  // but the Commits list carries the long strings — a commit subject, an
-  // org/repo path, an actor and a branch chip on two fixed-height lines — so at
-  // Activity's 30 it ellipsized all of them. The Activity feed wraps instead of
-  // truncating and reads fine narrower, so it keeps 30/35/35 and the two are
-  // pinned separately rather than to each other.
-  const railTier = mediaBlock("(min-width: 1700px)");
-  const activity = /\.activity-layout\s*\{([^}]*)\}/.exec(railTier)?.[1] ?? "";
-  assert.deepEqual(
-    [...(/grid-template-columns:([^;]+);/.exec(activity)?.[1] ?? "").matchAll(/minmax\(0,\s*(\d+)fr\)/g)].map((m) => Number(m[1])),
-    [30, 35, 35],
-    "Activity keeps its own proportions",
-  );
+  // Activity's third column arrives with the pane tiers, where its layout is
+  // also a .commits-split and takes these same tracks (see "Activity takes the
+  // Commits pane tiers"). It has no three-column rule of its own any more.
+  assert.doesNotMatch(styles, /@media \(min-width: 1700px\)/, "the old Activity rail tier is gone");
   assert.equal(ratios.reduce((sum, n) => sum + n, 0), 100, "the Commits tracks still describe a whole");
 
   // The very-wide tier may fill the existing columns, but must not re-size or
@@ -368,7 +350,6 @@ test("Commits leads with its list across three ratio columns, left-aligned", () 
   // the height beside the list, so halving their width would only leave the
   // column half empty.
   assert.doesNotMatch(wide, /\.commits-rail[^{]*\{[^}]*repeat\(2/, "a sidebar rail must not also go two-up");
-  assert.match(wide, /\.activity-rail\s*\{[^}]*repeat\(2/, "Activity's rail keeps its two-up tier");
 });
 
 test("both list panes fill the measured content-pane height", () => {
@@ -432,7 +413,7 @@ test("the rail row tier is published once and mirrored in the stylesheet", () =>
 
   // Neither rail may re-fork the count behind a local constant, which is how it
   // was written before the tier existed.
-  for (const source of ["../src/components/CommitsRail.tsx", "../src/components/ActivityRail.tsx"]) {
+  for (const source of ["../src/components/CommitsRail.tsx"]) {
     const text = readFileSync(new URL(source, import.meta.url), "utf8");
     assert.doesNotMatch(text, /const RAIL_RANK_LIMIT\s*=/, `${source} must use the shared tier, not a local copy`);
     assert.match(text, /RAIL_ROWS_QUERY/, `${source} must gate the count on the shared query`);
@@ -495,7 +476,8 @@ test("the Commits wide-panes tier is published once and mirrored in the styleshe
   );
   // A sparkline is bounded by its column, not by the calendar.
   assert.ok(COMMITS_PANES_SPARK_BARS >= 7 && COMMITS_PANES_SPARK_BARS <= 40);
-  assert.match(rail, /sparkBuckets\(perDay, COMMITS_PANES_SPARK_BARS\)/);
+  const parts = readFileSync(new URL("../src/components/RankParts.tsx", import.meta.url), "utf8");
+  assert.match(parts, /sparkBuckets\(perDay, COMMITS_PANES_SPARK_BARS\)/);
 
   // One decision, made in the page, handed to both columns.
   assert.match(page, /useMediaQuery\(COMMITS_PANES_QUERY\)/);
