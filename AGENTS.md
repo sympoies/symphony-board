@@ -62,8 +62,8 @@ producer config/tokens (see `docs/DESIGN.md`).
 ## Documentation and delivery
 
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) owns contributor principles and the
-  routine finish-line; [`CLAUDE.md`](CLAUDE.md) imports this policy for Claude
-  Code. [`docs/development-reference.md`](docs/development-reference.md) owns
+  routine finish-line.
+  [`docs/development-reference.md`](docs/development-reference.md) owns
   detailed change-path and validation routing.
 - [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/CONTRACT.md`](docs/CONTRACT.md)
   own normative architecture and public-contract decisions. Helper commands
