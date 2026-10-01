@@ -51,9 +51,10 @@ export interface CommitFilesRead {
 //
 // One segment as both providers spell it: letters, digits, "_", "." and "-",
 // not starting with "-", and never "." or "..". GitHub owners are narrower
-// still (letters, digits and inner hyphens).
+// still: letters, digits, "-" and "_" (an Enterprise Managed User's handle is
+// `name_shortcode`), with no ".".
 const PATH_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,254}$/;
-const GITHUB_OWNER = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+const GITHUB_OWNER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
 const GITHUB_REPO = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
 
 function plainSegment(segment: string, pattern: RegExp = PATH_SEGMENT): boolean {

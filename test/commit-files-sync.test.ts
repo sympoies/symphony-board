@@ -231,6 +231,26 @@ test("a commit outside the configured repositories, or with no usable sha, is an
   assert.deepEqual(other.records.map((r) => payloadOf(r).state), ["unavailable"]);
 });
 
+test("a tracked project whose path could steer the request is answered unavailable without a request", async () => {
+  const calls: string[] = [];
+  const rest: RestClient = async <T = any>(path: string): Promise<T> => {
+    calls.push(path);
+    return [] as T;
+  };
+  // A configured entry is operator text, not a URL grammar. The readers refuse
+  // it, and the pass records the commit as unavailable rather than stopping.
+  const gitlab = new GitLabSource(GL, noGql, ["g/../p", "g//p"], rest);
+  const res = await gitlab.fetchCommitFiles([candidate("a", "g/../p"), candidate("b", "g//p")]);
+  assert.deepEqual(calls, []);
+  assert.equal(res.stopped, null);
+  assert.deepEqual(res.records.map((r) => payloadOf(r).state), ["unavailable", "unavailable"]);
+
+  const github = new GitHubSource(GH, noGql, ["o/r?x=1"], rest);
+  const gh = await github.fetchCommitFiles([candidate("c", "o/r?x=1")]);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(gh.records.map((r) => payloadOf(r).state), ["unavailable"]);
+});
+
 test("GitLab counts a commit's diff lines from the diff it is served", async () => {
   const calls: Array<{ path: string; params: unknown }> = [];
   const rest: RestClient = async <T = any>(path: string, params?: Record<string, string | number | boolean | null | undefined>): Promise<T> => {

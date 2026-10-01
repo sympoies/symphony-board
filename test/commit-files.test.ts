@@ -404,7 +404,10 @@ test("a configured project whose path could steer the request still makes no pro
   assert.deepEqual(paths, [], "no provider call may be made for a steering path");
 });
 
-test("the provider readers send nothing for a steering path and encode every segment they do send", async () => {
+// Every accepted segment is already URL-safe, so this pins the paths a valid
+// project produces; the per-segment encoding in the readers is a second line
+// that no accepted input can reach.
+test("the provider readers send nothing for a steering path and the expected path for a valid one", async () => {
   const { rest, paths } = restStub((path) => (path.startsWith("repos/") ? GITHUB_COMMIT : []));
   for (const bad of ["o/../r", "o/r?x=1", "o/r#x", "../o/r", "o/r/extra", "-o/r", "o/..", "my.org/r"]) {
     assert.equal(await githubCommitFiles(rest, bad, SHA), null, `github ${JSON.stringify(bad)}`);
@@ -415,9 +418,13 @@ test("the provider readers send nothing for a steering path and encode every seg
   assert.deepEqual(paths, []);
 
   await githubCommitFiles(rest, "my-org/.github_x-1", SHA);
+  await githubCommitFiles(rest, "o/.github", SHA);
+  await githubCommitFiles(rest, "octo_acme/repo", SHA);
   await gitlabCommitFiles(rest, "group/sub.team/app-1", SHA);
   assert.deepEqual(paths, [
     `repos/my-org/.github_x-1/commits/${SHA}`,
+    `repos/o/.github/commits/${SHA}`,
+    `repos/octo_acme/repo/commits/${SHA}`,
     `projects/${encodeURIComponent("group/sub.team/app-1")}/repository/commits/${SHA}/diff`,
   ]);
 });
