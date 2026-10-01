@@ -1,9 +1,22 @@
-import type { ActivityDTO, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import type { ActivityDTO, ActivityDailyDTO, ItemDTO, ReviewThreadDTO } from "@symphony-board/contract";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { ActivityFeed } from "./ActivityFeed.tsx";
+import { ActivityDetail } from "./ActivityDetail.tsx";
+import { DetailNav } from "./DetailNav.tsx";
+import { detailNavigation } from "../detail-navigation.ts";
+import { useDetailSwipe } from "../useDetailSwipe.ts";
+import { activityKey, commitChangeRequest, type ResolvedChangeRequest } from "../model.ts";
+import type { ChangeRequestLinkResolver } from "./CommitsPage.tsx";
+import {
+  activityTargetItem,
+  commentExcerptIndex,
+  commentExcerptOf,
+  eventsOnTarget,
+  pushHeadCommit,
+} from "../activity-detail.ts";
 import { ActivityHeatmap } from "./ActivityHeatmap.tsx";
 import { MOBILE_VIEWPORT_QUERY, type ColorOf, type TimeRange } from "../model.ts";
-import { WIDE_RAIL_QUERY } from "../layout-tier.ts";
+import { SPLIT_STACK_QUERY, WIDE_RAIL_QUERY } from "../layout-tier.ts";
 import { ActivityRail } from "./ActivityRail.tsx";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
@@ -27,6 +40,13 @@ export function ActivityPage({
   actorAvatars,
   actorIndex = EMPTY_ACTOR_INDEX,
   onView,
+  reviewThreads,
+  resolveChangeRequestLink,
+  itemDestination,
+  detailRouteOpen = false,
+  onOpenDetailRoute,
+  onCloseDetailRoute,
+  onClearDetailRoute,
 }: {
   activities: ActivityDTO[];
   // Raw fallback for the trailing-12-month heatmap when `activityDaily` is
@@ -57,6 +77,19 @@ export function ActivityPage({
   // Contract actor directory as lookups, for the rail's Who column.
   actorIndex?: ActorIndex;
   onView: (view: ActivityView) => void;
+  // The contract's review-thread rows, the only comment text it carries; a
+  // selected review comment quotes its own words from here.
+  reviewThreads?: readonly ReviewThreadDTO[];
+  // A commit row's change request, resolved the way the Commits page does.
+  resolveChangeRequestLink?: ChangeRequestLinkResolver;
+  // Where a target item leads: the Items page or its provider page.
+  itemDestination?: (item: ItemDTO) => { href: string | null; external: boolean };
+  // The phone reader is route-backed (`activityDetail=1`), so Back closes the
+  // event before it leaves the page.
+  detailRouteOpen?: boolean;
+  onOpenDetailRoute?: () => void;
+  onCloseDetailRoute?: () => void;
+  onClearDetailRoute?: () => void;
 }) {
   const [heatmapPanel, setHeatmapPanel] = useState<HTMLElement | null>(null);
   const [heatmapHeight, setHeatmapHeight] = useState(0);
@@ -73,6 +106,93 @@ export function ActivityPage({
   // (then single-pane) behaviour, and the mobile Feed / Overview toggle is
   // untouched — a third sub-view would make the phone layout worse, not better.
   const showRail = useMediaQuery(WIDE_RAIL_QUERY);
+
+  // ---- selection --------------------------------------------------------------
+  // Below the split floor the overview stacks UNDER the feed, so a detail
+  // inserted above it would open out of sight. There, as on a phone, a row opens
+  // the event as a reader over the page instead.
+  const readerMode = useMediaQuery(SPLIT_STACK_QUERY);
+  // Like the Commits page: page-local, keyed by activityKey so a re-filter that
+  // moves the row keeps it, and explicit about following the newest row versus
+  // a pinned one. On a wide screen the pane opens following the latest event,
+  // so the page shows an event's detail without a click; a phone shows the feed
+  // and opens the reader on a tap.
+  const [detailMode, setDetailMode] = useState<{ kind: "closed" } | { kind: "following" } | { kind: "pinned"; key: string }>(() =>
+    typeof window !== "undefined" && window.matchMedia?.(SPLIT_STACK_QUERY).matches ? { kind: "closed" } : { kind: "following" },
+  );
+  const selected = useMemo(() => {
+    if (detailMode.kind === "following") return activities[0] ?? null;
+    if (detailMode.kind === "pinned") return activities.find((a) => activityKey(a) === detailMode.key) ?? null;
+    return null;
+  }, [activities, detailMode]);
+  // A pin whose row a filter removed falls back to following the latest.
+  useEffect(() => {
+    if (detailMode.kind === "pinned" && !selected) setDetailMode(activities.length > 0 ? { kind: "following" } : { kind: "closed" });
+  }, [detailMode, selected, activities.length]);
+  const selectedKey = selected ? activityKey(selected) : null;
+  const mobileDetailOpen = readerMode && detailRouteOpen && selected !== null;
+  useEffect(() => {
+    if (detailRouteOpen && (!readerMode || !selected)) onClearDetailRoute?.();
+  }, [detailRouteOpen, readerMode, selected, onClearDetailRoute]);
+  const excerptIndex = useMemo(() => commentExcerptIndex(reviewThreads), [reviewThreads]);
+  const selectedItem = selected ? activityTargetItem(selected, itemsById) : undefined;
+  const selectedExcerpt = useMemo(() => (selected ? commentExcerptOf(selected, excerptIndex) : null), [selected, excerptIndex]);
+  const related = useMemo(() => (selected ? eventsOnTarget(activities, selected, 8) : { rows: [], total: 0 }), [activities, selected]);
+  const headCommit = useMemo(() => (selected ? pushHeadCommit(activities, selected) : undefined), [activities, selected]);
+  const selectedChangeRequest: ResolvedChangeRequest | null | undefined = useMemo(() => {
+    if (!selected || !resolveChangeRequestLink) return undefined;
+    const link = commitChangeRequest(selected);
+    return link ? resolveChangeRequestLink(link, selected.source_id) : link;
+  }, [selected, resolveChangeRequestLink]);
+  const selectedIndex = selected ? activities.indexOf(selected) : -1;
+  const detailNav = detailNavigation(activities, selectedIndex);
+  const navigateDetail = (direction: "previous" | "next") => {
+    const row = direction === "next" ? detailNav.next : detailNav.previous;
+    if (row) setDetailMode({ kind: "pinned", key: activityKey(row) });
+  };
+  const { handleDetailTouchStart, handleDetailTouchEnd, handleDetailTouchCancel } = useDetailSwipe(
+    mobileDetailOpen ? selectedKey : null,
+    navigateDetail,
+  );
+  const pin = (row: ActivityDTO) => setDetailMode({ kind: "pinned", key: activityKey(row) });
+  const selectRow = (row: ActivityDTO) => {
+    const key = activityKey(row);
+    if (readerMode) {
+      pin(row);
+      onOpenDetailRoute?.();
+      return;
+    }
+    if (key === selectedKey && detailMode.kind === "pinned") setDetailMode({ kind: "closed" });
+    else pin(row);
+  };
+  const closeDetail = () => {
+    if (mobileDetailOpen) onCloseDetailRoute?.();
+    setDetailMode({ kind: "closed" });
+  };
+  useLayoutEffect(() => {
+    if (!mobileDetailOpen) return;
+    document.querySelector<HTMLElement>(".activity-reader")?.scrollTo(0, 0);
+  }, [mobileDetailOpen, selectedKey]);
+  const detailPane = selected ? (
+    <ActivityDetail
+      activity={selected}
+      item={selectedItem}
+      providerKind={sourceKind.get(selected.source_id)}
+      sourceKind={sourceKind}
+      colorOf={colorOf}
+      timezone={timezone}
+      excerpt={selectedExcerpt}
+      related={related}
+      headCommit={headCommit}
+      changeRequest={selectedChangeRequest}
+      itemDestination={itemDestination}
+      avatarUrl={selected.actor ? actorAvatars?.get(actorIndex.canonical.get(selected.actor) ?? selected.actor) : undefined}
+      following={detailMode.kind === "following"}
+      onFollowLatest={() => setDetailMode({ kind: "following" })}
+      onClose={closeDetail}
+      onSelect={pin}
+    />
+  ) : null;
   // On a phone showing ONLY the Overview pane, the feed (which renders emptyState
   // when nothing matches) is unmounted, and ActivityHeatmap returns null when its
   // trailing-window total is zero — so an activity-less board would show just the
@@ -128,6 +248,39 @@ export function ActivityPage({
 
   return (
     <main className="activity-page">
+      {mobileDetailOpen ? (
+        <div
+          className="activity-reader"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Activity event"
+          onTouchStart={handleDetailTouchStart}
+          onTouchEnd={handleDetailTouchEnd}
+          onTouchCancel={handleDetailTouchCancel}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") closeDetail();
+          }}
+        >
+          <nav className="commit-mobile-pane-nav" aria-label="Activity event">
+            <button type="button" className="commit-mobile-back" onClick={closeDetail} autoFocus>
+              ← Activity
+            </button>
+          </nav>
+          <div className="activity-reader-body">{detailPane}</div>
+          <DetailNav
+            className="commit-detail-nav"
+            label="Browse activity"
+            noun="event"
+            chronological
+            hideSingle={false}
+            position={detailNav.position}
+            total={detailNav.total}
+            canPrevious={detailNav.previous !== null}
+            canNext={detailNav.next !== null}
+            onNavigate={navigateDetail}
+          />
+        </div>
+      ) : null}
       <div className="activity-head">
         <h2>Activity</h2>
         <span className="count">{countLabel}</span>
@@ -138,21 +291,34 @@ export function ActivityPage({
       {isMobile ? <ActivityViewToggle view={view} onView={onView} /> : null}
       <div className="activity-layout" ref={splitPaneRef} style={layoutStyle}>
         {showFeed ? (
-          <ActivityFeed activities={activities} sourceKind={sourceKind} colorOf={colorOf} empty={emptyState} itemsById={itemsById} />
+          <ActivityFeed
+            activities={activities}
+            sourceKind={sourceKind}
+            colorOf={colorOf}
+            empty={emptyState}
+            itemsById={itemsById}
+            selectedKey={readerMode ? null : selectedKey}
+            onSelect={selectRow}
+          />
         ) : null}
         {showOverview ? (
           overviewOnlyEmpty ? (
             (emptyState ?? null)
           ) : (
-            <ActivityHeatmap
-              activities={allActivities}
-              activityDaily={activityDaily}
-              generatedAt={generatedAt}
-              trendActivities={activities}
-              timezone={timezone}
-              range={range}
-              panelRef={heatmapPanelRef}
-            />
+            // The middle column: the selected event above the range overview,
+            // which moves down intact (the Commits page's .commits-context).
+            <div className="activity-context">
+              {readerMode ? null : detailPane}
+              <ActivityHeatmap
+                activities={allActivities}
+                activityDaily={activityDaily}
+                generatedAt={generatedAt}
+                trendActivities={activities}
+                timezone={timezone}
+                range={range}
+                panelRef={heatmapPanelRef}
+              />
+            </div>
           )
         ) : null}
         {/* Third column. Gated on the viewport rather than only hidden in CSS so

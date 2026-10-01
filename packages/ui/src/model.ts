@@ -225,6 +225,7 @@ export interface HashRoute {
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
   commitDetail: string | null; // Commits phone overlay; Back closes the reader before leaving the page.
+  activityDetail: string | null; // Activity phone overlay; Back closes the event reader before leaving the page.
   itemDetail: string | null; // Items phone overlay state; route-backed so Back closes the item detail before leaving Items.
   itemSort: string | null; // Items list order; absent = recent (default), "open" = open work first.
   reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-change-request layout.
@@ -294,6 +295,7 @@ export function parseHashRoute(hash: string): HashRoute {
     reviewDetail: routeParam(params?.get("reviewDetail")),
     itemDetail: routeParam(params?.get("itemDetail")),
     commitDetail: routeParam(params?.get("commitDetail")),
+    activityDetail: routeParam(params?.get("activityDetail")),
     itemSort: routeParam(params?.get("itemSort")),
     reviewSort: routeParam(params?.get("reviewSort")),
   };
@@ -325,6 +327,7 @@ export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<Has
   const reviewDetail = routeParam(route.reviewDetail);
   const itemDetail = routeParam(route.itemDetail);
   const commitDetail = routeParam(route.commitDetail);
+  const activityDetail = routeParam(route.activityDetail);
   const itemSort = routeParam(route.itemSort);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
@@ -351,6 +354,7 @@ export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<Has
   if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
   if (itemDetail) params.push(`itemDetail=${encodeURIComponent(itemDetail)}`);
   if (commitDetail) params.push(`commitDetail=${encodeURIComponent(commitDetail)}`);
+  if (activityDetail) params.push(`activityDetail=${encodeURIComponent(activityDetail)}`);
   if (itemSort) params.push(`itemSort=${encodeURIComponent(itemSort)}`);
   if (reviewSort) params.push(`reviewSort=${encodeURIComponent(reviewSort)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
@@ -1322,13 +1326,13 @@ export function buildActivityTrend(
 
 // The feed rows are virtualized at a FIXED height and clip their overflow, so
 // these numbers are the budget the row's content has to fit inside — they are not
-// cosmetic. They grew by one line of title when the title stopped truncating to a
-// single line: a row holds a two-line title, the meta line, and on many rows a row
-// of ref chips, and the tallest case is what every row must accommodate.
-// render-smoke measures the rendered content against the box so an under-budget
-// value fails rather than silently clipping the chips off the bottom.
-export const ACTIVITY_ROW_HEIGHT_PX = 118;
-export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 146;
+// cosmetic. A row is two lines, like a commit row: the title line, then the meta
+// line with its chips inline. A phone row gives the title a second line. (It was
+// 118px for a two-line title and a separate chip row, which left most rows half
+// empty.) render-smoke measures the rendered content against the box so an
+// under-budget value fails rather than silently clipping the meta off the bottom.
+export const ACTIVITY_ROW_HEIGHT_PX = 60;
+export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 82;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
@@ -1570,7 +1574,7 @@ function shortRef(value: string | null): string | null {
   return ref?.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") ?? null;
 }
 
-function displayKind(kind: string | null | undefined): string | null {
+export function displayKind(kind: string | null | undefined): string | null {
   const k = cleanText(kind);
   if (!k) return null;
   if (k === "change_request") return "change request";

@@ -74,6 +74,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
 const ACTIVITY_SMOKE_ROWS = 1200;
+// The sample's comment rows (contract 4.9.1 names their target) are carried
+// through once, at the head of the feed, rather than cycled into the 1,200: the
+// synthetic rows are a function of `i % rows`, so a sample row more or less
+// would reshuffle every commit fixture the Commits assertions count.
+const ACTIVITY_SMOKE_COMMENT_ROWS = 2;
 let rangeResponseDelayMs = 500;
 let contractResponseDelayMs = 0;
 
@@ -525,8 +530,13 @@ function inflateActivityContract(body) {
   const baseTime = Date.parse(env.activities[0].occurred_at) || Date.parse(env.generated_at) || Date.now();
   // The sample's change requests, for the commit rows that name one below.
   const changeRequests = (env.items || []).filter((item) => item.kind === "change_request" && item.iid != null);
-  const activities = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
-    const a = env.activities[i % env.activities.length];
+  const cycled = env.activities.filter((a) => a.kind !== "comment");
+  const comments = env.activities
+    .filter((a) => a.kind === "comment")
+    .map((a, k) => ({ ...a, occurred_at: new Date(baseTime + (k + 1) * 60_000).toISOString() }))
+    .reverse();
+  const generated = Array.from({ length: ACTIVITY_SMOKE_ROWS }, (_, i) => {
+    const a = cycled[i % cycled.length];
     // 4.0.0 dropped activity `id`/`summary`; rows are keyed on source_id|external_id
     // (external_id made unique per synthetic row) and titled from the structured fields.
     return {
@@ -594,6 +604,7 @@ function inflateActivityContract(body) {
       },
     };
   });
+  const activities = [...comments, ...generated];
   return JSON.stringify({ ...env, activities, commit_file_stats: smokeCommitFileStats(activities) });
 }
 
@@ -2643,9 +2654,13 @@ try {
         const layout = document.querySelector('.activity-layout');
         const list = document.querySelector('.activity-list');
         const panel = document.querySelector('.activity-heatmap');
+        // The middle column: the selected event's detail sits above the
+        // overview in it, so the column, not the overview, is what sits beside
+        // the feed.
+        const column = document.querySelector('.activity-context') || panel;
         const layoutStyle = layout ? getComputedStyle(layout) : null;
         const listRect = list?.getBoundingClientRect();
-        const panelRect = panel?.getBoundingClientRect();
+        const panelRect = column?.getBoundingClientRect();
         const trend = panel?.querySelector('.hm-trend-chart');
         const totalLine = trend?.querySelector('.hm-trend-line[data-kind="total"]');
         const trendRightGap = trend && totalLine
@@ -7021,14 +7036,97 @@ try {
       return {
         rows: rows.length,
         overflowing,
-        // At least one row must actually use the second line, or the budget was
-        // raised for a wrap that never happens.
+        // A desktop row is one title line over one meta line, like a commit
+        // row: a title that wraps would be clipped by the compact row.
         wrappedTitles: wrapped,
+        rowHeight: rows[0] ? Math.round(rows[0].getBoundingClientRect().height) : 0,
         ratio: total > 0 ? cols.map((c) => Math.round((c / total) * 100)) : [],
       };
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // The selected event (#768). A wide screen opens the detail following the
+  // newest row, above the overview; a click pins a row and the pane follows it,
+  // a second click on the pinned row closes it, and "follow latest" returns.
+  // The feed's two newest rows are the sample's comments: an issue comment,
+  // whose words the board shows nowhere and so are not quoted, then a review
+  // comment, whose words the Reviews page already shows and are.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.activity-detail')");
+  const activityDetailProbe = async () =>
+    (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const d = document.querySelector('.activity-detail');
+        const sel = document.querySelector('.activity-row-selected');
+        const overview = document.querySelector('.activity-heatmap');
+        return {
+          present: !!d,
+          title: d?.querySelector('.activity-detail-title')?.textContent?.trim() || '',
+          following: !!d?.querySelector('.live-mode-following'),
+          excerpt: d?.querySelector('.activity-detail-excerpt blockquote')?.textContent?.trim() || '',
+          caption: d?.querySelector('.activity-detail-excerpt figcaption')?.textContent?.trim() || '',
+          target: d?.querySelector('.activity-detail-target dd')?.textContent?.trim() || '',
+          on: d?.querySelector('.activity-detail-path')?.textContent?.trim() || '',
+          related: d ? d.querySelectorAll('.activity-detail-related-row').length : 0,
+          labels: d ? d.querySelectorAll('.activity-detail-labels > *').length : 0,
+          selectedTitle: sel?.querySelector('.activity-title')?.textContent?.trim() || '',
+          selectedCurrent: sel?.getAttribute('aria-current') || '',
+          selectedCount: document.querySelectorAll('.activity-row-selected').length,
+          rowTitles: [...document.querySelectorAll('.activity-row .activity-title')].slice(0, 2).map((el) => el.textContent.trim()),
+          aboveOverview: !!d && !!overview && d.getBoundingClientRect().bottom <= overview.getBoundingClientRect().top + 1,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+  const activityDetailFollowing = await activityDetailProbe();
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.activity-row')[1]?.click()" });
+  await waitValue("document.querySelector('.activity-detail .activity-detail-excerpt') ? true : null");
+  const activityDetailPinned = await activityDetailProbe();
+  await send("Runtime.evaluate", { expression: "document.querySelector('.activity-row-selected')?.click()" });
+  await waitValue("document.querySelector('.activity-detail') ? null : true");
+  const activityDetailClosed = await activityDetailProbe();
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.activity-row')[2]?.click()" });
+  await waitValue("document.querySelector('.activity-detail .live-mode-release') ? true : null");
+  await send("Runtime.evaluate", { expression: "document.querySelector('.activity-detail .live-mode-release')?.click()" });
+  await waitValue("document.querySelector('.activity-detail .live-mode-following') ? true : null");
+  const activityDetailRefollowed = await activityDetailProbe();
+
+  // On a phone a row opens the event as a route-backed reader over the page;
+  // its Back control closes the reader and the flag together.
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await sleep(300);
+  await waitHtml("document.querySelector('.activity-row')");
+  const activityReaderBefore = (await send("Runtime.evaluate", {
+    expression: "({ reader: !!document.querySelector('.activity-reader'), detail: !!document.querySelector('.activity-detail') })",
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.activity-row')[1]?.click()" });
+  await waitValue("location.hash.includes('activityDetail=1') && document.querySelector('.activity-reader .activity-detail') ? true : null");
+  const activityReaderOpen = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const reader = document.querySelector('.activity-reader');
+      const rect = reader?.getBoundingClientRect();
+      return {
+        hash: location.hash,
+        reader: !!reader,
+        coversViewport: !!rect && rect.width >= window.innerWidth - 1 && rect.height >= window.innerHeight - 1,
+        excerpt: reader?.querySelector('.activity-detail-excerpt blockquote')?.textContent?.trim() || '',
+        nav: reader?.querySelector('.commit-detail-nav')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+        overflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      };
+    })()`,
+    returnByValue: true,
+  })).result.value || {};
+  await send("Runtime.evaluate", { expression: "document.querySelector('.activity-reader .commit-mobile-back')?.click()" });
+  await waitValue("!location.hash.includes('activityDetail=1') && !document.querySelector('.activity-reader') ? true : null");
+  const activityReaderClosed = (await send("Runtime.evaluate", {
+    expression: "({ hash: location.hash, reader: !!document.querySelector('.activity-reader'), rows: document.querySelectorAll('.activity-row').length })",
+    returnByValue: true,
+  })).result.value || {};
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1080, deviceScaleFactor: 1, mobile: false });
   const paneGapPages = [
     { page: "live", hash: "#/live", ready: ".live-page", panes: [".live-pulse", ".live-split"] },
     { page: "items", hash: "#/items", ready: ".items-page", panes: [".items-split"] },
@@ -8586,9 +8684,11 @@ try {
     [
       activityRowFit.rows > 0 &&
         activityRowFit.overflowing.length === 0 &&
-        activityRowFit.wrappedTitles > 0 &&
+        activityRowFit.wrappedTitles === 0 &&
+        activityRowFit.rowHeight > 0 &&
+        activityRowFit.rowHeight <= 64 &&
         JSON.stringify(activityRowFit.ratio) === JSON.stringify([30, 35, 35]),
-      `activity: columns split 30/35/35 and a two-line title still fits its fixed row (${JSON.stringify(activityRowFit)})`,
+      `activity: columns split 30/35/35 and a compact two-line row fits its content (${JSON.stringify(activityRowFit)})`,
     ],
     [
       rankAvatarAffordance.found === true &&
@@ -8691,7 +8791,7 @@ try {
     // be asserting that overhang back.
     [phoneActivity.activityViewTogglePresent === true && phoneActivity.activityViewActiveTab === "Feed" && phoneActivity.activityListPresent === true && phoneActivity.activityHeatmapPresent === false && phoneActivity.activityListHeight > Math.round(phoneActivity.viewportHeight * 0.45) && phoneActivity.activityListBottomGap !== null && phoneActivity.activityListBottomGap >= 0 && phoneActivity.activityListBottomGap <= 40, `portrait: phone activity defaults to a records feed that fills to the viewport bottom behind a Feed/Overview toggle (active=${phoneActivity.activityViewActiveTab}, feed=${phoneActivity.activityListHeight || 0}px/${phoneActivity.viewportHeight || 0}px, bottomGap=${phoneActivity.activityListBottomGap}, heatmap=${phoneActivity.activityHeatmapPresent})`],
     [phoneActivityOverview.activeTab === "Overview" && phoneActivityOverview.heatmapPresent === true && phoneActivityOverview.listPresent === false && phoneActivityOverview.heatmapScrolledToLatest === true && phoneActivityOverview.hashHasOverview === true, `portrait: phone activity Overview tab swaps in the rhythm heatmap, scrolled to the latest dates (${JSON.stringify(phoneActivityOverview)})`],
-    [phoneActivity.activityChipsWrap === true && phoneActivity.activityRowsNotClipped === true, `portrait: phone activity chips wrap without clipping (wrap=${phoneActivity.activityChipsWrap}, rows=${phoneActivity.activityRowsNotClipped})`],
+    [phoneActivity.activityRowsNotClipped === true, `portrait: phone activity rows fit their content without clipping (rows=${phoneActivity.activityRowsNotClipped})`],
     [portraitCommits.length > 0 && portraitCommits.every((r) => r.commitRowCount > 0 && r.commitRowsWithinSlot === true && r.commitRefChipsSingleLine === true), `portrait: commit rows stay within their virtualized slot with a long branch chip (${portraitCommits.map((r) => `${r.preset}:rows=${r.commitRowCount},withinSlot=${r.commitRowsWithinSlot},chip1line=${r.commitRefChipsSingleLine},maxBody=${r.commitMaxBodyHeight},minSlot=${r.commitMinSlotHeight}`).join("; ")})`],
     [phoneRangeCollapsePages.length > 0 && phoneRangeCollapsePages.every((r) => r.rangeDisclosureVisible === true && r.rangeFieldsCollapsed === true), `portrait: phone collapses the date range behind a disclosure on every content page (${phoneRangeCollapsePages.map((r) => `${r.page}:disclosure=${r.rangeDisclosureVisible},collapsed=${r.rangeFieldsCollapsed}`).join("; ")})`],
     [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.filterDisclosureCompact === true), `portrait: phone facet disclosure uses the compact toolbar summary chrome (${phoneFilterPages.map((r) => `${r.page}:compact=${r.filterDisclosureCompact}`).join("; ")})`],
@@ -8900,12 +9000,57 @@ try {
     [(activityRangeInputs.wrapWidths || []).length === 2 && activityRangeInputs.wrapWidths.every((width) => width >= 120 && width <= 150), `activity: range date fields stay compact (${(activityRangeInputs.wrapWidths || []).join(", ") || "none"}px)`],
     [activityRangeInputs.pickerButtons === 2 && activityDatePicker.open === true && activityDatePicker.days >= 28, `activity: range dates keep an app-rendered calendar picker (${activityRangeInputs.pickerButtons || 0} buttons, ${activityDatePicker.days || 0} days)`],
     [activityRows >= 4, `activity: rows rendered (${activityRows} >= 4)`],
-    [/1200 in range/.test(activityCountText), `activity: large smoke feed count rendered (${activityCountText})`],
+    [new RegExp(`${ACTIVITY_SMOKE_ROWS + ACTIVITY_SMOKE_COMMENT_ROWS} in range`).test(activityCountText), `activity: large smoke feed count rendered (${activityCountText})`],
     [activityRows < 80, `activity: virtualized rows stay bounded (${activityRows} < 80)`],
     [has(activityHtml, "committed") && has(activityHtml, "merged") && has(activityHtml, "closed"), "activity: action badges rendered"],
-    [has(activityHtml, "commit abc1234") && has(activityHtml, "Ship activity feed"), "activity: commit headline shows short sha and title"],
-    [has(activityHtml, "change request #13") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
-    [has(activityHtml, "ref main") && has(activityHtml, "from 111") && has(activityHtml, "to 222"), "activity: push row shows ref and commit range chips"],
+    [has(activityHtml, ">abc12348<") && has(activityHtml, "Ship activity feed"), "activity: commit headline shows short sha and title"],
+    [has(activityHtml, ">#13<") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
+    [has(activityHtml, "branch main") && has(activityHtml, "111 → 222"), "activity: push row shows ref and commit range chip"],
+    [
+      activityDetailFollowing.present === true &&
+        activityDetailFollowing.following === true &&
+        activityDetailFollowing.aboveOverview === true &&
+        activityDetailFollowing.selectedCount === 1 &&
+        activityDetailFollowing.selectedTitle === activityDetailFollowing.rowTitles?.[0] &&
+        /#14/.test(activityDetailFollowing.title) &&
+        /#14/.test(activityDetailFollowing.target) &&
+        /open/.test(activityDetailFollowing.target) &&
+        activityDetailFollowing.labels >= 1 &&
+        activityDetailFollowing.excerpt === "",
+      `activity: a wide screen opens the newest event's detail above the overview, with its issue, state and labels, and no words for an issue comment (${JSON.stringify(activityDetailFollowing)})`,
+    ],
+    [
+      activityDetailPinned.following === false &&
+        activityDetailPinned.selectedCurrent === "true" &&
+        activityDetailPinned.selectedTitle === activityDetailFollowing.rowTitles?.[1] &&
+        /#15/.test(activityDetailPinned.title) &&
+        activityDetailPinned.excerpt.startsWith("Cache the compiled pattern") &&
+        /src\/loop\.ts:37/.test(activityDetailPinned.caption) &&
+        activityDetailPinned.on === "src/loop.ts:37" &&
+        activityDetailPinned.related > 0,
+      `activity: clicking a review comment pins it and quotes the review thread's words, its file and line, and the item's other events (${JSON.stringify(activityDetailPinned)})`,
+    ],
+    [
+      activityDetailClosed.present === false &&
+        activityDetailClosed.selectedCount === 0 &&
+        activityDetailRefollowed.present === true &&
+        activityDetailRefollowed.following === true &&
+        /#14/.test(activityDetailRefollowed.title),
+      `activity: clicking the pinned row closes the detail, and "follow latest" returns to the newest event (${JSON.stringify({ closed: activityDetailClosed.present, refollowed: activityDetailRefollowed.title })})`,
+    ],
+    [
+      activityReaderBefore.reader === false &&
+        activityReaderBefore.detail === false &&
+        /activityDetail=1/.test(activityReaderOpen.hash || "") &&
+        activityReaderOpen.coversViewport === true &&
+        activityReaderOpen.excerpt.startsWith("Cache the compiled pattern") &&
+        /2 \/ \d+/.test(activityReaderOpen.nav || "") &&
+        activityReaderOpen.overflow === 0 &&
+        activityReaderClosed.reader === false &&
+        !/activityDetail=/.test(activityReaderClosed.hash || "") &&
+        activityReaderClosed.rows > 0,
+      `activity: a phone row opens a route-backed reader with previous / next, and Back closes it (${JSON.stringify({ before: activityReaderBefore, open: activityReaderOpen, closed: activityReaderClosed })})`,
+    ],
     [has(activityHtml, "card-accent"), "activity: repo/source highlight bar rendered (card-accent)"],
     [!activityHeatmap.present || activityHeatmap.summary === true, "activity: rhythm summary row rendered"],
     [!activityHeatmap.present || JSON.stringify(activityHeatmap.overviewLabels) === JSON.stringify(["events", "busiest day", "active days", "commit", "change request", "review"]), `activity: overview summary keeps rhythm metrics above kind counts (${(activityHeatmap.overviewLabels || []).join(", ")})`],

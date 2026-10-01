@@ -14,6 +14,7 @@ test("same-page facet, search and range edits keep mobile view, reader and sort"
   for (const hash of [
     "#/graph?focus=issue&depth=3&tab=graph",
     "#/activity?source=github&kind=review&unresolved=1&tab=overview",
+    "#/activity?repo=team%2Frepo&activityDetail=1",
     "#/commits?repo=team%2Frepo&branch=main&author=terry&commitDetail=1",
     "#/items?itemDetail=1&itemSort=open",
     "#/reviews?reviewDetail=1&reviewSort=grouped",
@@ -26,12 +27,12 @@ test("same-page facet, search and range edits keep mobile view, reader and sort"
 });
 
 test("each reader owns one history entry; restored flags close without leaving the page", () => {
-  for (const [page, field] of [["live", "liveDetail"], ["reviews", "reviewDetail"], ["items", "itemDetail"], ["commits", "commitDetail"]]) {
+  for (const [page, field] of [["live", "liveDetail"], ["reviews", "reviewDetail"], ["items", "itemDetail"], ["commits", "commitDetail"], ["activity", "activityDetail"]]) {
     let hash = "#/" + page + "?q=needle";
     let state: unknown = { unrelated: true };
     const entries: string[] = [hash];
     let back = 0;
-    const controller = detailRouteController(page as "live" | "reviews" | "items" | "commits", {
+    const controller = detailRouteController(page as "live" | "reviews" | "items" | "commits" | "activity", {
       readHash: () => hash,
       setHash: (next) => { hash = next; },
       history: {

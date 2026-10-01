@@ -5,6 +5,7 @@ const DETAIL_ROUTES = {
   reviews: { field: "reviewDetail", marker: "symphonyReviewDetail" },
   items: { field: "itemDetail", marker: "symphonyItemDetail" },
   commits: { field: "commitDetail", marker: "symphonyCommitDetail" },
+  activity: { field: "activityDetail", marker: "symphonyActivityDetail" },
 } as const;
 
 interface DetailRouteHost {

@@ -2551,7 +2551,7 @@ test("compareGraphNodes: undated nodes sort last in their bucket, with a stable 
 });
 
 test("parseHashRoute splits page from optional deep-link and range params", () => {
-  const emptyRoute = { focus: null, depth: null, scope: null, q: null, source: null, repo: null, branch: null, author: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, commitDetail: null, itemSort: null, reviewSort: null };
+  const emptyRoute = { focus: null, depth: null, scope: null, q: null, source: null, repo: null, branch: null, author: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, commitDetail: null, activityDetail: null, itemSort: null, reviewSort: null };
   assert.deepEqual(parseHashRoute(""), { page: "", ...emptyRoute }, "empty hash -> app default, no params");
   assert.deepEqual(parseHashRoute("#/"), { page: "", ...emptyRoute });
   assert.deepEqual(parseHashRoute("#/board"), { page: "board", ...emptyRoute });
@@ -2651,7 +2651,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     liveDetail: null,
     reviewDetail: null,
     itemDetail: null,
-    commitDetail: null,
+    commitDetail: null, activityDetail: null,
     itemSort: null,
     reviewSort: null,
   });
@@ -2680,7 +2680,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     liveDetail: null,
     reviewDetail: null,
     itemDetail: null,
-    commitDetail: null,
+    commitDetail: null, activityDetail: null,
     itemSort: null,
     reviewSort: null,
   });
@@ -2719,7 +2719,7 @@ test("buildHashRoute writes the same route shape parseHashRoute reads", () => {
     liveDetail: null,
     reviewDetail: null,
     itemDetail: null,
-    commitDetail: null,
+    commitDetail: null, activityDetail: null,
     itemSort: null,
     reviewSort: null,
   });
@@ -2752,7 +2752,7 @@ test("graphFocusHref round-trips an item's id through parseHashRoute without tou
 });
 
 test("applyRouteSearch mirrors the route q so search never hides outside the URL", () => {
-  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, author: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, commitDetail: null, itemSort: null, reviewSort: null });
+  const route = (q: string | null) => ({ page: "graph", focus: null, q, source: null, repo: null, branch: null, author: null, kind: null, action: null, isource: null, istate: null, ikind: null, ireview: null, irepo: null, unresolved: null, from: null, to: null, preset: null, tab: null, liveDetail: null, reviewDetail: null, itemDetail: null, commitDetail: null, activityDetail: null, itemSort: null, reviewSort: null });
   // a present q seeds the search (deep-link narrowing / URL-backed user search)
   assert.equal(applyRouteSearch(emptyFilters(), route("owner/repo #13")).search, "owner/repo #13");
   // an absent q clears search, so navigating to "#/graph" cannot carry a hidden

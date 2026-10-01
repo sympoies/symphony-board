@@ -659,6 +659,19 @@ Pages:
   matching rows so large activity histories remain scrollable without flooding
   the DOM. Rows link to `activities[].url` only when the producer supplied a
   reliable provider destination.
+  A row is two lines, like a commit row. The first holds the action, the item's
+  number and title (or a commit's short sha and subject, or the branch), and on
+  the right the item's current state or a commit's line counts. The second holds
+  the repository, the actor, and chips: a review comment's file and line, or a
+  push's from → to. Selecting a row opens a detail pane above the overview, with
+  everything the event knows: the item as it is now (state, review, CI, labels,
+  comment and review-thread counts, the start of its description), the event's
+  own facts, and the other in-range events on the same item. A wide screen opens
+  the pane following the newest row. Below the split floor the pane is a
+  route-backed reader (`activityDetail=1`) with previous / next and swipe, as
+  on Commits. The pane quotes a comment's words only when the contract already
+  carries them in `review_threads[]` (a GitHub review comment by node id, a
+  GitLab note by its `#note_<id>` anchor); an issue comment shows no text.
 - **Items**: newest-updated issue and PR/MR list over `items[]`, scoped by the
   shared date range and item lens. It is a lookup surface for cross-source,
   cross-repo work items, not a replacement for the Board's relationship/status

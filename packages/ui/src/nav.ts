@@ -22,6 +22,7 @@ import {
   buildHashRoute,
   changeRequestView,
   graphFocusHref,
+  itemIsPrimaryWindow,
   parseHashRoute,
   routeList,
   type CommitChangeRequestLink,
@@ -43,7 +44,7 @@ export function inPageHref(route: HashRoute, patch: Partial<HashRoute>): string 
   const shared = ["q", "from", "to", "preset", "tab", "isource", "istate", "ikind", "ireview", "irepo"] as const;
   const local: Record<string, readonly (keyof HashRoute)[]> = {
     graph: ["focus", "depth", "scope"],
-    activity: ["source", "repo", "kind", "action", "unresolved"],
+    activity: ["source", "repo", "kind", "action", "unresolved", "activityDetail"],
     commits: ["source", "repo", "branch", "author", "commitDetail"],
     live: ["liveDetail"],
     items: ["itemSort", "itemDetail"],
@@ -395,11 +396,26 @@ export function tabHref(page: Page, ctx: { q?: string | null; range?: RangeRoute
 // whatever state or review filter the reader had on the board could hide the
 // very item the link names.
 export function changeRequestItemHref(opts: { source: string; repo: string; iid: number; range: RangeRoute }): string {
+  return workItemHref({ ...opts, kind: "change_request" });
+}
+
+// The Items page narrowed to exactly one issue or change request.
+function workItemHref(opts: { source: string; repo: string; iid: number; kind: ItemDTO["kind"]; range: RangeRoute }): string {
   return tabHref("items", {
     q: `#${opts.iid}`,
     range: opts.range,
-    item: { isource: opts.source, irepo: opts.repo, istate: null, ikind: "change_request", ireview: null },
+    item: { isource: opts.source, irepo: opts.repo, istate: null, ikind: opts.kind, ireview: null },
   });
+}
+
+// Where a loaded issue or change request leads from an Activity row: the Items
+// page when the item is one of that page's rows, else its provider page (a
+// support row the Items page does not list), else nowhere.
+export function workItemDestination(item: ItemDTO, range: RangeRoute): { href: string | null; external: boolean } {
+  if (itemIsPrimaryWindow(item) && item.iid !== null && item.project_path) {
+    return { href: workItemHref({ source: item.source_id, repo: item.project_path, iid: item.iid, kind: item.kind, range }), external: false };
+  }
+  return { href: safeHref(item.url) ?? null, external: true };
 }
 
 // Where a commit's change request leads, and the view to draw it with.

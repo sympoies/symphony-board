@@ -3036,41 +3036,48 @@ a.rf-node-title:hover { color: var(--accent); }
   position: relative;
   min-height: 100%;
 }
+/* One compact row per event, the way the Commits list reads: two lines, the
+   event's own fact on the right. Fixed height (the feed is virtualized), so the
+   title is one clamped line here and two on a phone, where the row is taller.
+   ACTIVITY_ROW_HEIGHT_PX / ACTIVITY_MOBILE_ROW_HEIGHT_PX are the budget; the
+   render smoke measures the content against it. */
 .activity-row {
   position: absolute; left: 0; right: 0;
-  display: flex; align-items: flex-start; gap: 12px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px;
   height: var(--activity-row-height);
   box-sizing: border-box;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 10px 12px;
+  padding: 7px 10px 7px 12px;
   overflow: hidden;
+  cursor: pointer;
 }
-.activity-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-/* `align-items: start` because the title may now be two lines: centring would
-   push the badge to the middle of a tall title instead of aligning with its
-   first line. */
-.activity-title-row { display: flex; align-items: start; gap: 8px; min-width: 0; }
+.activity-row:hover { border-color: var(--selection-border); }
+.activity-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.activity-row-selected { background: var(--selection-bg); border-color: var(--selection-border); }
+.activity-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.activity-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.activity-title-row > .badge { flex: none; }
+.activity-ref {
+  flex: none; font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--muted);
+}
 .activity-title {
-  color: var(--text); font-weight: 600; min-width: 0;
-  /* Two lines rather than one clipped line. A commit subject is the row's whole
-     point, and at this column width one line ended mid-sentence on most rows.
-     The row height below is sized for exactly two, so the clamp is what keeps a
-     very long subject from pushing the meta out of a fixed-height row. */
+  color: var(--text); font-weight: 600; min-width: 0; line-height: 1.35;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
 }
 .activity-title:hover { color: var(--accent); }
 .activity-meta {
   display: flex; align-items: center; gap: 6px 10px;
-  color: var(--muted); font-size: 12px;
+  color: var(--muted); font-size: 12px; line-height: 18px;
   min-width: 0; overflow: hidden; white-space: nowrap;
 }
-.activity-meta span {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+.activity-meta > span {
+  flex: none; min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+.activity-meta > .activity-chips { flex: 1 1 auto; }
 .activity-chips {
   display: flex; align-items: center; gap: 6px;
   color: var(--muted); font-size: 11px;
@@ -3079,9 +3086,93 @@ a.rf-node-title:hover { color: var(--accent); }
 .activity-chips span {
   flex: none; max-width: 280px; overflow: hidden; text-overflow: ellipsis;
   border: 1px solid var(--chip-border); border-radius: 999px;
-  padding: 1px 7px; background: var(--chip-bg);
+  padding: 0 7px; background: var(--chip-bg); line-height: 16px;
 }
-.activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 3px; }
+.activity-side { display: flex; align-items: center; gap: 8px; justify-self: end; }
+.activity-fact { display: inline-flex; align-items: center; }
+.activity-fact:empty { display: none; }
+.activity-time { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; min-width: 52px; text-align: right; }
+.activity-icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.activity-icon-button:hover, .activity-icon-button.is-copied { color: var(--accent); border-color: var(--selection-border); }
+
+/* The middle column: the selected event above the range overview (the Commits
+   page's .commits-context). */
+.activity-context {
+  display: flex; flex-direction: column; gap: var(--pane-gap); min-width: 0;
+}
+.activity-detail .commit-detail-card { display: flex; flex-direction: column; }
+.activity-detail-kicker {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  color: var(--muted); font-size: 12px;
+}
+.activity-detail-title { display: flex; align-items: baseline; gap: 8px; }
+.activity-detail-title .activity-ref { font-size: 13px; }
+.activity-detail-actor { display: inline-flex; align-items: center; gap: 6px; }
+.activity-detail-actor .live-avatar { width: 20px; height: 20px; }
+.activity-detail-labels { display: flex; flex-wrap: wrap; gap: 4px; }
+.activity-detail-path { font-family: var(--mono); font-size: 12px; }
+.activity-detail-range { font-family: var(--mono); }
+.activity-detail-range code { font-size: 12px; }
+.activity-detail-link {
+  appearance: none; background: none; border: none; padding: 0; font: inherit;
+  color: var(--link); cursor: pointer; text-align: left;
+}
+.activity-detail-link:hover { color: var(--accent); }
+.activity-detail-section-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  margin: 14px 0 6px;
+}
+.activity-detail-section-head .muted { font-weight: 500; letter-spacing: 0; text-transform: none; }
+.activity-detail-excerpt { margin: 12px 0 0; }
+.activity-detail-excerpt blockquote {
+  margin: 0; padding: 6px 12px;
+  border-left: 3px solid var(--selection-border); background: var(--panel-2); border-radius: 0 8px 8px 0;
+  overflow-wrap: anywhere;
+}
+.activity-detail-md { font-size: 12px; line-height: 1.5; max-height: 220px; overflow: auto; }
+.activity-detail-md > :first-child { margin-top: 0; }
+.activity-detail-md > :last-child { margin-bottom: 0; }
+.activity-detail-md h1, .activity-detail-md h2, .activity-detail-md h3 { font-size: 13px; margin: 8px 0 4px; }
+.activity-detail-excerpt figcaption { margin-top: 4px; font-size: 11px; }
+.activity-detail-related ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.activity-detail-related-row {
+  display: grid; grid-template-columns: auto minmax(0, 0.8fr) minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  inline-size: 100%; padding: 4px 6px; border: none; border-radius: 6px;
+  background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.activity-detail-related-row:hover { background: var(--panel-2); }
+.activity-detail-related-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-detail-related-what { color: var(--muted); }
+.activity-detail-related-row time { color: var(--muted); white-space: nowrap; }
+
+/* The phone reader: the selected event over the page, with Back, swipe and
+   previous / next, the way the Commits reader works. */
+.activity-reader {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  box-sizing: border-box; height: 100vh; height: 100dvh;
+  padding:
+    calc(14px + var(--android-safe-area-top, 0px))
+    calc(16px + var(--android-safe-area-right, 0px))
+    calc(14px + var(--android-safe-area-bottom, 0px))
+    calc(16px + var(--android-safe-area-left, 0px));
+  background: var(--bg);
+  overflow: hidden; overscroll-behavior: contain;
+}
+.activity-reader .commit-mobile-pane-nav { display: flex; flex: 0 0 auto; padding: 0 0 12px; }
+.activity-reader .commit-mobile-pane-nav button {
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text); font: inherit;
+}
+.activity-reader-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.activity-reader .commit-detail-back { display: none; }
+.activity-reader .commit-detail-nav { display: flex; flex: 0 0 auto; margin: 10px 0 0; }
 
 /* Same contract as .activity-list: the measured pane height, with the old
    fixed fraction only as the pre-measure fallback. */
@@ -3623,16 +3714,14 @@ span.commit-cr-chip { color: var(--muted); border-color: var(--chip-border); }
      overview, picked by the segmented toggle. The feed therefore reclaims its base
      74vh scroll height (matching the Commits / Board lists) instead of the 45vh
      slice it needed back when the charts were always stacked above it. */
-  .activity-chips {
-    flex-wrap: wrap;
-    overflow: visible;
-    white-space: normal;
-  }
-  .activity-chips span {
-    max-width: 100%;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
+  /* A phone row gives the title two lines and stacks the event's fact over
+     its time on the right; the copy control waits for the detail pane. */
+  .activity-title { -webkit-line-clamp: 2; }
+  .activity-title-row { align-items: flex-start; }
+  .activity-side { flex-direction: column; align-items: flex-end; gap: 4px; align-self: start; }
+  .activity-side .activity-icon-button { display: none; }
+  .activity-meta > .activity-kind { display: none; }
+  .activity-time { min-width: 0; }
   .commits-toolbar { align-items: stretch; flex-direction: column; }
   .commits-toolbar-inline { display: none; }
   .commits-toolbar-sheet { margin: 0; }

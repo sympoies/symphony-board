@@ -141,7 +141,12 @@ branch/tag events.
 Rows surface the most identifiable context available in the contract: issue and
 change-request events show the provider number plus title, commits show a short
 SHA plus commit title, and push/ref events show the branch or tag plus available
-commit-range chips.
+commit-range chips. Each row is two lines, with the item's current state or a
+commit's line counts on the right. Selecting a row opens the event's detail
+above the overview: the item as it is now, the event's own facts, a review
+comment's words when `review_threads[]` carries them, and the other events in
+the range on the same item. Below 1212px the detail is a reader over the page
+(`activityDetail=1`).
 
 Rows link to `activities[].url` when the producer supplied a reliable provider
 destination. Unlinked rows are intentional; the UI does not reconstruct provider
@@ -349,7 +354,10 @@ It checks that a commit's change request is drawn on its row, in its detail and
 in the Change requests pane, and that "none" and "unknown" are told apart.
 It checks that the file aggregate draws a Hot files pane with its coverage, that
 a row narrows the page to the commits that touched it, and that the pane falls
-back to scopes under an author filter. It also mocks the daemon's sync control surface to assert the
+back to scopes under an author filter. Activity checks cover the compact
+two-line row, the detail pane following the newest event and pinning a clicked
+one, the quoted review-comment words (and none for an issue comment), and the
+phone reader's route flag and Back. It also mocks the daemon's sync control surface to assert the
 Header Sync action renders, enters the running (disabled) state on click, shows
 the reloaded status on completion, and that Settings exposes the advanced
 manual-sync controls.
