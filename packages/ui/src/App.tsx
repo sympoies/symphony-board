@@ -1,7 +1,7 @@
 import { detailRouteController } from "./detail-route.ts";
 import { inPageHref } from "./nav.ts";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
+import type { ContractEnvelope, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, fetchGraphNeighborhood, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
@@ -95,6 +95,7 @@ import {
   debugTabField,
   ITEM_REVIEW_VALUES,
   changeRequestDestination,
+  workItemDestination,
   type ActivityFacetDim,
   type ActivityView,
   type GraphView,
@@ -1239,6 +1240,12 @@ export function App() {
     },
     [itemsById, sourceKind, explicitRange, route.preset],
   );
+  // Where an Activity event's issue or change request leads (nav.workItemDestination).
+  const activityItemDestination = useCallback(
+    (item: ItemDTO) =>
+      workItemDestination(item, { from: explicitRange?.from, to: explicitRange?.to, preset: explicitRange ? route.preset : null }),
+    [explicitRange, route.preset],
+  );
 
   const filteredItems = useMemo(
     () => primaryItems.filter((i) => itemMatches(i, itemFilters)),
@@ -1638,7 +1645,7 @@ export function App() {
     });
   }
 
-  function readerRoute(readerPage: "live" | "reviews" | "items" | "commits") {
+  function readerRoute(readerPage: "live" | "reviews" | "items" | "commits" | "activity") {
     return detailRouteController(readerPage, { readHash, setHash, history: window.history });
   }
   const openLiveDetailRoute = () => readerRoute("live").open();
@@ -1653,6 +1660,9 @@ export function App() {
   const openCommitDetailRoute = () => readerRoute("commits").open();
   const closeCommitDetailRoute = () => readerRoute("commits").close();
   const replaceCommitDetailRouteClosed = () => readerRoute("commits").clear();
+  const openActivityDetailRoute = () => readerRoute("activity").open();
+  const closeActivityDetailRoute = () => readerRoute("activity").close();
+  const replaceActivityDetailRouteClosed = useCallback(() => readerRoute("activity").clear(), []);
 
   // Reviews list order (?reviewSort=grouped). Route-backed like reviewDetail so a
   // reload / shared link preserves it; recency is the default, so it maps to a
@@ -2127,6 +2137,13 @@ export function App() {
           itemsById={activityItemsById}
           view={activityViewValue}
           onView={setActivityView}
+          reviewThreads={visibleEnv.review_threads}
+          resolveChangeRequestLink={resolveChangeRequestLink}
+          itemDestination={activityItemDestination}
+          detailRouteOpen={route.activityDetail === "1"}
+          onOpenDetailRoute={openActivityDetailRoute}
+          onCloseDetailRoute={closeActivityDetailRoute}
+          onClearDetailRoute={replaceActivityDetailRouteClosed}
           emptyState={
             <EmptyState noun="activity" total={(fullActivityDaily ?? env.activity_daily)?.total ?? env.activities?.length ?? 0} windowTotal={windowedActivities.length} {...emptyStateShared} dataExtent={activityDataExtent} />
           }

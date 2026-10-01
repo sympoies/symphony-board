@@ -1,4 +1,6 @@
 import { DetailNav } from "./DetailNav.tsx";
+import { CheckIcon, CopyIcon } from "./icons.tsx";
+import { copyText } from "../clipboard.ts";
 import { detailNavigation } from "../detail-navigation.ts";
 import { useDetailSwipe } from "../useDetailSwipe.ts";
 import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
@@ -51,23 +53,6 @@ import {
 // visible-window math lives in model.ts (buildCommitRows / commitVirtualRange);
 // this file owns the rendering and the DOM measurement.
 
-function CopyIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-      <rect x="5.2" y="3.2" width="7.6" height="9.6" rx="1.2" />
-      <path d="M3.2 10.8H2.9A1.7 1.7 0 0 1 1.2 9.1V2.9A1.7 1.7 0 0 1 2.9 1.2h5.2a1.7 1.7 0 0 1 1.7 1.7v.3" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m3.5 8.4 3 3 6-6.8" />
-    </svg>
-  );
-}
-
 // GitHub's `ellipsis` octicon: a rounded box with three cut-out dots, used as the
 // "show more / expand description" affordance on a commit row.
 function EllipsisIcon() {
@@ -114,24 +99,6 @@ function dateLabel(iso: string, tz: string): string {
   // Pin to en-US so the label reads the same on every viewer's device instead
   // of inheriting the runtime locale (e.g. a zh-TW phone rendered "2026年7月7日").
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: tz }).format(parsed);
-}
-
-function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-
-  const el = document.createElement("textarea");
-  el.value = text;
-  el.style.position = "fixed";
-  el.style.opacity = "0";
-  document.body.appendChild(el);
-  el.focus();
-  el.select();
-  try {
-    document.execCommand("copy");
-    return Promise.resolve();
-  } finally {
-    document.body.removeChild(el);
-  }
 }
 
 // Resolves a commit's change request for display. Built by App from the item
@@ -439,7 +406,7 @@ function CommitTimeline({
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!sha) return;
-                      void copyToClipboard(sha).then(() => setCopiedId(rowKey));
+                      void copyText(sha).then(() => setCopiedId(rowKey));
                     }}
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}

@@ -36,6 +36,7 @@ import {
   DEFAULT_DEBUG_TAB,
   changeRequestItemHref,
   changeRequestDestination,
+  workItemDestination,
 } from "../src/nav.ts";
 
 // The Activity feed reads its facets from these route fields; the chips and the
@@ -599,4 +600,24 @@ test("changeRequestDestination leads to the Items page, the provider, or nowhere
   // Not loaded: a number with nowhere to go.
   const missing = changeRequestDestination(link, undefined, "gitlab", range);
   assert.deepEqual([missing.href, missing.view.label, missing.view.state], [null, "!7", null]);
+});
+
+test("workItemDestination opens any Items-page row on that page and anything else at the provider", () => {
+  const range = { from: "2026-09-01", to: "2026-09-30", preset: null };
+  const issue = {
+    id: "github:github.com|I_1", source_id: "github:github.com", external_id: "I_1", kind: "issue", project_path: "o/r", iid: 5,
+    url: "https://github.com/o/r/issues/5", title: "Bug", state: "open", window_reasons: ["primary"],
+  } as unknown as ItemDTO;
+  const primary = workItemDestination(issue, range);
+  assert.equal(primary.external, false);
+  const route = parseHashRoute(primary.href ?? "");
+  assert.equal(route.page, "items");
+  assert.equal(route.q, "#5");
+  assert.equal(route.ikind, "issue", "an issue narrows to issues, not change requests");
+  assert.equal(route.irepo, "o/r");
+
+  const support = workItemDestination({ ...issue, window_reasons: ["activity_target"] } as ItemDTO, range);
+  assert.deepEqual(support, { href: "https://github.com/o/r/issues/5", external: true });
+  const unsafe = workItemDestination({ ...issue, window_reasons: ["activity_target"], url: "javascript:alert(1)" } as ItemDTO, range);
+  assert.equal(unsafe.href, null);
 });

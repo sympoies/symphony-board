@@ -5442,6 +5442,51 @@
         "state": "APPROVED"
       },
       "action": "reviewed"
+    },
+    {
+      "source_id": "github:github.com",
+      "project_path": "sympoies/symphony-board",
+      "first_seen_at": "2026-06-10T08:58:00Z",
+      "last_seen_at": "2026-06-10T08:58:00Z",
+      "external_id": "comment:review:github-comment-d-1",
+      "kind": "comment",
+      "action": "commented",
+      "target_kind": "change_request",
+      "target_ref": "github:github.com|PR_d",
+      "target_iid": 15,
+      "title": null,
+      "url": "https://github.com/sympoies/symphony-board/pull/15#discussion_r2001",
+      "actor": "reviewer",
+      "occurred_at": "2026-06-10T08:40:00Z",
+      "details": {
+        "comment_id": 2001,
+        "node_id": "github-comment-d-1",
+        "author_association": "MEMBER",
+        "path": "src/loop.ts",
+        "line": 37,
+        "side": "RIGHT"
+      }
+    },
+    {
+      "source_id": "github:github.com",
+      "project_path": "sympoies/symphony-board",
+      "first_seen_at": "2026-06-10T08:58:00Z",
+      "last_seen_at": "2026-06-10T08:58:00Z",
+      "external_id": "comment:issue:3001",
+      "kind": "comment",
+      "action": "commented",
+      "target_kind": "issue",
+      "target_ref": "github:github.com|ISSUE_c",
+      "target_iid": 14,
+      "title": null,
+      "url": "https://github.com/sympoies/symphony-board/issues/14#issuecomment-3001",
+      "actor": "maintainer",
+      "occurred_at": "2026-06-10T08:30:00Z",
+      "details": {
+        "comment_id": 3001,
+        "node_id": "IC_3001",
+        "author_association": "OWNER"
+      }
     }
   ],
   "activity_daily": {

@@ -225,6 +225,7 @@ export interface HashRoute {
   liveDetail: string | null; // Live phone overlay state; route-backed so Back closes detail before leaving Live.
   reviewDetail: string | null; // Reviews phone overlay state; route-backed so Back closes the thread detail before leaving Reviews (mirrors liveDetail).
   commitDetail: string | null; // Commits phone overlay; Back closes the reader before leaving the page.
+  activityDetail: string | null; // Activity phone overlay; Back closes the event reader before leaving the page.
   itemDetail: string | null; // Items phone overlay state; route-backed so Back closes the item detail before leaving Items.
   itemSort: string | null; // Items list order; absent = recent (default), "open" = open work first.
   reviewSort: string | null; // Reviews list order; route-backed so a reload / shared link preserves it. Absent = recency (the default); "grouped" = legacy by-change-request layout.
@@ -294,6 +295,7 @@ export function parseHashRoute(hash: string): HashRoute {
     reviewDetail: routeParam(params?.get("reviewDetail")),
     itemDetail: routeParam(params?.get("itemDetail")),
     commitDetail: routeParam(params?.get("commitDetail")),
+    activityDetail: routeParam(params?.get("activityDetail")),
     itemSort: routeParam(params?.get("itemSort")),
     reviewSort: routeParam(params?.get("reviewSort")),
   };
@@ -325,6 +327,7 @@ export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<Has
   const reviewDetail = routeParam(route.reviewDetail);
   const itemDetail = routeParam(route.itemDetail);
   const commitDetail = routeParam(route.commitDetail);
+  const activityDetail = routeParam(route.activityDetail);
   const itemSort = routeParam(route.itemSort);
   const reviewSort = routeParam(route.reviewSort);
   if (focus) params.push(`focus=${encodeURIComponent(focus)}`);
@@ -351,6 +354,7 @@ export function buildHashRoute(route: Pick<HashRoute, "page"> & Partial<Omit<Has
   if (reviewDetail) params.push(`reviewDetail=${encodeURIComponent(reviewDetail)}`);
   if (itemDetail) params.push(`itemDetail=${encodeURIComponent(itemDetail)}`);
   if (commitDetail) params.push(`commitDetail=${encodeURIComponent(commitDetail)}`);
+  if (activityDetail) params.push(`activityDetail=${encodeURIComponent(activityDetail)}`);
   if (itemSort) params.push(`itemSort=${encodeURIComponent(itemSort)}`);
   if (reviewSort) params.push(`reviewSort=${encodeURIComponent(reviewSort)}`);
   return `#/${route.page}${params.length ? `?${params.join("&")}` : ""}`;
@@ -1322,13 +1326,13 @@ export function buildActivityTrend(
 
 // The feed rows are virtualized at a FIXED height and clip their overflow, so
 // these numbers are the budget the row's content has to fit inside — they are not
-// cosmetic. They grew by one line of title when the title stopped truncating to a
-// single line: a row holds a two-line title, the meta line, and on many rows a row
-// of ref chips, and the tallest case is what every row must accommodate.
-// render-smoke measures the rendered content against the box so an under-budget
-// value fails rather than silently clipping the chips off the bottom.
-export const ACTIVITY_ROW_HEIGHT_PX = 118;
-export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 146;
+// cosmetic. A row is two lines, like a commit row: the title line, then the meta
+// line with its chips inline. A phone row gives the title a second line. (It was
+// 118px for a two-line title and a separate chip row, which left most rows half
+// empty.) render-smoke measures the rendered content against the box so an
+// under-budget value fails rather than silently clipping the meta off the bottom.
+export const ACTIVITY_ROW_HEIGHT_PX = 60;
+export const ACTIVITY_MOBILE_ROW_HEIGHT_PX = 82;
 export const ACTIVITY_ROW_GAP_PX = 6;
 export const ACTIVITY_OVERSCAN_ROWS = 8;
 export const ACTIVITY_DEFAULT_VIEWPORT_PX = 640;
@@ -1518,14 +1522,6 @@ export function commitVirtualRange({
   return { start, end, totalHeightPx };
 }
 
-export interface ActivityDisplay {
-  title: string;
-  repo: string | null; // project_path, rendered with the .card-repo accent (kept out of `meta`)
-  meta: string[];
-  chips: string[];
-}
-
-const WORK_ITEM_ACTIVITY_KINDS = new Set(["issue", "change_request"]);
 
 function cleanText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -1559,51 +1555,16 @@ function shortSha(value: string | null): string | null {
   return trimmed.length > 8 ? trimmed.slice(0, 8) : trimmed;
 }
 
-function shortNonZeroSha(value: string | null): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  return /^0+$/.test(trimmed) ? null : shortSha(trimmed);
-}
-
 function shortRef(value: string | null): string | null {
   const ref = cleanText(value);
   return ref?.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "") ?? null;
 }
 
-function displayKind(kind: string | null | undefined): string | null {
+export function displayKind(kind: string | null | undefined): string | null {
   const k = cleanText(kind);
   if (!k) return null;
   if (k === "change_request") return "change request";
   return k.replace(/_/g, " ");
-}
-
-function isWorkItemKind(kind: string | null | undefined): boolean {
-  return !!kind && WORK_ITEM_ACTIVITY_KINDS.has(kind);
-}
-
-function workItemTargetLabel(activity: ActivityDTO): string | null {
-  const kind = isWorkItemKind(activity.target_kind)
-    ? activity.target_kind
-    : isWorkItemKind(activity.kind)
-      ? activity.kind
-      : null;
-  const label = displayKind(kind);
-  if (!label) return null;
-  return activity.target_iid != null ? `${label} #${activity.target_iid}` : label;
-}
-
-function activityRefKind(activity: ActivityDTO, ref: string | null): string {
-  if (activity.target_kind === "tag" || activity.kind === "tag" || ref?.startsWith("refs/tags/")) return "tag";
-  if (activity.target_kind === "branch" || activity.kind === "branch" || activity.kind === "push" || ref) return "branch";
-  return displayKind(activity.kind) ?? "ref";
-}
-
-function joinDistinct(parts: Array<string | null>): string {
-  const out: string[] = [];
-  for (const part of parts) {
-    if (part && !out.includes(part)) out.push(part);
-  }
-  return out.join(" · ");
 }
 
 // Short label for a change_request's review-thread state, or null when there is
@@ -1774,61 +1735,6 @@ export function reviewResolution(thread: ReviewThreadDTO): ReviewResolution | nu
 // unique per source — so the pair is globally unique).
 export function activityKey(a: Pick<ActivityDTO, "source_id" | "external_id">): string {
   return `${a.source_id}|${a.external_id}`;
-}
-
-export function activityDisplay(
-  activity: ActivityDTO,
-  // The target change_request's review threads, when the caller resolved
-  // `target_ref` to an item carrying them. Drives the review-resolution chip;
-  // omitted by non-Activity callers, which then show no such chip.
-  opts: { reviewThreads?: ReviewThreadsDTO | null } = {},
-): ActivityDisplay {
-  const title = cleanText(activity.title);
-  // 4.0.0 dropped the producer `summary`; the title is built entirely from the
-  // structured fields below (target / commit sha / ref / action+kind), which is
-  // what activityDisplay already used as the primary label — `summary` was only
-  // a rarely-hit final fallback. `${action} ${kind}` is the last-resort label.
-  const actionKind = `${activity.action.replace(/_/g, " ")} ${activity.kind}`.trim();
-  // repo is pulled out of `meta` so the feed can render it with the .card-repo
-  // accent (teal), matching the board / commits cards; the rest stays muted.
-  const repo = cleanText(activity.project_path);
-  const meta = [displayKind(activity.kind), activity.actor ? `@${activity.actor}` : null].filter(
-    (part): part is string => part !== null,
-  );
-
-  const chips: string[] = [];
-  const sha = shortSha(detailText(activity.details, "sha"));
-  if (sha) chips.push(`sha ${sha}`);
-
-  const rawRef = detailText(activity.details, "ref");
-  const ref = shortRef(rawRef);
-  if (ref) chips.push(`ref ${ref}`);
-
-  const from = shortNonZeroSha(detailText(activity.details, "commit_from") ?? detailText(activity.details, "before"));
-  const to = shortNonZeroSha(detailText(activity.details, "commit_to") ?? detailText(activity.details, "after"));
-  if (from) chips.push(`from ${from}`);
-  if (to) chips.push(`to ${to}`);
-
-  if (activity.kind === "review") {
-    const threadChip = reviewThreadsLabel(opts.reviewThreads);
-    if (threadChip) chips.push(threadChip);
-  }
-
-  const target = workItemTargetLabel(activity);
-  if (target) return { title: joinDistinct([target, title]) || actionKind, repo, meta, chips };
-
-  if (activity.kind === "commit" || activity.target_kind === "commit") {
-    const commitLabel = sha ? `commit ${sha}` : "commit";
-    return { title: joinDistinct([commitLabel, title ?? detailText(activity.details, "message")]), repo, meta, chips };
-  }
-
-  if (activity.kind === "push" || activity.kind === "branch" || activity.kind === "tag" || ref) {
-    const kind = activityRefKind(activity, rawRef);
-    return { title: ref ? `${kind} ${ref}` : (title ?? actionKind), repo, meta, chips };
-  }
-
-  const kind = displayKind(activity.kind);
-  return { title: joinDistinct([kind, title]) || actionKind, repo, meta, chips };
 }
 
 // Does an item satisfy the review-thread lens? "threads" = has any resolvable
