@@ -4,7 +4,7 @@ Layer 3 of `symphony-board`: the versioned JSON contract definition. The UI and
 external consumers depend on this package instead of reaching into backend DB or
 source modules.
 
-Current contract version emitted by the backend: `4.9.0`.
+Current contract version emitted by the backend: `4.9.1`.
 
 The package's private `package.json` version is workspace metadata. Runtime
 compatibility is governed by the emitted envelope's `contract_version`.
@@ -58,7 +58,7 @@ Summary:
 - minor: additive optional/nullable fields only
 - major: breaking shape or semantic change
 
-The current emitted contract is `4.9.0`. Important compatibility milestones:
+The current emitted contract is `4.9.1`. Important compatibility milestones:
 
 - v2 made `items[]` a windowed payload and added `item_window`, `repo_stats[]`,
   `range_query`, and `repo_metrics[]` so consumers do not derive full inventory
@@ -149,6 +149,10 @@ The current emitted contract is `4.9.0`. Important compatibility milestones:
   plus the files and directories the emitted commit rows changed most, each
   with the sha prefixes of the commits that touched it. Absent from a producer
   that does not collect per-commit files.
+- 4.9.1 fills `target_ref` on comment rows (GitLab from the note's noteable id,
+  GitHub at emit time from the row's repository and number) and `title` on a
+  targeted row that stored none; a range response emits the item any in-range
+  row names. No shape change.
 
 When the contract changes, update `contract.schema.json`, `types.ts`,
 `src/contract/version.ts`, producer validation tests, `../../docs/CONTRACT.md`,

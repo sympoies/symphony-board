@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { openSqliteStore, openSqliteStoreReadOnly } from "../src/db/sqlite.ts";
-import { buildRangeContract, PROGRAM_TRACKER_PIN_LIMIT } from "../src/contract/build.ts";
+import { buildContract, buildRangeContract, PROGRAM_TRACKER_PIN_LIMIT } from "../src/contract/build.ts";
 import { validateContract } from "../src/contract/validate.ts";
 import type { ActivityRow, EdgeRow, ItemRow, LabelRow, SourceRow } from "../src/db/store.ts";
 import type { CanonicalActivity, CanonicalItem } from "../src/model/types.ts";
@@ -252,7 +252,9 @@ test("buildRangeContract returns explicit range rows with endpoint closure and a
   assert.deepEqual(env.range_query, { kind: "time_range", timezone: "UTC", from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" });
   assert.deepEqual(validateContract(env), []);
   assert.deepEqual(env.items.map((it) => [it.external_id, it.window_reasons]).sort(), [
-    ["ISSUE_recent", ["primary", "edge_endpoint"]],
+    // The in-range "closed" row names ISSUE_recent too (4.9.1); it is already
+    // primary, so it adds a reason and no support row.
+    ["ISSUE_recent", ["primary", "edge_endpoint", "activity_target"]],
     ["PR_old", ["edge_endpoint"]],
   ]);
   assert.equal(env.items.find((it) => it.external_id === "ISSUE_recent")?.labels[0]?.name, "type::feature");
@@ -402,6 +404,121 @@ test("a commit cannot pull in a change request of a repository that is no longer
   });
   assert.deepEqual(validateContract(env), []);
   assert.deepEqual(env.items.map((it) => it.external_id), ["PR_kept"]);
+});
+
+test("comment rows resolve their issue or change request by repository and number (4.9.1)", () => {
+  // A GitHub REST comment carries no node id for the issue or pull request it
+  // is on, so normalize stores the row with a repository and number but no
+  // target_ref. The builder looks the item up among the live items and emits
+  // its immutable ref, and the item's title for a row that stored none.
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", iid: 7, title: "Recent issue", updated_at: "2026-05-20T00:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "PR_discussed", kind: "change_request", iid: 22, title: "Discussed PR", state: "merged", state_raw: "MERGED", updated_at: "2026-06-20T00:00:00Z" }),
+    itemRow({ item_id: 3, external_id: "PR_other_repo", kind: "change_request", iid: 22, project_path: "sympoies/other", title: "Same number elsewhere", updated_at: "2026-06-20T00:00:00Z" }),
+    // Two live items claim #40 in one repository (a transfer mid-sync, say):
+    // the number cannot say which, so neither is picked.
+    itemRow({ item_id: 4, external_id: "PR_twin_a", kind: "change_request", iid: 40, title: "Twin A", updated_at: "2026-06-20T00:00:00Z" }),
+    itemRow({ item_id: 5, external_id: "PR_twin_b", kind: "change_request", iid: 40, title: "Twin B", updated_at: "2026-06-20T00:00:00Z" }),
+  ];
+  const comment = (externalId: string, over: Partial<ActivityRow>) =>
+    activityRow({
+      external_id: externalId,
+      kind: "comment",
+      action: "commented",
+      target_kind: "change_request",
+      target_source_id: null,
+      target_external_id: null,
+      target_iid: 22,
+      title: null,
+      occurred_at: "2026-05-15T12:00:00Z",
+      ...over,
+    });
+  const env = buildRangeContract({
+    sources: [source],
+    items,
+    labels: [],
+    edges: [],
+    activities: [
+      comment("on-pr", {}),
+      comment("on-issue", { target_kind: "issue", target_iid: 7, occurred_at: "2026-05-15T13:00:00Z" }),
+      // Issue #22 does not exist: the number is the pull request's, and the kind
+      // has to match too.
+      comment("wrong-kind", { target_kind: "issue", occurred_at: "2026-05-15T14:00:00Z" }),
+      // A repository the store holds no item #23 for.
+      comment("unknown-number", { target_iid: 23, occurred_at: "2026-05-15T15:00:00Z" }),
+      // A stored title is the producer's and is kept.
+      comment("titled", { title: "Stored title", occurred_at: "2026-05-15T16:00:00Z" }),
+      // A row that already names its target keeps it.
+      comment("stored-ref", { target_source_id: "github:github.com", target_external_id: "PR_other_repo", occurred_at: "2026-05-15T17:00:00Z" }),
+      comment("ambiguous", { target_iid: 40, occurred_at: "2026-05-15T18:00:00Z" }),
+    ],
+    generatedAt: "2026-06-21T00:00:00Z",
+    range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
+  });
+
+  assert.deepEqual(validateContract(env), []);
+  const row = (id: string) => env.activities?.find((a) => a.external_id === id);
+  assert.equal(row("on-pr")?.target_ref, "github:github.com|PR_discussed");
+  assert.equal(row("on-pr")?.title, "Discussed PR", "an untitled comment row carries its target's title");
+  assert.equal(row("on-issue")?.target_ref, "github:github.com|ISSUE_recent");
+  assert.equal(row("wrong-kind")?.target_ref, null);
+  assert.equal(row("wrong-kind")?.title, null);
+  assert.equal(row("unknown-number")?.target_ref, null);
+  assert.equal(row("titled")?.target_ref, "github:github.com|PR_discussed");
+  assert.equal(row("titled")?.title, "Stored title");
+  assert.equal(row("stored-ref")?.target_ref, "github:github.com|PR_other_repo");
+  assert.equal(row("stored-ref")?.title, "Same number elsewhere", "a stored target supplies a missing title too (GitLab notes)");
+  assert.equal(row("ambiguous")?.target_ref, null, "a number two live items share resolves to neither");
+  assert.equal(row("ambiguous")?.title, null);
+  assert.equal(env.items.some((it) => it.external_id.startsWith("PR_twin")), false, "and pulls neither into the response");
+
+  // The items those rows point at are support rows of the response.
+  const discussed = env.items.find((it) => it.external_id === "PR_discussed");
+  assert.deepEqual(discussed?.window_reasons, ["activity_target"]);
+  assert.deepEqual(env.items.find((it) => it.external_id === "PR_other_repo")?.window_reasons, ["activity_target"]);
+  assert.deepEqual(env.items.find((it) => it.external_id === "ISSUE_recent")?.window_reasons, ["primary", "activity_target"]);
+  assert.equal(env.item_window?.activity_target_items, 2);
+});
+
+test("any in-range row that names a target pulls its item into a range response", () => {
+  // 4.4.0 included only review targets, and 4.8.2 added commits' change
+  // requests. Item transitions and comments name an item too, and the Activity
+  // detail shows its state and title.
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const env = buildRangeContract({
+    sources: [source],
+    items: [
+      itemRow({ item_id: 1, external_id: "ISSUE_closed_later", iid: 4, updated_at: "2026-06-20T00:00:00Z" }),
+    ],
+    labels: [],
+    edges: [],
+    activities: [
+      activityRow({ external_id: "opened", action: "opened", target_external_id: "ISSUE_closed_later", target_iid: 4, occurred_at: "2026-05-10T00:00:00Z" }),
+    ],
+    generatedAt: "2026-06-21T00:00:00Z",
+    range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
+  });
+  assert.deepEqual(validateContract(env), []);
+  assert.deepEqual(env.items.find((it) => it.external_id === "ISSUE_closed_later")?.window_reasons, ["activity_target"]);
+  assert.equal(env.item_window?.activity_target_items, 1);
+});
+
+test("the static contract resolves comment targets the same way", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const env = buildContract({
+    sources: [source],
+    items: [itemRow({ item_id: 1, external_id: "PR_discussed", kind: "change_request", iid: 22, title: "Discussed PR", updated_at: "2026-06-20T00:00:00Z" })],
+    labels: [],
+    edges: [],
+    activities: [
+      activityRow({ external_id: "on-pr", kind: "comment", action: "commented", target_kind: "change_request", target_source_id: null, target_external_id: null, target_iid: 22, title: null, occurred_at: "2026-06-19T00:00:00Z" }),
+    ],
+    generatedAt: "2026-06-21T00:00:00Z",
+  });
+  assert.deepEqual(validateContract(env), []);
+  assert.equal(env.activities?.[0]?.target_ref, "github:github.com|PR_discussed");
+  assert.equal(env.activities?.[0]?.title, "Discussed PR");
 });
 
 test("buildRangeContract pins open program trackers whatever the range (4.8.0)", () => {

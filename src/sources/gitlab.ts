@@ -192,7 +192,8 @@ export class GitLabSource implements Source {
   // gitlab/10: project-event author photos are retained in activity details.
   // gitlab/11: commit activity details carry merge and default_branch.
   // gitlab/12: commit activity details carry change_request for landing commits.
-  readonly normalizerVersion = "gitlab/12";
+  // gitlab/13: project events and notes name their issue / merge request.
+  readonly normalizerVersion = "gitlab/13";
   private gql: GqlClient;
   private projects: string[];
   private rest: RestClient | null;
@@ -961,7 +962,7 @@ export class GitLabSource implements Source {
         action,
         projectPath,
         targetKind,
-        target: null,
+        target: gitLabEventTarget(this.descriptor.sourceId, event, note),
         targetIid,
         title,
         url: gitLabProjectEventUrl(this.descriptor, projectPath, targetKind, action, rawTargetIid, data, note),
@@ -1195,6 +1196,20 @@ function gitLabProjectEventUrl(
     return note?.id != null ? `${base}#note_${note.id}` : base;
   }
   return null;
+}
+
+// The issue or merge request a project event is about, as the item identity the
+// GraphQL sweep stores. A GraphQL global id is `gid://gitlab/<Model>/<database
+// id>`, and the events API reports that database id: `target_id` for an issue
+// or merge request event, `note.noteable_id` for a comment. Checked against a
+// production store on 2026-10-01: every one of 2,965 such events matched a
+// stored item. Anything else (a push, a commit comment, a missing or malformed
+// id) names no item.
+function gitLabEventTarget(sourceId: string, event: any, note: any): { sourceId: string; externalId: string } | null {
+  const [type, id] = note ? [note.noteable_type, note.noteable_id] : [event?.target_type, event?.target_id];
+  if (type !== "Issue" && type !== "MergeRequest") return null;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) return null;
+  return { sourceId, externalId: `gid://gitlab/${type}/${id}` };
 }
 
 function gitLabEventSummary(action: string, kind: string, title: string | null, project: string | null): string {

@@ -193,6 +193,19 @@ open vocabulary; the stable contract is the row shape, not a closed event enum.
 tracked item. Human fields such as `project_path`, `target_iid`, and `title`
 are display metadata.
 
+A comment row names the item it is on (4.9.1). GitLab's events API reports the
+item's database id (`note.noteable_id`, or `target_id` on an issue or merge
+request event), which is the number in the GraphQL global id the item row is
+keyed on, so `normalize` builds the ref with no extra request. GitHub's REST
+comments carry no node id for their issue or pull request, and one lookup per
+comment is a different cost class, so `emit` resolves the row's repository,
+kind and number against the live items and emits the found item's immutable
+ref. That join is display resolution, not identity: the row keeps its own
+`(source_id, external_id)`, and a miss (a renamed repository, a gone item, a
+number two live items share) leaves `target_ref` null rather than guessing.
+Comment text stays out of the contract; the UI shows a comment's words only
+where `review_threads[]` already carries them.
+
 Commit activities keep the title/subject as the first message line and may carry
 the remaining message text in `details.body`. The commit feed covers the default
 branch plus live side branches without enumerating the provider's branch list:

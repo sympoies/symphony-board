@@ -1882,7 +1882,7 @@ test("GitLab CI refresh fetches configured MR candidates without advancing the w
   assert.equal(item?.projectPath, "g/p");
 });
 
-test("GitLab project events normalize without fake tracked target refs", () => {
+test("GitLab project events name their issue or merge request by its global id", () => {
   const src = new GitLabSource(GL_DESC, glGql, ["g/p"]);
   const raw: RawRecord = {
     entityKind: "activity",
@@ -1912,7 +1912,9 @@ test("GitLab project events normalize without fake tracked target refs", () => {
   assert.equal(b!.activities.length, 1);
   assert.equal(b!.activities[0]!.kind, "issue");
   assert.equal(b!.activities[0]!.action, "closed");
-  assert.equal(b!.activities[0]!.target, null, "REST target_id is not the GraphQL global id");
+  // REST target_id is the database id the GraphQL global id is built from, so
+  // the event names the same item the GraphQL sweep stored (gitlab/13).
+  assert.deepEqual(b!.activities[0]!.target, { sourceId: GL_DESC.sourceId, externalId: "gid://gitlab/Issue/99" });
   assert.equal(b!.activities[0]!.targetIid, 5);
   assert.equal(b!.activities[0]!.url, "https://gitlab.com/g/p/-/issues/5");
   assert.equal(b!.activities[0]!.details?.actor_avatar_url, "https://gitlab.com/uploads/user/avatar/1/photo.png");
@@ -1971,6 +1973,34 @@ test("GitLab project events link reliable push destinations and comments to thei
   }))!.activities[0]!;
   assert.equal(discussionComment.kind, "comment");
   assert.equal(discussionComment.url, "https://gitlab.com/g/p/-/merge_requests/11#note_90");
+
+  // A note names its issue or merge request by database id, which is the
+  // number in that item's GraphQL global id (gitlab/13).
+  const mrNote = src.normalize(ev(7, {
+    action_name: "commented on", target_type: "DiffNote", target_id: 70,
+    note: { id: 70, noteable_type: "MergeRequest", noteable_id: 4321, noteable_iid: 5 },
+  }))!.activities[0]!;
+  assert.deepEqual(mrNote.target, { sourceId: GL_DESC.sourceId, externalId: "gid://gitlab/MergeRequest/4321" });
+  assert.equal(mrNote.targetKind, "comment", "the target kind is unchanged");
+  const issueNote = src.normalize(ev(8, {
+    action_name: "commented on", target_type: "Note",
+    note: { id: 71, noteable_type: "Issue", noteable_id: 98, noteable_iid: 9 },
+  }))!.activities[0]!;
+  assert.deepEqual(issueNote.target, { sourceId: GL_DESC.sourceId, externalId: "gid://gitlab/Issue/98" });
+  // A commit comment has no tracked item, and a note without a usable id names none.
+  const commitNote = src.normalize(ev(9, {
+    action_name: "commented on", target_type: "DiffNote",
+    note: { id: 72, noteable_type: "Commit", noteable_id: 5 },
+  }))!.activities[0]!;
+  assert.equal(commitNote.target, null);
+  assert.equal(mrComment.target, null, "no noteable_id, no target");
+  const badId = src.normalize(ev(10, {
+    action_name: "commented on", target_type: "Note",
+    note: { id: 73, noteable_type: "MergeRequest", noteable_id: "12; drop", noteable_iid: 5 },
+  }))!.activities[0]!;
+  assert.equal(badId.target, null);
+  // A push names no item.
+  assert.equal(push.target, null);
 
   // Conservative fallback: a comment whose noteable cannot be resolved stays
   // unlinked rather than pointing at a guessed (wrong) location.
@@ -2851,7 +2881,7 @@ test("source normalizer versions are bumped for canonical output changes", () =>
   // Changing canonical item/review-thread/activity output needs fresh
   // normalizerVersions so replay sweeps can target stale rows.
   assert.equal(new GitHubSource(DESC, gql, ["o/r"]).normalizerVersion, "github/13");
-  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/12");
+  assert.equal(new GitLabSource(GL_DESC, glGql, ["g/p"]).normalizerVersion, "gitlab/13");
 });
 
 test("GitLab: an events-feed approval is dropped to avoid double-counting approvedBy", () => {
