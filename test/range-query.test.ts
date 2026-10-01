@@ -416,6 +416,10 @@ test("comment rows resolve their issue or change request by repository and numbe
     itemRow({ item_id: 1, external_id: "ISSUE_recent", iid: 7, title: "Recent issue", updated_at: "2026-05-20T00:00:00Z" }),
     itemRow({ item_id: 2, external_id: "PR_discussed", kind: "change_request", iid: 22, title: "Discussed PR", state: "merged", state_raw: "MERGED", updated_at: "2026-06-20T00:00:00Z" }),
     itemRow({ item_id: 3, external_id: "PR_other_repo", kind: "change_request", iid: 22, project_path: "sympoies/other", title: "Same number elsewhere", updated_at: "2026-06-20T00:00:00Z" }),
+    // Two live items claim #40 in one repository (a transfer mid-sync, say):
+    // the number cannot say which, so neither is picked.
+    itemRow({ item_id: 4, external_id: "PR_twin_a", kind: "change_request", iid: 40, title: "Twin A", updated_at: "2026-06-20T00:00:00Z" }),
+    itemRow({ item_id: 5, external_id: "PR_twin_b", kind: "change_request", iid: 40, title: "Twin B", updated_at: "2026-06-20T00:00:00Z" }),
   ];
   const comment = (externalId: string, over: Partial<ActivityRow>) =>
     activityRow({
@@ -447,6 +451,7 @@ test("comment rows resolve their issue or change request by repository and numbe
       comment("titled", { title: "Stored title", occurred_at: "2026-05-15T16:00:00Z" }),
       // A row that already names its target keeps it.
       comment("stored-ref", { target_source_id: "github:github.com", target_external_id: "PR_other_repo", occurred_at: "2026-05-15T17:00:00Z" }),
+      comment("ambiguous", { target_iid: 40, occurred_at: "2026-05-15T18:00:00Z" }),
     ],
     generatedAt: "2026-06-21T00:00:00Z",
     range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
@@ -463,6 +468,10 @@ test("comment rows resolve their issue or change request by repository and numbe
   assert.equal(row("titled")?.target_ref, "github:github.com|PR_discussed");
   assert.equal(row("titled")?.title, "Stored title");
   assert.equal(row("stored-ref")?.target_ref, "github:github.com|PR_other_repo");
+  assert.equal(row("stored-ref")?.title, "Same number elsewhere", "a stored target supplies a missing title too (GitLab notes)");
+  assert.equal(row("ambiguous")?.target_ref, null, "a number two live items share resolves to neither");
+  assert.equal(row("ambiguous")?.title, null);
+  assert.equal(env.items.some((it) => it.external_id.startsWith("PR_twin")), false, "and pulls neither into the response");
 
   // The items those rows point at are support rows of the response.
   const discussed = env.items.find((it) => it.external_id === "PR_discussed");
