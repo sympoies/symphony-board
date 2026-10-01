@@ -3093,7 +3093,7 @@ a.rf-node-title:hover { color: var(--accent); }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.activity-panes > .commits-context > .activity-overview { min-height: 240px; }
+.activity-panes > .commits-context > .activity-overview { flex: 1 1 0; min-height: 240px; }
 .activity-detail .commit-detail-card { display: flex; flex-direction: column; }
 .activity-detail-kicker {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
