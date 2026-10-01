@@ -33,7 +33,7 @@ import { projectPaths, sourceEnabled } from "../config.ts";
 import { createAuthTokenResolver, type AuthTokenResolver } from "../auth.ts";
 import { defaultRestUrl, makeRestClient, type RestClient } from "../sources/rest.ts";
 import type { AuthToken } from "../sources/http.ts";
-import { FULL_COMMIT_SHA, githubCommitFiles, gitlabCommitFiles } from "../sources/commit-files.ts";
+import { FULL_COMMIT_SHA, githubCommitFiles, gitlabCommitFiles, isPlainProjectPath } from "../sources/commit-files.ts";
 import type { CanonicalCommitFile, CommitFileStatus } from "../model/types.ts";
 
 // A viewer is waiting on this, so fail faster than a sweep would.
@@ -158,6 +158,10 @@ export function parseCommitFilesRequest(url: URL): CommitFilesRequest | CommitFi
   const sha = (url.searchParams.get("sha") ?? "").trim();
   if (!sourceId) return fail("bad_request", "source_id is required");
   if (!projectPath) return fail("bad_request", "project_path is required");
+  // The path reaches the provider inside a URL path too, so only plain
+  // segments pass: no dot segment, query, fragment, empty or encoded segment.
+  // The allowlist below is still what decides WHICH project may be read.
+  if (!isPlainProjectPath(projectPath)) return fail("bad_request", "project_path must be a plain group/project path");
   if (!SHA.test(sha)) return fail("bad_request", "sha must be a full hex commit id (40 or 64 chars)");
   return { source_id: sourceId, project_path: projectPath, sha };
 }
@@ -188,7 +192,7 @@ async function resolveCommitFiles(
     const resolved = source.kind === "github"
       ? await githubCommitFiles(rest, req.project_path, req.sha)
       : await gitlabCommitFiles(rest, req.project_path, req.sha);
-    if (resolved === null) return fail("bad_request", `project_path "${req.project_path}" is not an owner/name repository`);
+    if (resolved === null) return fail("bad_request", `project_path "${req.project_path}" is not a valid ${source.kind} project path`);
     return {
       source_id: req.source_id,
       project_path: req.project_path,

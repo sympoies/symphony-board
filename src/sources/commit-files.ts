@@ -43,10 +43,37 @@ export interface CommitFilesRead {
   merge: boolean | null;
 }
 
+// A project path goes into a token-bearing provider URL, so it is checked
+// segment by segment before any request is built, and each segment is encoded
+// on the way in. A path that fails is not a repository this reader can name:
+// a dot segment, a query or fragment, an empty or percent-encoded segment would
+// all move the request somewhere else on the provider's API.
+//
+// One segment as both providers spell it: letters, digits, "_", "." and "-",
+// not starting with "-", and never "." or "..". GitHub owners are narrower
+// still: letters, digits, "-" and "_" (an Enterprise Managed User's handle is
+// `name_shortcode`), with no ".".
+const PATH_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,254}$/;
+const GITHUB_OWNER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
+const GITHUB_REPO = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
+
+function plainSegment(segment: string, pattern: RegExp = PATH_SEGMENT): boolean {
+  return segment !== "." && segment !== ".." && pattern.test(segment);
+}
+
+// A provider project path: two or more plain segments (GitLab nests groups,
+// GitHub is owner/name). The route checks this before it knows the provider.
+export function isPlainProjectPath(projectPath: string): boolean {
+  const segments = projectPath.split("/");
+  return segments.length >= 2 && segments.every((segment) => plainSegment(segment));
+}
+
 function githubOwnerRepo(projectPath: string): { owner: string; name: string } | null {
-  const parts = projectPath.split("/").filter(Boolean);
+  const parts = projectPath.split("/");
   if (parts.length !== 2) return null;
-  return { owner: parts[0]!, name: parts[1]! };
+  const [owner, name] = parts as [string, string];
+  if (!plainSegment(owner, GITHUB_OWNER) || !plainSegment(name, GITHUB_REPO)) return null;
+  return { owner, name };
 }
 
 function githubStatus(raw: unknown): CommitFileStatus {
@@ -83,7 +110,7 @@ function sumFiles(files: CanonicalCommitFile[]): { additions: number; deletions:
 export async function githubCommitFiles(rest: RestClient, projectPath: string, sha: string): Promise<CommitFilesRead | null> {
   const repo = githubOwnerRepo(projectPath);
   if (!repo) return null;
-  const commit = await rest<any>(`repos/${repo.owner}/${repo.name}/commits/${sha}`);
+  const commit = await rest<any>(`repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/commits/${encodeURIComponent(sha)}`);
   const raw: any[] = Array.isArray(commit?.files) ? commit.files : [];
   const files = raw.map((file): CanonicalCommitFile => ({
     // A rename reports both paths; the new one is what the viewer is looking at.
@@ -153,10 +180,12 @@ function gitlabStatus(entry: any): CommitFileStatus {
   return "modified";
 }
 
-export async function gitlabCommitFiles(rest: RestClient, projectPath: string, sha: string): Promise<CommitFilesRead> {
+// Null when `projectPath` is not a plain group/project path, as for GitHub.
+export async function gitlabCommitFiles(rest: RestClient, projectPath: string, sha: string): Promise<CommitFilesRead | null> {
+  if (!isPlainProjectPath(projectPath)) return null;
   // GitLab accepts a URL-encoded full path as the project :id, so this needs no
   // extra lookup call for the numeric id.
-  const entries = await rest<any[]>(`projects/${encodeURIComponent(projectPath)}/repository/commits/${sha}/diff`, {
+  const entries = await rest<any[]>(`projects/${encodeURIComponent(projectPath)}/repository/commits/${encodeURIComponent(sha)}/diff`, {
     per_page: GITLAB_DIFF_PAGE,
   });
   const raw = Array.isArray(entries) ? entries : [];

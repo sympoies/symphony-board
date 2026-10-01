@@ -19,6 +19,7 @@ import {
   type CommitFilesError,
   type CommitFilesResult,
 } from "../src/server/commit-files.ts";
+import { githubCommitFiles, gitlabCommitFiles } from "../src/sources/commit-files.ts";
 
 // The cache entry shape is internal to the module; a test only needs a map it
 // can hand in and never inspect.
@@ -345,4 +346,85 @@ test("a provider failure is cached briefly, then retried; a config refusal is ne
   const again = await fetchCommitFiles(cfg(), { ...req, sha: OTHER_SHA }, noToken);
   assert.ok(isCommitFilesError(first) && first.error === "no_token");
   assert.ok(isCommitFilesError(again) && again.error === "no_token");
+});
+
+// A project path reaches the provider inside a token-bearing URL path. Anything
+// that could leave that path -- a dot segment, a query or fragment, an empty or
+// encoded segment -- must be refused before a client is built, whatever the
+// allowlist says.
+const STEERING_PATHS = [
+  "../../user/repo",
+  "o/../r",
+  "o/r/..",
+  "o/.",
+  "o/r?per_page=100",
+  "o/r#frag",
+  "o/r/../../orgs/x",
+  "o\\r",
+  "/o/r",
+  "o/r/",
+  "o//r",
+  "o/r%2fx",
+  "o/r x",
+  "o/r\u0000",
+];
+
+test("a project path that could steer the provider request is refused as a bad request", () => {
+  const base = "http://x/api/commit-files";
+  for (const bad of STEERING_PATHS) {
+    const res = parseCommitFilesRequest(new URL(`${base}?source_id=s&project_path=${encodeURIComponent(bad)}&sha=${SHA}`));
+    assert.equal((res as any).error, "bad_request", `project_path ${JSON.stringify(bad)} must be refused`);
+  }
+  // The query string is decoded once by URLSearchParams, so an encoded dot
+  // segment arrives as a real one and is refused the same way.
+  const encoded = parseCommitFilesRequest(new URL(`${base}?source_id=s&project_path=o/%2e%2e&sha=${SHA}`));
+  assert.equal((encoded as any).error, "bad_request");
+  for (const good of ["o/r", "group/sub/app", "my.org/my-repo_1", "Owner-1/Repo.Name"]) {
+    const res = parseCommitFilesRequest(new URL(`${base}?source_id=s&project_path=${encodeURIComponent(good)}&sha=${SHA}`));
+    assert.equal((res as any).project_path, good, `project_path ${JSON.stringify(good)} must be accepted`);
+  }
+});
+
+test("a configured project whose path could steer the request still makes no provider call", async () => {
+  // The allowlist is operator config, not a URL grammar: a mistyped entry must
+  // not become a way to reach another API path.
+  const config = cfg();
+  config.sources[0]!.projects = ["o/r?per_page=100", "evil/.."];
+  config.sources[1]!.projects = ["group/../other"];
+  const { rest, paths } = restStub(() => GITHUB_COMMIT);
+  for (const [source_id, project_path] of [
+    ["github:github.com", "o/r?per_page=100"],
+    ["github:github.com", "evil/.."],
+    ["gitlab:gitlab.example.com", "group/../other"],
+  ] as const) {
+    const result = await fetchCommitFiles(config, { source_id, project_path, sha: SHA }, deps(rest));
+    assert.ok(isCommitFilesError(result), `${project_path} must be refused`);
+    assert.equal(result.error, "bad_request");
+  }
+  assert.deepEqual(paths, [], "no provider call may be made for a steering path");
+});
+
+// Every accepted segment is already URL-safe, so this pins the paths a valid
+// project produces; the per-segment encoding in the readers is a second line
+// that no accepted input can reach.
+test("the provider readers send nothing for a steering path and the expected path for a valid one", async () => {
+  const { rest, paths } = restStub((path) => (path.startsWith("repos/") ? GITHUB_COMMIT : []));
+  for (const bad of ["o/../r", "o/r?x=1", "o/r#x", "../o/r", "o/r/extra", "-o/r", "o/..", "my.org/r"]) {
+    assert.equal(await githubCommitFiles(rest, bad, SHA), null, `github ${JSON.stringify(bad)}`);
+  }
+  for (const bad of ["group/../other", "group/app?x=1", "group/app#x", "group//app", "/group/app", "group/."]) {
+    assert.equal(await gitlabCommitFiles(rest, bad, SHA), null, `gitlab ${JSON.stringify(bad)}`);
+  }
+  assert.deepEqual(paths, []);
+
+  await githubCommitFiles(rest, "my-org/.github_x-1", SHA);
+  await githubCommitFiles(rest, "o/.github", SHA);
+  await githubCommitFiles(rest, "octo_acme/repo", SHA);
+  await gitlabCommitFiles(rest, "group/sub.team/app-1", SHA);
+  assert.deepEqual(paths, [
+    `repos/my-org/.github_x-1/commits/${SHA}`,
+    `repos/o/.github/commits/${SHA}`,
+    `repos/octo_acme/repo/commits/${SHA}`,
+    `projects/${encodeURIComponent("group/sub.team/app-1")}/repository/commits/${SHA}/diff`,
+  ]);
 });
