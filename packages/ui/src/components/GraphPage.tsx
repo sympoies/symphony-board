@@ -399,6 +399,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
 function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
+  const compactMinimap = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -479,6 +480,8 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
       <Controls showInteractive={false} />
       <MiniMap
         pannable zoomable
+        // Sized through React Flow (not CSS) so its drag-pan scale matches the drawn size.
+        style={compactMinimap ? { width: 112, height: 84 } : undefined}
         nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color}
         nodeClassName={(n) => (n.data as unknown as ItemNodeData).focused ? "graph-minimap-target" : ""}
       />
