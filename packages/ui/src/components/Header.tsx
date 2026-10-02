@@ -1,6 +1,9 @@
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
-import { relativeTime, isSyncRunActive, liveSourceStatus, syncRunSummary, visibleHeaderSources } from "../model.ts";
+import { relativeTime, headerSyncState, isSyncRunActive, liveSourceStatus, syncRunSummary, visibleHeaderSources } from "../model.ts";
+import { NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import type { SyncState } from "../useSync.ts";
 import { standaloneBrandClass } from "../viewconfig.ts";
 
@@ -65,25 +68,86 @@ export function Header({
   refreshing?: boolean;
   onRefresh?: () => void;
 }) {
+  const narrow = useMediaQuery(NARROW_VIEWPORT_QUERY);
   const showSync = sync?.available ?? false;
   const running = showSync && isSyncRunActive(sync!.current);
   const summary = showSync ? (sync!.error ?? syncRunSummary(running ? sync!.current : sync!.last)) : "";
   const sources = visibleHeaderSources(env.sources, hiddenSources);
+  // While a run is in flight the chip badge shows that run's live state for this
+  // source (syncing / fresh outcome); otherwise the contract's last status. The
+  // reloaded contract takes over after the run, so the overlay never outlives the
+  // run it narrates.
+  const statusOf = (sourceId: string, last: string | null) => (showSync ? liveSourceStatus(sync!.current, sourceId) : null) ?? last ?? "unknown";
+  const chips = (
+    <div className="sources">
+      {sources.map((s) => {
+        const status = statusOf(s.source_id, s.last_status);
+        return (
+          <span key={s.source_id} className="source-chip" title={`${s.kind} @ ${s.host}`}>
+            <Badge text={status} kind={`status-${status}`} />
+            <span className="source-name">{s.display_name ?? s.source_id}</span>
+            <span className="muted" title="last successful sync">{relativeTime(s.last_success_at)}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+  const syncButton = showSync ? (
+    <button
+      type="button"
+      className={`toggle sync-button${running ? " sync-running" : ""}`}
+      disabled={!sync!.enabled || running || sync!.busy}
+      title={
+        sync!.enabled
+          ? "Run an incremental sync of every source, then reload the contract"
+          : "Manual sync is not enabled on this deployment"
+      }
+      onClick={() => sync!.start({ mode: "incremental", dry_run: false, source_id: null })}
+    >
+      {running ? "Syncing" : "Sync"}
+    </button>
+  ) : null;
+  const statusLine =
+    showSync && summary ? (
+      <span className={`sync-status muted${sync!.error ? " sync-error" : ""}`} role="status">
+        {summary}
+      </span>
+    ) : null;
+  const refreshButton = (
+    <button
+      type="button"
+      className={`brand-refresh${refreshing ? " refreshing" : ""}`}
+      disabled={refreshing}
+      aria-label="Refresh data"
+      aria-busy={refreshing}
+      title="Refresh data"
+      onClick={onRefresh}
+    >
+      {refreshing ? <RefreshIcon /> : <AppMarkIcon />}
+    </button>
+  );
+  if (narrow) {
+    return (
+      <header className={`app-header app-header-narrow${standaloneBrandClass()}`}>
+        <div className="brand">
+          <div className="brand-main">
+            {refreshButton}
+            <h1>Symphony Board</h1>
+          </div>
+        </div>
+        <SyncPopover state={headerSyncState(sources.map((s) => statusOf(s.source_id, s.last_status)), running)}>
+          {chips}
+          {syncButton}
+          {statusLine}
+        </SyncPopover>
+      </header>
+    );
+  }
   return (
     <header className={`app-header${standaloneBrandClass()}`}>
       <div className="brand">
         <div className="brand-main">
-          <button
-            type="button"
-            className={`brand-refresh${refreshing ? " refreshing" : ""}`}
-            disabled={refreshing}
-            aria-label="Refresh data"
-            aria-busy={refreshing}
-            title="Refresh data"
-            onClick={onRefresh}
-          >
-            {refreshing ? <RefreshIcon /> : <AppMarkIcon />}
-          </button>
+          {refreshButton}
           <h1>Symphony Board</h1>
         </div>
         <span className="muted">
@@ -92,45 +156,55 @@ export function Header({
       </div>
       <div className="header-aside">
         <div className="header-aside-row">
-          <div className="sources">
-            {sources.map((s) => {
-              // While a run is in flight the chip badge shows that run's live
-              // state for this source (syncing / fresh outcome); otherwise the
-              // contract's last status. The reloaded contract takes over after
-              // the run, so the overlay never outlives the run it narrates.
-              const live = showSync ? liveSourceStatus(sync!.current, s.source_id) : null;
-              const status = live ?? s.last_status ?? "unknown";
-              return (
-                <span key={s.source_id} className="source-chip" title={`${s.kind} @ ${s.host}`}>
-                  <Badge text={status} kind={`status-${status}`} />
-                  <span className="source-name">{s.display_name ?? s.source_id}</span>
-                  <span className="muted" title="last successful sync">{relativeTime(s.last_success_at)}</span>
-                </span>
-              );
-            })}
-          </div>
-          {showSync ? (
-            <button
-              type="button"
-              className={`toggle sync-button${running ? " sync-running" : ""}`}
-              disabled={!sync!.enabled || running || sync!.busy}
-              title={
-                sync!.enabled
-                  ? "Run an incremental sync of every source, then reload the contract"
-                  : "Manual sync is not enabled on this deployment"
-              }
-              onClick={() => sync!.start({ mode: "incremental", dry_run: false, source_id: null })}
-            >
-              {running ? "Syncing" : "Sync"}
-            </button>
-          ) : null}
+          {chips}
+          {syncButton}
         </div>
-        {showSync && summary ? (
-          <span className={`sync-status muted${sync!.error ? " sync-error" : ""}`} role="status">
-            {summary}
-          </span>
-        ) : null}
+        {statusLine}
       </div>
     </header>
+  );
+}
+
+// Narrow tier: one status button (state dot + label) in the header row; the
+// per-source chips, the Sync action, and the run line open from it. Closes on an
+// outside press and on Escape, so it never lingers over the page below.
+function SyncPopover({ state, children }: { state: { label: string; tone: string }; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPress = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPress);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPress);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div className="sync-popover-root" ref={rootRef}>
+      <button
+        type="button"
+        className={`toggle sync-popover-toggle sync-popover-${state.tone}`}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-haspopup="true"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="sync-popover-dot" aria-hidden="true" />
+        {state.label}
+      </button>
+      {open ? (
+        <div id={panelId} className="sync-popover" role="group" aria-label="Sync status">
+          {children}
+        </div>
+      ) : null}
+    </div>
   );
 }

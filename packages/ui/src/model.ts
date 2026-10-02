@@ -4115,3 +4115,24 @@ export function sourcesNeedingSync(prev: ConfigDocument | null, next: ConfigDocu
   }
   return out;
 }
+
+// One header status for the narrow tier, where the per-source chips and the sync
+// line move behind a popover. A run in flight wins; otherwise the worst source
+// status decides, so a single failing source is never hidden by a healthy one.
+export function headerSyncState(statuses: readonly string[], running: boolean): { label: string; tone: string } {
+  if (running) return { label: "Syncing", tone: "syncing" };
+  if (statuses.includes("error")) return { label: "Sync error", tone: "error" };
+  if (statuses.includes("partial")) return { label: "Partial", tone: "partial" };
+  if (statuses.length > 0 && statuses.every((status) => status === "ok")) return { label: "Synced", tone: "ok" };
+  return { label: "Not synced", tone: "unknown" };
+}
+
+// The Graph stats disclosure headline on narrow viewports. In focus mode it
+// carries the neighborhood summary ("depth 1 · 5 nodes · 5 links · limited by
+// depth") that otherwise takes a row of its own above the stats row.
+export function graphStatsHeadline({ items, edges, depth, limit }: { items: number; edges: number; depth: string | null; limit: string | null }): string {
+  const parts = [...(depth ? [depth.includes("/") || /^\d+$/.test(depth) ? `depth ${depth}` : depth] : []), `${items} nodes`];
+  if (edges > 0) parts.push(`${edges} links`);
+  if (depth) parts.push(limit ? `limited by ${limit}` : "complete");
+  return parts.join(" · ");
+}

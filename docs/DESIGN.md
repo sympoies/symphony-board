@@ -980,7 +980,8 @@ while preserving the current route, search, filters, time range, and display
 preferences. A dry-run or failed run is shown distinctly and never reloads the
 data view as if it were fresh. A `409 run_active` reply to a manual start is
 adopted, not surfaced as an error: the UI tracks the in-flight run it lost the
-race to. Per-source progress is shown on the header source chips, not in the
+race to. Per-source progress is shown on the header source chips (behind the sync
+status popover on narrow viewports), not in the
 status text: while a run executes, each chip's badge overlays that run's live
 state for its source — `syncing` for the in-flight source, the fresh outcome
 for an already-finished one — and reverts to the contract's `last_status` when
