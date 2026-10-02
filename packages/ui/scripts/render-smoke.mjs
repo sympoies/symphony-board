@@ -2336,13 +2336,13 @@ try {
   // large share of the pane or collide with the zoom controls / Locate button,
   // and on every width the whole graph stays inside it.
   const minimapMeasurements = [];
-  for (const [width, height, mobile] of [[360, 780, true], [390, 844, true], [430, 932, true], [1280, 900, false], [1920, 1080, false]]) {
+  for (const [width, height, mobile] of [[360, 780, true], [390, 844, true], [430, 932, true], [844, 390, true], [1280, 900, false], [1920, 1080, false]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
     await sleep(400);
     // Phones show one pane at a time; switch to the Graph tab to measure its canvas.
     await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-view-toggle [role=\"tab\"]')].find((tab) => tab.textContent.trim() === 'Graph')?.click()" });
     await sleep(500);
-    minimapMeasurements.push({ width, ...((await send("Runtime.evaluate", {
+    minimapMeasurements.push({ width, height, ...((await send("Runtime.evaluate", {
       expression: `(() => {
         const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; };
         const overlap = (a, b) => !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
@@ -9207,8 +9207,8 @@ try {
     [!has(focusHtml, "Second-hop smoke relation"), "graph: the default one-hop focus does not draw second-hop history"],
     [has(focusHtml, "rf-node-focused"), "graph: the selected focus node has distinct canvas styling"],
     [focusLocator.marker === "TARGET" && focusLocator.button === "Locate target card" && focusLocator.outlined === true && focusLocator.minimapTargets === 1 && focusLocator.themes?.length === 2 && focusLocator.themes.every((theme) => theme.matches), `graph: focused target uses its own theme-matched marker, outline, minimap cue, and locator (${JSON.stringify(focusLocator)})`],
-    [minimapMeasurements.length === 5 && minimapMeasurements.every((m) => m.minimap && m.pane && !m.overlapsControls && !m.overlapsLocate && m.insidePane && m.allNodesInside), `graph: minimap stays inside the pane, clear of the zoom controls and Locate button, and shows the whole graph at every width (${JSON.stringify(minimapMeasurements)})`],
-    [minimapMeasurements.filter((m) => m.width < 500).every((m) => m.areaRatio != null && m.areaRatio <= 0.12), `graph: phone minimap covers at most 12% of the graph pane (${JSON.stringify(minimapMeasurements.map((m) => [m.width, m.areaRatio]))})`],
+    [minimapMeasurements.length === 6 && minimapMeasurements.every((m) => m.minimap && m.pane && !m.overlapsControls && !m.overlapsLocate && m.insidePane && m.allNodesInside), `graph: minimap stays inside the pane, clear of the zoom controls and Locate button, and shows the whole graph at every width (${JSON.stringify(minimapMeasurements)})`],
+    [minimapMeasurements.filter((m) => m.width < 500 || m.height < 761).every((m) => m.areaRatio != null && m.areaRatio <= 0.12), `graph: phone minimap covers at most 12% of the graph pane (${JSON.stringify(minimapMeasurements.map((m) => [m.width, m.height, m.areaRatio]))})`],
     [focusLocated.found === true && Math.abs(focusLocated.zoom - 1) < 0.05 && Math.abs(focusLocated.dx) < 40 && Math.abs(focusLocated.dy) < 40, `graph: Locate target restores readable zoom and centers the focused card (${JSON.stringify(focusLocated)})`],
     [absentFocusLocator.focused === true && absentFocusLocator.graphNodes > 0 && absentFocusLocator.locator === 0 && absentFocusLocator.markers === 0 && absentFocusLocator.minimapTargets === 0, `graph: a missing focus falls back to a usable graph without an inert locator or target marker (${JSON.stringify(absentFocusLocator)})`],
     [/^\d+$/.test(graphFocusSearch) && focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true && focusRouteQuery === graphFocusSearch, `graph: focus preserves but suspends a non-empty locating search (${JSON.stringify({ graphFocusSearch, focusRouteQuery, focusSearchState })})`],

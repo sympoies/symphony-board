@@ -35,6 +35,7 @@ import { itemMetricEntries } from "../item-metrics.ts";
 import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, graphFocusDropped, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusResetState, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
+import { COMPACT_CHROME_QUERY } from "../layout-tier.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
@@ -399,7 +400,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
 function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
-  const compactMinimap = useMediaQuery(MOBILE_VIEWPORT_QUERY);
+  const compactMinimap = useMediaQuery(COMPACT_CHROME_QUERY);
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
