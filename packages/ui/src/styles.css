@@ -1073,6 +1073,14 @@ a.graph-program-title:hover { color: var(--accent); }
   --xy-background-color: var(--bg);
   --xy-minimap-background-color: var(--bg);
 }
+/* React Flow sizes the minimap at a fixed 200x150 on every screen, which covers a
+   large share of a phone-sized canvas. Under the same compact-layout query the app
+   uses elsewhere, shrink the svg (the 4:3 aspect keeps React Flow's viewBox, so the
+   whole graph still fits) and tighten its margin to keep clear of the controls. */
+@media (max-width: 760px), (max-height: 760px) {
+  .graph-canvas .react-flow__minimap { margin: 8px; }
+  .graph-canvas .react-flow__minimap-svg { width: 112px; height: 84px; }
+}
 /* Overview canvas empty state — a centered card that names the edge filter
    hiding the side-list candidates and offers the one-click flip to draw them,
    instead of a bare top-left "nothing drawn" line. */
