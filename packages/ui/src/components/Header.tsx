@@ -135,7 +135,7 @@ export function Header({
             <h1>Symphony Board</h1>
           </div>
         </div>
-        <SyncPopover state={headerSyncState(sources.map((s) => statusOf(s.source_id, s.last_status)), running)}>
+        <SyncPopover state={headerSyncState(sources.map((s) => statusOf(s.source_id, s.last_status)), running, showSync && (sync!.error != null || (!running && sync!.last?.status === "error")))}>
           {chips}
           {syncButton}
           {statusLine}
@@ -194,7 +194,6 @@ function SyncPopover({ state, children }: { state: { label: string; tone: string
         className={`toggle sync-popover-toggle sync-popover-${state.tone}`}
         aria-expanded={open}
         aria-controls={panelId}
-        aria-haspopup="true"
         onClick={() => setOpen((o) => !o)}
       >
         <span className="sync-popover-dot" aria-hidden="true" />

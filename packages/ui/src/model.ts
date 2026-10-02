@@ -4119,9 +4119,11 @@ export function sourcesNeedingSync(prev: ConfigDocument | null, next: ConfigDocu
 // One header status for the narrow tier, where the per-source chips and the sync
 // line move behind a popover. A run in flight wins; otherwise the worst source
 // status decides, so a single failing source is never hidden by a healthy one.
-export function headerSyncState(statuses: readonly string[], running: boolean): { label: string; tone: string } {
+// `runFailed` is a failed start or a last run that ended in error: the run line
+// that reports it sits in the popover, so the button must carry it too.
+export function headerSyncState(statuses: readonly string[], running: boolean, runFailed = false): { label: string; tone: string } {
   if (running) return { label: "Syncing", tone: "syncing" };
-  if (statuses.includes("error")) return { label: "Sync error", tone: "error" };
+  if (runFailed || statuses.includes("error")) return { label: "Sync error", tone: "error" };
   if (statuses.includes("partial")) return { label: "Partial", tone: "partial" };
   if (statuses.length > 0 && statuses.every((status) => status === "ok")) return { label: "Synced", tone: "ok" };
   return { label: "Not synced", tone: "unknown" };

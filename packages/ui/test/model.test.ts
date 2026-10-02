@@ -3887,6 +3887,8 @@ test("headerSyncState folds per-source status into one header label", () => {
   assert.deepEqual(headerSyncState([], false), { label: "Not synced", tone: "unknown" });
   // A run in flight wins over whatever the contract last recorded.
   assert.deepEqual(headerSyncState(["error"], true), { label: "Syncing", tone: "syncing" });
+  // A failed run or start surfaces even when every source last read ok.
+  assert.deepEqual(headerSyncState(["ok"], false, true), { label: "Sync error", tone: "error" });
 });
 
 test("graphStatsHeadline merges the focus summary into the stats headline", () => {
