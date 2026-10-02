@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
@@ -37,6 +37,7 @@ import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacenc
 import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { COMPACT_CHROME_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
+import { minimapSize } from "../graph-minimap.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
@@ -400,7 +401,7 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
+function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme, paneWidth }: { paneWidth: number; rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
   const compactMinimap = useMediaQuery(COMPACT_CHROME_QUERY);
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
@@ -483,7 +484,7 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
       <MiniMap
         pannable zoomable
         // Sized through React Flow (not CSS) so its drag-pan scale matches the drawn size.
-        style={compactMinimap ? { width: 112, height: 84 } : undefined}
+        style={minimapSize(paneWidth, compactMinimap)}
         nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color}
         nodeClassName={(n) => (n.data as unknown as ItemNodeData).focused ? "graph-minimap-target" : ""}
       />
@@ -1128,6 +1129,20 @@ export function GraphPage({
     view.nodes.length,
     view.links.length,
   ]);
+  // The canvas pane's width drives the desktop minimap size. Observed on the pane
+  // itself (not the window), so a resized sidebar counts too.
+  const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null);
+  const canvasRef = useCallback((node: HTMLDivElement | null) => setCanvasEl(node), []);
+  const [canvasWidth, setCanvasWidth] = useState(0);
+  useEffect(() => {
+    if (!canvasEl) return undefined;
+    const measure = () => setCanvasWidth(canvasEl.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(canvasEl);
+    return () => observer.disconnect();
+  }, [canvasEl]);
   // What the legend keys: the relation types on the canvas right now.
   const legendTypes = useMemo(() => graphRelationTypes(view.links.map((l) => l.type)), [view]);
   const trackerItem = focusId && program ? itemsByRef.get(focusId) ?? null : null;
@@ -1387,7 +1402,7 @@ export function GraphPage({
               />
             ) : null}
             {showGraphPane ? (
-              <div className="graph-canvas">
+              <div className="graph-canvas" ref={canvasRef}>
                 {/* Re-clicking the focused node clears focus — the same toggle
                     exit as the side list's active card. */}
                 {view.links.length === 0 && !program ? (
@@ -1404,7 +1419,7 @@ export function GraphPage({
                     onShowAllTypes={() => setHiddenTypes(new Set())}
                   />
                 ) : (
-                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus && !program} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
+                  <Flow key={flowKey} paneWidth={canvasWidth} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus && !program} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
                 )}
               </div>
             ) : null}

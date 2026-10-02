@@ -2336,7 +2336,7 @@ try {
   // large share of the pane or collide with the zoom controls / Locate button,
   // and on every width the whole graph stays inside it.
   const minimapMeasurements = [];
-  for (const [width, height, mobile] of [[360, 780, true], [390, 844, true], [430, 932, true], [844, 390, true], [1280, 900, false], [1920, 1080, false]]) {
+  for (const [width, height, mobile] of [[360, 780, true], [390, 844, true], [430, 932, true], [844, 390, true], [1280, 900, false], [1920, 1080, false], [2560, 1440, false], [3840, 2160, false]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
     await sleep(400);
     // Phones show one pane at a time; switch to the Graph tab to measure its canvas.
@@ -2364,6 +2364,12 @@ try {
       })()`,
       returnByValue: true,
     })).result.value || {}) });
+    if (process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
+      const shot = await send("Page.captureScreenshot", { format: "png" });
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
+      writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, `graph-minimap-${width}x${height}.png`), Buffer.from(shot.data, "base64"));
+    }
   }
   console.log("minimap measurements:", JSON.stringify(minimapMeasurements));
   // Short phone screens, Graph tab in focus mode: the chrome above the graph pane
@@ -9277,7 +9283,14 @@ try {
     [!has(focusHtml, "Second-hop smoke relation"), "graph: the default one-hop focus does not draw second-hop history"],
     [has(focusHtml, "rf-node-focused"), "graph: the selected focus node has distinct canvas styling"],
     [focusLocator.marker === "TARGET" && focusLocator.button === "Locate target card" && focusLocator.outlined === true && focusLocator.minimapTargets === 1 && focusLocator.themes?.length === 2 && focusLocator.themes.every((theme) => theme.matches), `graph: focused target uses its own theme-matched marker, outline, minimap cue, and locator (${JSON.stringify(focusLocator)})`],
-    [minimapMeasurements.length === 6 && minimapMeasurements.every((m) => m.minimap && m.pane && !m.overlapsControls && !m.overlapsLocate && m.insidePane && m.allNodesInside), `graph: minimap stays inside the pane, clear of the zoom controls and Locate button, and shows the whole graph at every width (${JSON.stringify(minimapMeasurements)})`],
+    [minimapMeasurements.length === 8 && minimapMeasurements.every((m) => m.minimap && m.pane && !m.overlapsControls && !m.overlapsLocate && m.insidePane && m.allNodesInside), `graph: minimap stays inside the pane, clear of the zoom controls and Locate button, and shows the whole graph at every width (${JSON.stringify(minimapMeasurements)})`],
+    [(() => {
+      const at = (w) => minimapMeasurements.find((m) => m.width === w)?.minimap;
+      const compactSizes = minimapMeasurements.filter((m) => m.width < 500 || m.height < 761).every((m) => m.minimap?.w === 112 && m.minimap?.h === 84);
+      const base = at(1280);
+      const large = [at(2560), at(3840)];
+      return compactSizes && base?.w === 200 && base?.h === 150 && large.every((mm) => !!mm && mm.w > 200 && mm.w <= 360 && mm.h <= 270 && Math.abs(mm.w * 3 - mm.h * 4) <= 4);
+    })(), `graph: desktop minimap scales with the pane (200x150 at 1280, larger but at most 360x270 at 2560/3840, 4:3) and phones keep 112x84 (${JSON.stringify(minimapMeasurements.map((m) => [m.width, m.height, m.pane?.w, m.minimap?.w, m.minimap?.h]))})`],
     [phoneGraphMeasurements.length === 2 && phoneGraphMeasurements.every((m) => m.share != null && m.share >= 0.6 && m.headerRows <= 40 && m.focusCaptions === 0 && m.summaryRows === 1 && m.inlineGraphControls === 0 && m.headerChips === 0 && /^depth 1 · \d+ nodes · \d+ links · (limited by|complete)/.test(m.statsHeadline) && /^all · depth 1 · Force$/.test(m.filtersSummary) && m.sheet?.depth === 5 && m.sheet?.layout === 2 && m.popover?.open === true && m.popover.chips > 0 && m.popover.insideViewport && m.popoverClosed === true && /^(Synced|Partial|Sync error|Syncing|Not synced)$/.test(m.syncToggle)), `graph: on short phone screens the focus-mode graph pane fills at least 60% of the viewport (${JSON.stringify(phoneGraphMeasurements)})`],
     [minimapMeasurements.filter((m) => m.width < 500 || m.height < 761).every((m) => m.areaRatio != null && m.areaRatio <= 0.12), `graph: phone minimap covers at most 12% of the graph pane (${JSON.stringify(minimapMeasurements.map((m) => [m.width, m.height, m.areaRatio]))})`],
     [focusLocated.found === true && Math.abs(focusLocated.zoom - 1) < 0.05 && Math.abs(focusLocated.dx) < 40 && Math.abs(focusLocated.dy) < 40, `graph: Locate target restores readable zoom and centers the focused card (${JSON.stringify(focusLocated)})`],
