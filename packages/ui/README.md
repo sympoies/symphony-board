@@ -270,7 +270,10 @@ is reachable (`./api/sync-control` answers `enabled: true`), the Header shows a
 **Sync** action that triggers a real provider sync + contract emit, and Settings
 adds a **Manual sync** section for full sweeps, dry-runs, and source-scoped runs.
 
-- The Header action runs an incremental sync of every source.
+- The Header action runs an incremental sync of every source. On narrow
+  viewports (<= 760px wide) the header is one row: a single status button
+  (`Synced` / `Syncing` / `Partial` / `Sync error`) opens a popover holding the
+  per-source chips, the Sync action, and the run line.
 - While a run is active the button is disabled and shows `Syncing`; the UI polls
   the run and, on a successful non-dry run, reloads `./contract.json` (and the
   active `/api/range` response) in place — the route, search, filters, time range,

@@ -3535,10 +3535,9 @@ span.commit-cr-chip { color: var(--muted); border-color: var(--chip-border); }
     box-sizing: border-box;
     display: none;
   }
-  .controls > .search-suspended-note {
-    grid-column: 1 / -1;
-    text-align: center;
-  }
+  /* The inactive search is said once, by its chip on the range row; the caption
+     under it only repeated that and cost a row on a short phone screen. */
+  .controls > .search-suspended-note { display: none; }
   .controls[data-search-open="true"] > .search { display: none; }
   /* The local-file contract loader is a desktop dev affordance, never used on a
      phone — hide it so it doesn't spend a row of the filter bar. */
@@ -4669,6 +4668,61 @@ span.commit-cr-chip { color: var(--muted); border-color: var(--chip-border); }
     max-width: none;
     text-align: right;
   }
+  /* One-row header: smaller mark + title, and a single sync status button. The
+     per-source chips, the Sync action and the run line live in its popover. */
+  .app-header-narrow {
+    position: relative;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+  .app-header-narrow .brand-main { gap: 6px; }
+  .app-header-narrow .brand-main h1 { font-size: 16px; white-space: nowrap; }
+  .app-header-narrow .brand-refresh { width: 28px; height: 28px; border-radius: 7px; }
+  .sync-popover-root { flex: none; }
+  .app-header-narrow .sync-popover-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 1px 10px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .sync-popover-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .sync-popover-ok .sync-popover-dot { background: var(--fulfilled); }
+  .sync-popover-partial .sync-popover-dot { background: var(--declared); }
+  .sync-popover-error .sync-popover-dot { background: var(--broken); }
+  .sync-popover-syncing .sync-popover-dot { background: var(--accent); animation: badge-syncing-pulse 1.4s ease-in-out infinite; }
+  .sync-popover {
+    position: absolute;
+    z-index: 80;
+    top: calc(100% - 2px);
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: min(340px, 100%);
+    box-sizing: border-box;
+    padding: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .sync-popover .sources {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .sync-popover .sync-button { align-self: flex-start; }
+  .sync-popover .sync-status { max-width: none; }
   .board-controls { display: none; }
   .board-mobile-selector {
     display: flex;
@@ -4701,6 +4755,27 @@ span.commit-cr-chip { color: var(--muted); border-color: var(--chip-border); }
     scrollbar-width: none;
   }
   .graph-controls::-webkit-scrollbar { display: none; }
+  /* Only the summary span is left once depth / layout fold into the filters
+     sheet; a row with no controls must not keep its margin. */
+  .graph-controls:not(:has(> .toggle-group)) { display: none; }
+  /* The ready summary rides in the stats disclosure headline on this tier. */
+  .graph-focus-load-ready { display: none; }
+  .mobile-filter-extra { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .mobile-filter-extra:empty { display: none; }
+  /* Graph tab on a short phone: the graph pane takes whatever the chrome leaves,
+     so every chrome row here is tightened (pane-height.ts keeps its floor). */
+  .view-chrome[data-page="graph"] { gap: 6px; margin: 4px 0 2px; }
+  /* Search chip beside the range chip on the first row; the filters chip (whose
+     summary now carries depth + layout) gets the full row below with Clear. */
+  .view-chrome[data-page="graph"] .controls { gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
+  .view-chrome[data-page="graph"] .controls .search-disclosure { grid-column: 1 / -1; }
+  .view-chrome[data-page="graph"] .filter-summary-disclosure,
+  .view-chrome[data-page="graph"] .controls-clear,
+  .graph-page .stats-disclosure { min-height: 30px; padding-block: 3px; }
+  .graph-page { margin: 0 0 2px; }
+  .graph-page .stats-block { gap: 0; margin: 0 0 4px; }
+  .graph-page .graph-view-toggle { margin-bottom: 4px; }
+  .graph-page .graph-view-tab { padding: 4px 10px; }
   .graph-controls > .muted { display: none; }
   .graph-controls .toggle-group {
     flex: 0 0 auto;

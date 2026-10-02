@@ -29,16 +29,20 @@ export function StatsBar({
   totalLabel = "items",
   edgeLabel = "edges",
   footer,
+  headline: headlineOverride,
 }: {
   scoped: ScopedStats;
   totalLabel?: string;
   edgeLabel?: string;
   footer?: ReactNode;
+  // Replaces the collapsed "N items · M edges" summary; the Graph page uses it to
+  // fold its focus-mode summary into this one row.
+  headline?: string;
 }) {
   const { scope, stats } = scoped;
   const [open, setOpen] = useState(false);
   const edgeTotal = Object.values(stats.byLifecycle).reduce((sum, n) => sum + n, 0);
-  const headline = edgeTotal > 0 ? `${stats.items} ${totalLabel} · ${edgeTotal} ${edgeLabel}` : `${stats.items} ${totalLabel}`;
+  const headline = headlineOverride ?? (edgeTotal > 0 ? `${stats.items} ${totalLabel} · ${edgeTotal} ${edgeLabel}` : `${stats.items} ${totalLabel}`);
   return (
     <div className="stats-block">
       <button

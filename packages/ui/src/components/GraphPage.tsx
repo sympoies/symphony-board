@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -32,10 +33,10 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, graphFocusDropped, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusResetState, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphStatsHeadline, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, graphFocusDropped, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusResetState, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
-import { COMPACT_CHROME_QUERY } from "../layout-tier.ts";
+import { COMPACT_CHROME_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
@@ -819,6 +820,8 @@ export function GraphPage({
   theme,
   mobileView,
   onMobileView,
+  controlsSlot = null,
+  onControlsSummary,
 }: {
   edges: ResolvedEdge[];
   // Range-loaded membership for focus badges/ranking. Unlike `edges`, this
@@ -881,6 +884,11 @@ export function GraphPage({
   // `mobileView` to avoid colliding with the local graph-data `view` below.)
   mobileView: GraphView;
   onMobileView: (view: GraphView) => void;
+  // Narrow tier: depth / layout move into the filters sheet. The host provides
+  // the sheet's slot element (null while the sheet is closed) and receives the
+  // one-line summary the collapsed filters disclosure shows.
+  controlsSlot?: HTMLElement | null;
+  onControlsSummary?: (summary: string) => void;
 }) {
   const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   // Below the breakpoint the list and canvas can't share the narrow column
@@ -1124,6 +1132,64 @@ export function GraphPage({
   const legendTypes = useMemo(() => graphRelationTypes(view.links.map((l) => l.type)), [view]);
   const trackerItem = focusId && program ? itemsByRef.get(focusId) ?? null : null;
 
+  // Depth and layout. Inline on wider viewports; on the narrow tier they ride in
+  // the filters sheet instead (portaled into `controlsSlot`) so the Graph tab
+  // spends its short phone height on the graph itself.
+  const narrowChrome = useMediaQuery(NARROW_VIEWPORT_QUERY);
+  const foldedControls = narrowChrome && !!onControlsSummary;
+  const viewControls = (
+    <>
+      {focusId && !program ? (
+        <div className="toggle-group graph-depth-controls">
+          <span className="toggle-label">depth</span>
+          {Array.from({ length: GRAPH_FOCUS_MAX_DEPTH }, (_, index) => index + 1).map((depth) => (
+            <button
+              key={depth}
+              type="button"
+              className={`toggle${focusDepth === depth ? " toggle-on" : ""}`}
+              onClick={() => onFocusDepthChange(depth)}
+              aria-label={`${depth} relationship ${depth === 1 ? "hop" : "hops"}`}
+            >
+              {depth}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {program ? null : (
+        <div className="toggle-group">
+          <span className="toggle-label">layout</span>
+          <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
+            Force
+          </button>
+          <button type="button" className={`toggle${layout === "hierarchy" ? " toggle-on" : ""}`} onClick={() => setLayout("hierarchy")}>
+            Hierarchy
+          </button>
+        </div>
+      )}
+    </>
+  );
+  // The ready summary row folds into the stats disclosure on the narrow tier
+  // (the row itself is hidden there); loading / fallback messages keep theirs.
+  const focusHeadline =
+    narrowChrome && focusId && focusLoadStatus === "ready" && focusNeighborhood
+      ? graphStatsHeadline({
+          items: view.nodes.length,
+          edges: view.links.length,
+          depth: program
+            ? "program"
+            : focusNeighborhood.reached_depth === focusNeighborhood.requested_depth
+              ? String(focusNeighborhood.reached_depth)
+              : `${focusNeighborhood.reached_depth}/${focusNeighborhood.requested_depth}`,
+          limit: focusNeighborhood.complete ? null : focusNeighborhood.limit_reasons.join(", "),
+        })
+      : undefined;
+  const controlsSummary = [focusId && !program ? `depth ${focusDepth}` : null, program ? null : layout === "force" ? "Force" : "Hierarchy"].filter(Boolean).join(" · ");
+  useEffect(() => {
+    if (!foldedControls) return undefined;
+    onControlsSummary?.(controlsSummary);
+    return () => onControlsSummary?.("");
+  }, [foldedControls, controlsSummary, onControlsSummary]);
+
   return (
     <section className="graph-page">
       <div className="graph-controls">
@@ -1148,33 +1214,7 @@ export function GraphPage({
             ))}
           </div>
         ) : null}
-        {focusId && !program ? (
-          <div className="toggle-group graph-depth-controls">
-            <span className="toggle-label">depth</span>
-            {Array.from({ length: GRAPH_FOCUS_MAX_DEPTH }, (_, index) => index + 1).map((depth) => (
-              <button
-                key={depth}
-                type="button"
-                className={`toggle${focusDepth === depth ? " toggle-on" : ""}`}
-                onClick={() => onFocusDepthChange(depth)}
-                aria-label={`${depth} relationship ${depth === 1 ? "hop" : "hops"}`}
-              >
-                {depth}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {program ? null : (
-          <div className="toggle-group">
-            <span className="toggle-label">layout</span>
-            <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
-              Force
-            </button>
-            <button type="button" className={`toggle${layout === "hierarchy" ? " toggle-on" : ""}`} onClick={() => setLayout("hierarchy")}>
-              Hierarchy
-            </button>
-          </div>
-        )}
+        {foldedControls ? null : viewControls}
         {!focusId && edgeTypes.length > 0 ? (
           <div className="toggle-group graph-type-toggles">
             <span className="toggle-label">edges</span>
@@ -1205,6 +1245,7 @@ export function GraphPage({
           </div>
         )}
       </div>
+      {foldedControls && controlsSlot ? createPortal(viewControls, controlsSlot) : null}
       {focusId && focusLoadStatus !== "idle" ? (
         <p className={`graph-focus-load graph-focus-load-${focusLoadStatus}`} role={focusLoadStatus === "fallback" ? "status" : undefined}>
           {focusLoadStatus === "loading"
@@ -1259,6 +1300,7 @@ export function GraphPage({
         scoped={scopedStats}
         totalLabel="nodes"
         edgeLabel="links"
+        headline={focusHeadline}
         footer={
           <div className="graph-legend">
             {NODE_LEGEND.map((x) => (

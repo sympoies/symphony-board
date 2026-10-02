@@ -146,6 +146,8 @@ import {
   syncProducedFreshData,
   liveSourceStatus,
   syncRunSummary,
+  headerSyncState,
+  graphStatsHeadline,
   type Filters,
   type ResolvedEdge,
   type GraphNode,
@@ -3875,4 +3877,25 @@ test("commitScopeIsWhole is true only with no route filter and nothing hidden", 
   assert.equal(commitScopeIsWhole({ ...whole, mergesHidden: false }), true);
   // Narrowed to the commits that touched one path.
   assert.equal(commitScopeIsWhole({ ...whole, pathFiltered: true }), false);
+});
+
+test("headerSyncState folds per-source status into one header label", () => {
+  assert.deepEqual(headerSyncState(["ok", "ok"], false), { label: "Synced", tone: "ok" });
+  assert.deepEqual(headerSyncState(["ok", "partial"], false), { label: "Partial", tone: "partial" });
+  assert.deepEqual(headerSyncState(["partial", "error", "ok"], false), { label: "Sync error", tone: "error" });
+  assert.deepEqual(headerSyncState(["unknown"], false), { label: "Not synced", tone: "unknown" });
+  assert.deepEqual(headerSyncState([], false), { label: "Not synced", tone: "unknown" });
+  // A run in flight wins over whatever the contract last recorded.
+  assert.deepEqual(headerSyncState(["error"], true), { label: "Syncing", tone: "syncing" });
+  // A failed run or start surfaces even when every source last read ok.
+  assert.deepEqual(headerSyncState(["ok"], false, true), { label: "Sync error", tone: "error" });
+});
+
+test("graphStatsHeadline merges the focus summary into the stats headline", () => {
+  const stats = { items: 5, edges: 5 };
+  assert.equal(graphStatsHeadline({ ...stats, depth: null, limit: null }), "5 nodes · 5 links");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "1", limit: "depth" }), "depth 1 · 5 nodes · 5 links · limited by depth");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "1/3", limit: "nodes, edges" }), "depth 1/3 · 5 nodes · 5 links · limited by nodes, edges");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "program", limit: null }), "program · 5 nodes · 5 links · complete");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "1", limit: null }), "depth 1 · 5 nodes · 5 links · complete");
 });
