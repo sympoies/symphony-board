@@ -982,11 +982,13 @@ unavailable or disabled it hides the affordance. While a run is active it polls
 the run status fast; while idle it re-probes at a slow cadence (and on tab
 focus) so daemon-scheduled background runs disable the button, are reported as
 `Background sync running`, and refresh the board when they finish. Any newly
-observed successful, non-dry, emitted run triggers exactly one reload of
-`./contract.json` (and the active `/api/range` response for a custom range)
-while preserving the current route, search, filters, time range, and display
-preferences. A dry-run or failed run is shown distinctly and never reloads the
-data view as if it were fresh. A `409 run_active` reply to a manual start is
+observed finished, non-dry run that published a contract triggers exactly one
+reload of `./contract.json` (and the active `/api/range` response for a custom
+range) while preserving the current route, search, filters, time range, and
+display preferences. This includes a failed run that published a valid
+checkpoint before a sibling or final emit failed; the failure remains visible.
+Running, dry-run, skipped and unpublished runs never trigger this reload.
+A `409 run_active` reply to a manual start is
 adopted, not surfaced as an error: the UI tracks the in-flight run it lost the
 race to. Per-source progress is shown on the header source chips (behind the sync
 status popover on narrow viewports), not in the
