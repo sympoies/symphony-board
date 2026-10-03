@@ -919,10 +919,17 @@ sync lock, so a manual run and a scheduled run can never overlap on the
 configured store.
 
 **Shared runner.** Both the standalone `sync` CLI and the daemon go through
-`src/sync-runner.ts`, which defines a run as "sync the selected sources, then
-emit the contract unless this run is a dry-run or any source failed". `normalize`
-and the engine stay pure; the runner only orchestrates and reports structured
-per-source results for the UI.
+`src/sync-runner.ts`, which syncs selected sources sequentially and publishes
+committed data after each leg. The last leg uses the final emit, retaining the
+complete-run projection and totals. A failed source does not block a sibling's
+emit; an all-failed run, dry-run, or refused writer lease emits nothing.
+Contract 4.10.0 `sync_run` metadata distinguishes pending, complete, partial, failed,
+and skipped legs from historical source health (see
+[`Sync Checkpoints`](CONTRACT.md#sync-checkpoints)). Each atomic file publication
+also refreshes the contract-freshness container health signal. An intermediate
+emit failure is retried at the next checkpoint; a final emit failure fails the
+run. `normalize` stays pure; the engine owns per-source persistence and the
+runner orchestrates publication and structured per-source results for the UI.
 
 **Run serialization.** The daemon holds one lock. A manual `POST` while a run is
 active returns the active run (HTTP 409) instead of starting a second writer. A
@@ -948,8 +955,9 @@ sources. A run status carries `run_id`, `trigger` (`manual`/`scheduled`),
 (items/edges/activities/soft-deleted). While the run is in flight the per-source
 rows fill incrementally as each source finishes and `active_source_id` names the
 source currently being fetched (null once the run ends), so a polling UI can
-show per-source progress instead of a static "running". The default UI action
-is an incremental sync of all sources; full sweep, dry-run, and source-scoped
+show per-source progress instead of a static "running". `emitted` becomes true
+after the first successful checkpoint even while the run remains running. The
+default UI action is an incremental sync of all sources; full sweep, dry-run, and source-scoped
 runs are advanced options.
 
 **Re-entrancy.** A second manual request while a run is active is rejected with

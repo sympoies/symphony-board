@@ -1599,3 +1599,23 @@ test("commit_file_stats is an optional envelope field the schema holds to its sh
   assert.ok(rejects({ repos: [{ ...repo, top_files: [{ ...entry, shas: ["not-hex"] }] }] }), "shas are hex prefixes");
   assert.ok(rejects({ repos: [{ ...repo, top_files: [{ ...entry, patch: "@@" }] }] }), "an entry carries nothing else");
 });
+
+test("optional sync_run checkpoints validate without repurposing historical source health", () => {
+  const envelope = buildContract({ sources: [], items: [], labels: [], edges: [], generatedAt: "2026-06-08T00:00:00Z" });
+  assert.equal(envelope.sync_run, undefined, "standalone projection makes no current-run completeness claim");
+  assert.deepEqual(validateContract(envelope), [], "older envelopes may omit the additive field");
+  envelope.sync_run = {
+    mode: "full", source_scope: null, status: "running",
+    sources: [
+      { source_id: "github:github.com", status: "ok" },
+      { source_id: "gitlab:gitlab.example", status: "pending" },
+      { source_id: "fake:partial", status: "partial" },
+      { source_id: "fake:failed", status: "error" },
+      { source_id: "fake:disabled", status: "skipped" },
+    ],
+  };
+  assert.deepEqual(validateContract(envelope), []);
+  const invalid = structuredClone(envelope) as unknown as { sync_run: { sources: Array<{ status: string }> } };
+  invalid.sync_run.sources[0]!.status = "complete";
+  assert.ok(validateContract(invalid).some((e) => e.path.includes("sync_run") && e.message.includes("enum")), "status vocabulary is producer-validated");
+});
