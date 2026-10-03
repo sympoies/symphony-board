@@ -562,10 +562,25 @@ export async function fetchWithTransientResponseRetry(
   requestLabel: string,
   onRequest?: () => void,
 ): Promise<Response> {
+  // Read requests share one bounded budget for gateway responses and Node's
+  // network-level fetch rejection. Timeouts and other errors still fail fast.
   for (let retry = 0; ; retry++) {
     onRequest?.();
-    const response = await fetchWithTimeout(input, init, timeoutMs);
     const delayMs = GITHUB_TRANSIENT_RETRY_DELAYS_MS[retry];
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(input, init, timeoutMs);
+    } catch (err) {
+      if (provider !== "github" || !(err instanceof TypeError && err.message === "fetch failed") || delayMs === undefined) {
+        throw err;
+      }
+      log.warn(
+        `[source] ${requestLabel} transport failure; retrying in ${delayMs}ms ` +
+        `(${retry + 2}/${GITHUB_TRANSIENT_RETRY_DELAYS_MS.length + 1})`,
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      continue;
+    }
     if (
       provider !== "github" ||
       !GITHUB_TRANSIENT_RESPONSE_STATUSES.has(response.status) ||

@@ -293,6 +293,14 @@ Rules:
 The loop daemon runs mostly incremental syncs for cost, with periodic full
 sweeps so disappearance handling still occurs.
 
+GitHub read requests use one bounded retry budget for network-level fetch
+rejections and HTTP 502/503/504 responses: two retries after 250 and 500 ms,
+with at most three attempts per request. This applies to full and incremental
+sweeps and repeats the failed request rather than restarting project pagination.
+Exhaustion still makes coverage partial; successful sibling records remain
+available. Request timeouts and other provider/application errors retain their
+existing behavior, as do GitLab requests.
+
 GitHub pull-request discovery deliberately uses different query shapes for the
 two sweep modes. A full sweep reads the rich paginated PR connection so it can
 reconcile every item and relationship. An incremental sweep first pages only
