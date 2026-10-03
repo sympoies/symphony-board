@@ -30,7 +30,7 @@ test("a successful run emits and reports aggregated totals", async () => {
   );
   assert.equal(result.status, "ok");
   assert.equal(result.emitted, true);
-  assert.equal(emitCalls, 1, "emit runs exactly once on a successful non-dry run");
+  assert.equal(emitCalls, 2, "each leg emits, with the last leg using the final emit");
   assert.equal(result.totals.items, 3);
   assert.equal(result.sources.length, 2);
   await db.close();
@@ -227,7 +227,7 @@ test("a dry-run never emits and writes nothing", async () => {
   await db.close();
 });
 
-test("a failed source fails the run and skips the emit", async () => {
+test("a failed source fails the run without blocking a committed sibling emit", async () => {
   const db = await openSqliteStore(":memory:");
   let emitCalls = 0;
   const result = await executeSyncRun(
@@ -238,8 +238,8 @@ test("a failed source fails the run and skips the emit", async () => {
     () => { emitCalls++; },
   );
   assert.equal(result.status, "error");
-  assert.equal(result.emitted, false);
-  assert.equal(emitCalls, 0, "a failed run must not present stale derived data as fresh");
+  assert.equal(result.emitted, true);
+  assert.equal(emitCalls, 2, "publish the good leg and final failure coverage");
   assert.equal(result.sources.find((s) => s.source_id === "fake:b")?.error, "network down");
   await db.close();
 });

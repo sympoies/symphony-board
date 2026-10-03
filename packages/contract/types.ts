@@ -216,6 +216,18 @@ export interface RepoMetricDTO {
 
 // ---- DTOs (the serialized envelope shape) -----------------------------------
 
+// Optional checkpoint coverage (4.10.0). Historical SourceDTO health is
+// unchanged; pending means this run has not yet committed that source leg.
+export interface SyncRunDTO {
+  mode: "incremental" | "full";
+  source_scope: string | null;
+  status: "running" | "ok" | "partial" | "error";
+  sources: Array<{
+    source_id: string;
+    status: "pending" | "ok" | "partial" | "error" | "skipped";
+  }>;
+}
+
 export interface SourceDTO {
   source_id: string;
   kind: string;
@@ -518,6 +530,8 @@ export interface ContractEnvelope {
   // (added in 3.1.0)
   timezone?: string;
   sources: SourceDTO[];
+  // Current run coverage for source-leg/final checkpoints; absent on standalone emits.
+  sync_run?: SyncRunDTO;
   items: ItemDTO[];
   edges: EdgeDTO[];
   // Developer-significant activity records. Optional so pre-1.2.0 v1 contracts

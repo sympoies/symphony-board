@@ -3415,11 +3415,12 @@ export function isSyncRunActive(run: SyncRunStatus | null | undefined): boolean 
   return !!run && run.status === "running";
 }
 
-// A finished run produced fresh data the UI should reload only when it actually
-// wrote a contract: not a dry-run, it emitted, and the sync did not fail. A
-// dry-run or failed run must never reload the data view as if it were fresh.
+// Reload a finished non-dry run that actually published a contract. A sibling
+// or final emit failure can leave an earlier valid checkpoint to reload, even
+// when the aggregate run failed. Running, skipped and unpublished runs do not
+// trigger a reload.
 export function syncProducedFreshData(run: SyncRunStatus | null | undefined): boolean {
-  return !!run && run.status !== "running" && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial");
+  return !!run && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial" || run.status === "error");
 }
 
 // Live per-source state for a header source chip while a run is in flight:

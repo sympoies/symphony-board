@@ -2752,13 +2752,28 @@ test("isSyncRunActive is true only for a running run", () => {
   assert.equal(isSyncRunActive(null), false);
 });
 
-test("syncProducedFreshData only when a non-dry run emitted without failing", () => {
+test("syncProducedFreshData only when a terminal non-dry run published a contract", () => {
   assert.equal(syncProducedFreshData(syncRun({ status: "ok", emitted: true })), true);
   assert.equal(syncProducedFreshData(syncRun({ status: "partial", emitted: true })), true, "partial still emitted fresh data");
   assert.equal(syncProducedFreshData(syncRun({ status: "ok", dry_run: true, emitted: false })), false, "a dry-run never refreshes the data view");
-  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "a failed run is not fresh");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "a run with no publication is not fresh");
   assert.equal(syncProducedFreshData(syncRun({ status: "running" })), false);
   assert.equal(syncProducedFreshData(null), false);
+});
+
+test("syncProducedFreshData reloads published checkpoints after a sibling or final emit failure", () => {
+  for (const trigger of ["manual", "scheduled"] as const) {
+    assert.equal(syncProducedFreshData(syncRun({
+      trigger, status: "error", emitted: true, error: "one or more sources failed to sync",
+    })), true, trigger + " run must reload the successfully published sibling checkpoint");
+    assert.equal(syncProducedFreshData(syncRun({
+      trigger, status: "error", emitted: true, error: "contract emit failed: final output failure",
+    })), true, trigger + " run must retain freshness of an earlier successful checkpoint");
+  }
+  assert.equal(syncProducedFreshData(syncRun({ status: "running", emitted: true })), false, "mid-run publication waits for the existing terminal reload");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: true, dry_run: true })), false, "dry-run never reloads");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "all-failed/no-publication never reloads");
+  assert.equal(syncProducedFreshData(syncRun({ status: "skipped", emitted: false })), false, "lease-denied run never reloads");
 });
 
 test("syncRunSummary distinguishes running, reloaded, dry-run, and error states", () => {
