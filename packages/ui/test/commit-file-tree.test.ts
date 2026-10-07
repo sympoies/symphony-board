@@ -55,7 +55,7 @@ test("odd path shapes cannot produce a phantom level", () => {
 
 test("no paths renders nothing rather than a bare root", () => {
   const tree = buildCommitFileTree([]);
-  assert.deepEqual(tree, { lines: [], directories: 0, files: 0 });
+  assert.deepEqual(tree, { lines: [], entries: [], directories: 0, files: 0 });
 });
 
 test("a directory that is also a file path keeps both without losing the file count", () => {
@@ -65,4 +65,12 @@ test("a directory that is also a file path keeps both without losing the file co
   assert.deepEqual(tree.lines, [".", "└── a", "    └── b", "        └── c"]);
   assert.equal(tree.files, 1);
   assert.equal(tree.directories, 3);
+});
+
+test("tree rows retain full repository paths for outbound navigation", () => {
+  const tree = buildCommitFileTree(["src/a/file.ts", "src/b/file.ts"]);
+  assert.deepEqual(tree.entries.map(entry => entry.path), [".", "src", "src/a", "src/a/file.ts", "src/b", "src/b/file.ts"]);
+  assert.equal(tree.entries[3]?.directory, false);
+  assert.equal(tree.entries[4]?.directory, true);
+  assert.equal(tree.entries[3]?.prefix, "    │   └── ");
 });

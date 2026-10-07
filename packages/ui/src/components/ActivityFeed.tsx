@@ -1,3 +1,5 @@
+import { ActorLink, EntityLink } from "./ExternalLink.tsx";
+import { ExternalLink } from "./ExternalLink.tsx";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
@@ -7,7 +9,7 @@ import { ACTION_KIND } from "../activity-action-style.ts";
 import { useListViewport } from "../useListViewport.ts";
 import { useScrollbarGutter } from "../useScrollbarGutter.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
-import { activityRowView, activityTargetItem } from "../activity-detail.ts";
+import { activityRowView, activityTargetItem, detailText, realSha } from "../activity-detail.ts";
 import { copyText } from "../clipboard.ts";
 import { CheckIcon, CopyIcon } from "./icons.tsx";
 import {
@@ -22,6 +24,19 @@ import {
   displayKind,
   type ColorOf,
 } from "../model.ts";
+
+// Compact facts use the same destinations as the detail pane. Push endpoints
+// remain separate commit links; a comment location opens its exact permalink.
+function ActivityChip({ activity: a, text }: { activity: ActivityDTO; text: string }) {
+  if (a.kind === "commit" || a.target_kind === "commit") {
+    return <EntityLink sourceId={a.source_id} entity={{ kind: "branch", projectPath: a.project_path, ref: detailText(a, "branch") }}>{text}</EntityLink>;
+  }
+  if (detailText(a, "path")) return <ExternalLink href={a.url}>{text}</ExternalLink>;
+  const before = realSha(detailText(a, "before") ?? detailText(a, "commit_from"));
+  const after = realSha(detailText(a, "after") ?? detailText(a, "commit_to"));
+  if (!before && !after) return <span>{text}</span>;
+  return <span><EntityLink sourceId={a.source_id} entity={{ kind: "commit", projectPath: a.project_path, sha: before }}>{before?.slice(0, 8)}</EntityLink> → <EntityLink sourceId={a.source_id} entity={{ kind: "commit", projectPath: a.project_path, sha: after }}>{after?.slice(0, 8)}</EntityLink></span>;
+}
 
 // The scrollable, virtualized activity list: one compact row per event, the
 // way the Commits list reads.
@@ -149,9 +164,9 @@ export function ActivityFeed({
               <div className="activity-main">
                 <div className="activity-title-row">
                   <Badge text={a.action.replace(/_/g, " ")} kind={ACTION_KIND[a.action] ?? "status-unknown"} />
-                  {view.label ? <span className="activity-ref">{view.label}</span> : null}
+                  {view.label ? <ExternalLink className="activity-ref" href={item?.url ?? a.url}>{view.label}</ExternalLink> : null}
                   {a.url ? (
-                    <a
+                    <ExternalLink
                       className="activity-title"
                       href={a.url}
                       target="_blank"
@@ -160,7 +175,7 @@ export function ActivityFeed({
                       onClick={(e) => e.stopPropagation()}
                     >
                       {view.title}
-                    </a>
+                    </ExternalLink>
                   ) : (
                     <span className="activity-title" title={view.title}>
                       {view.title}
@@ -168,13 +183,13 @@ export function ActivityFeed({
                   )}
                 </div>
                 <div className="activity-meta">
-                  <SourceRepo kind={sourceKind.get(a.source_id)} repo={a.project_path} />
-                  {a.actor ? <span className="activity-actor">@{a.actor}</span> : null}
+                  <SourceRepo sourceId={a.source_id} kind={sourceKind.get(a.source_id)} repo={a.project_path} />
+                  {a.actor ? <ActorLink className="activity-actor" sourceId={a.source_id} name={a.actor} username={a.kind !== "commit"} url={typeof a.details?.actor_profile_url === "string" ? a.details.actor_profile_url : null}>@{a.actor}</ActorLink> : null}
                   {kindLabel ? <span className="activity-kind">{kindLabel}</span> : null}
                   {chips.length > 0 ? (
                     <span className="activity-chips">
                       {chips.map((part) => (
-                        <span key={part}>{part}</span>
+                        <ActivityChip key={part} activity={a} text={part} />
                       ))}
                     </span>
                   ) : null}

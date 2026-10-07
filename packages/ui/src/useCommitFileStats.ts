@@ -9,7 +9,7 @@ export type CommitFileStatsState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; stats: CommitFileStats };
+  | { kind: "ready"; stats: CommitFileStats; sourceId?: string; projectPath?: string; sha?: string };
 
 // One request per commit while the Settings toggle is on or a phone detail
 // view is open. Keyed on the commit identity so following a newer head re-requests, and
@@ -35,7 +35,7 @@ export function useCommitFileStats(
     setState({ kind: "loading" });
     void fetchCommitFileStats(sourceId, projectPath, sha, undefined, controller.signal).then((outcome) => {
       if (controller.signal.aborted) return;
-      setState(outcome.ok ? { kind: "ready", stats: outcome.stats } : { kind: "error", message: outcome.message });
+      setState(outcome.ok ? { kind: "ready", stats: outcome.stats, sourceId, projectPath, sha } : { kind: "error", message: outcome.message });
     });
     return () => controller.abort();
   }, [enabled, sourceId, projectPath, sha]);

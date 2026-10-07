@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 import type { CommitFileStats, CommitFileStatus } from "../contract.ts";
 import type { CommitFileStatsState } from "../useCommitFileStats.ts";
 import { buildCommitFileTree, commitFileTreeSummary } from "../commit-file-tree.ts";
@@ -27,7 +28,7 @@ export function CommitFileList({ state }: { state: CommitFileStatsState }) {
       </div>
       {state.kind === "loading" ? <p className="commit-files-note muted">Loading changed files…</p> : null}
       {state.kind === "error" ? <p className="commit-files-note muted">No file breakdown: {state.message}</p> : null}
-      {state.kind === "ready" ? <CommitFileRows stats={state.stats} /> : null}
+      {state.kind === "ready" ? <CommitFileRows stats={state.stats} sourceId={state.sourceId} projectPath={state.projectPath} sha={state.sha} /> : null}
     </div>
   );
 }
@@ -53,7 +54,7 @@ function totalLabel(stats: CommitFileStats): string {
   return stats.total_scope === "commit" ? "Total · whole commit" : "Total · listed files";
 }
 
-function CommitFileRows({ stats }: { stats: CommitFileStats }) {
+function CommitFileRows({ stats, sourceId, projectPath, sha }: { stats: CommitFileStats; sourceId?: string; projectPath?: string; sha?: string }) {
   if (stats.files.length === 0) {
     return <p className="commit-files-note muted">The provider reported no changed files for this commit.</p>;
   }
@@ -65,7 +66,12 @@ function CommitFileRows({ stats }: { stats: CommitFileStats }) {
           prefix. The list then answers what changed and by how much. */}
       {tree.lines.length > 0 ? (
         <div className="commit-files-tree">
-          <pre className="commit-files-tree-body">{tree.lines.join("\n")}</pre>
+          <pre className="commit-files-tree-body">{tree.entries.map((entry, index) => {
+            const removed = entry.directory
+              ? stats.files.filter(file => entry.path === "." || file.path.startsWith(`${entry.path}/`)).every(file => file.status === "removed")
+              : stats.files.find(file => file.path === entry.path)?.status === "removed";
+            return <span key={entry.path}>{entry.prefix}<EntityLink sourceId={sourceId} entity={{ kind: removed ? "commit" : entry.directory ? "directory" : "file", projectPath, sha, ref: sha, path: entry.path }}>{entry.name}</EntityLink>{index < tree.entries.length - 1 ? "\n" : ""}</span>;
+          })}</pre>
           <div className="commit-files-tree-summary muted">{commitFileTreeSummary(tree)}</div>
         </div>
       ) : null}
@@ -77,9 +83,9 @@ function CommitFileRows({ stats }: { stats: CommitFileStats }) {
             </span>
             {/* Long paths matter at their END (the file name), so the middle of
                 the row is what gives way — the list stays one line per file. */}
-            <span className="commit-files-path" title={file.path}>
+            <EntityLink className="commit-files-path" title={file.path} sourceId={sourceId} entity={{ kind: file.status === "removed" ? "commit" : "file", projectPath, sha, ref: sha, path: file.path }}>
               {file.path}
-            </span>
+            </EntityLink>
             <span className="commit-files-counts">
               <span className="commit-diffstat-add">+{file.additions.toLocaleString("en-US")}</span>
               <span className="commit-diffstat-del">−{file.deletions.toLocaleString("en-US")}</span>

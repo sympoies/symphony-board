@@ -1,7 +1,9 @@
+import { ActorLink, EntityLink } from "./ExternalLink.tsx";
+import { ExternalLink } from "./ExternalLink.tsx";
 import { DetailNav } from "./DetailNav.tsx";
 import { useDetailSwipe } from "../useDetailSwipe.ts";
 import { detailNavigation } from "../detail-navigation.ts";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref, type TouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref, type TouchEvent } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
@@ -134,18 +136,18 @@ function ItemDetail({
             </div>
             <h3 className="items-detail-title">
               {item.url ? (
-                <a className="items-detail-title-link" href={item.url} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="items-detail-title-link" href={item.url} target="_blank" rel="noopener noreferrer">
                   {item.title ?? "(untitled)"} <span className="items-detail-title-arrow" aria-hidden="true">↗</span>
-                </a>
+                </ExternalLink>
               ) : (
                 item.title ?? "(untitled)"
               )}
             </h3>
             <div className="items-detail-meta">
               <div className="items-detail-ref">
-                <SourceRepo kind={sourceKind.get(item.source_id)} repo={item.project_path} />
-                {item.iid != null ? <span>#{item.iid}</span> : null}
-                {item.author ? <span>@{item.author}</span> : null}
+                <SourceRepo sourceId={item.source_id} kind={sourceKind.get(item.source_id)} repo={item.project_path} />
+                {item.iid != null ? <EntityLink sourceId={item.source_id} entity={{ kind: item.kind === "issue" ? "issue" : "change_request", url: item.url, projectPath: item.project_path, iid: item.iid }}>#{item.iid}</EntityLink> : null}
+                {item.author ? <ActorLink sourceId={item.source_id} name={item.author} username>@{item.author}</ActorLink> : null}
               </div>
 
               <dl className="items-detail-facts">
@@ -176,7 +178,7 @@ function ItemDetail({
               {item.labels.length > 0 ? (
                 <div className="items-detail-labels" aria-label="Labels">
                   {item.labels.map((label) => (
-                    <LabelChip key={label.name} label={label} />
+                    <LabelChip key={label.name} label={label} sourceId={item.source_id} projectPath={item.project_path} />
                   ))}
                 </div>
               ) : null}
@@ -283,16 +285,8 @@ export function ItemsPage({
   }, [detailNav.next, detailNav.previous, selectItem]);
 
   const selectItemFromKey = (event: KeyboardEvent<HTMLElement>, item: ItemDTO) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    selectItem(item);
-  };
-
-  const handleTitleClick = (event: MouseEvent<HTMLAnchorElement>, item: ItemDTO) => {
-    if (!isDetailOverlay) {
-      stopRowSelection(event);
-      return;
-    }
     event.preventDefault();
     selectItem(item);
   };
@@ -379,21 +373,28 @@ export function ItemsPage({
                         </a>
                       ) : null}
                       <span className="item-row-title-break" aria-hidden="true" />
-                      {item.url ? (
-                        <a className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer" onClick={(event) => handleTitleClick(event, item)}>
+                      {isDetailOverlay ? (
+                        <>
+                          <button type="button" className="item-row-title item-row-title-select" onClick={event => { event.stopPropagation(); selectItem(item); }}>
+                            {item.title ?? "(untitled)"}
+                          </button>
+                          {item.url ? <ExternalLink className="item-row-provider" href={item.url} aria-label={`Open ${item.title ?? "item"} on provider`}>↗</ExternalLink> : null}
+                        </>
+                      ) : item.url ? (
+                        <ExternalLink className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer">
                           {item.title ?? "(untitled)"}
-                        </a>
+                        </ExternalLink>
                       ) : (
                         <span className="item-row-title item-row-title-text">{item.title ?? "(untitled)"}</span>
                       )}
                     </div>
                     <div className="item-row-meta">
-                      <SourceRepo kind={sourceKind.get(item.source_id)} repo={item.project_path} />
-                      {item.iid != null ? <span>#{item.iid}</span> : null}
+                      <SourceRepo sourceId={item.source_id} kind={sourceKind.get(item.source_id)} repo={item.project_path} />
+                      {item.iid != null ? <EntityLink sourceId={item.source_id} entity={{ kind: item.kind === "issue" ? "issue" : "change_request", url: item.url, projectPath: item.project_path, iid: item.iid }}>#{item.iid}</EntityLink> : null}
                     </div>
                     {hasActivityMeta ? (
                       <div className="item-row-meta item-row-activity">
-                        {item.author ? <span>@{item.author}</span> : null}
+                        {item.author ? <ActorLink sourceId={item.source_id} name={item.author} username>@{item.author}</ActorLink> : null}
                         <ItemMetricStrip item={item} related={related} />
                       </div>
                     ) : null}
@@ -415,7 +416,7 @@ export function ItemsPage({
                     {(labels.length > 0 || hiddenLabelCount > 0) ? (
                       <div className="item-row-labels">
                         {labels.map((label) => (
-                          <LabelChip key={label.name} label={label} />
+                          <LabelChip key={label.name} label={label} sourceId={item.source_id} projectPath={item.project_path} />
                         ))}
                         {hiddenLabelCount > 0 ? <span className="item-row-chip">+{hiddenLabelCount} labels</span> : null}
                       </div>

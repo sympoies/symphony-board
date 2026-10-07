@@ -6130,7 +6130,7 @@ span.live-avatar { cursor: default; }
 }
 .pane-rows > li:first-child .pane-row { border-top-color: transparent; }
 .pane-row:hover { background: var(--hover-soft); }
-.pane-row[aria-pressed="true"] { background: var(--selection-bg); }
+.pane-row[aria-pressed="true"], .pane-row:has(> .entity-row-select[aria-pressed="true"]) { background: var(--selection-bg); }
 .pane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .pane-row-commit {
   grid-template-columns: 1.6rem minmax(0, 1fr) minmax(56px, 9rem) 7.6rem;
@@ -6624,3 +6624,43 @@ a.pane-row-cr:hover { text-decoration: none; }
 }
 
 .commit-detail-nav.live-detail-nav { display: flex; flex: 0 0 auto; align-self: stretch; margin: 10px 0 0; }
+
+/* Provider navigation shares one affordance across metadata, cards and charts. */
+.external-link { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; cursor: pointer; }
+.external-link:hover { color: var(--link); text-decoration-color: currentColor; }
+.external-link:focus-visible, .rank-entity-menu > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+/* The filter hit area and the outbound footer are siblings, never an anchor
+   inside a button. The bar remains the filter target at every chart tier. */
+.rank-filter-hit { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
+.live-rank-item:has(> .rank-filter-hit) { flex: 1 1 0; min-width: 0; }
+.live-rank-item:has(> .rank-filter-hit) > .live-rank-bar-cell,
+.live-rank-item:has(> .rank-filter-hit) > .live-rank-extra { pointer-events: none; }
+.live-rank-item:has(> .rank-filter-hit) > .live-rank-footer { pointer-events: none; }
+.live-rank-footer .external-link, .live-rank-footer .rank-entity-menu { position: relative; z-index: 2; pointer-events: auto; }
+.live-rank-item:has(> .rank-filter-hit:hover) .live-rank-bar { background: var(--link); }
+.rank-entity-menu { min-width: 0; }
+.rank-entity-menu > summary { cursor: pointer; text-decoration: underline; }
+.rank-entity-destinations { position: absolute; inset-inline-start: 0; top: 100%; z-index: 20; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; width: max-content; max-width: 320px; }
+.rank-entity-destinations .external-link { display: block; white-space: normal; padding: 4px; }
+.selectable-entity-row { position: relative; }
+.entity-row-select { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; background: transparent; border: 0; cursor: pointer; }
+.selectable-entity-row > :not(.entity-row-select) { pointer-events: none; }
+.selectable-entity-row .external-link { position: relative; z-index: 2; pointer-events: auto; }
+.entity-row-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.repo-combobox > .external-link { margin-inline-start: 4px; }
+.live-rank-item:has(.rank-entity-menu[open]) { z-index: 30; }
+.rank-name-tip .external-link, .rank-name-tip .rank-entity-menu { pointer-events: auto; }
+.stack-legend .live-rank-name, .rail-daybar-tip .live-rank-name { font: inherit; color: inherit; }
+.stack-col:focus-within .rail-daybar-tip { opacity: 1; }
+.stack-col:hover .rail-daybar-tip, .stack-col:focus-within .rail-daybar-tip { pointer-events: auto; }
+.stack-col:focus-visible { outline: 2px solid var(--accent); }
+
+/* Selection labels retain their action; outbound controls sit beside them. */
+.ms-option-row { display: flex; align-items: center; gap: 8px; }
+.ms-option-row .ms-option { flex: 1; min-width: 0; }
+.ms-option-outbound { flex: none; padding-right: 8px; }
+.ms-option-outbound .live-rank-name { overflow: visible; }
+.item-row-title-select { appearance: none; border: 0; padding: 0; background: none; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.ms-option-row:has(.rank-entity-menu[open]) { flex-wrap: wrap; }
+.ms-option-outbound:has(.rank-entity-menu[open]) { flex-basis: 100%; padding: 0 8px 6px; }
+.ms-option-outbound .rank-entity-destinations { position: static; width: auto; max-width: none; }

@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 // The Diagnostics page (DebugPage.tsx) splits into one panel per sub-tab. Each
 // panel is a self-contained presentational component fed the data it needs by
 // DebugPage, which owns the fetching hooks (useDebug.ts) and the active-tab
@@ -369,7 +370,7 @@ function ContractDetail({ env, contractMeta }: { env: ContractEnvelope; contract
                 const status = source.last_status ?? "unknown";
                 return (
                   <tr key={source.source_id}>
-                    <td>{source.display_name ?? source.source_id}</td>
+                    <td><EntityLink sourceId={source.source_id} entity={{ kind: "source" }}>{source.display_name ?? source.source_id}</EntityLink></td>
                     <td>
                       <Badge text={status} kind={status === "unknown" ? undefined : `status-${status}`} />
                     </td>
@@ -551,7 +552,7 @@ export function SyncPanel({ stats, loading }: Pick<StoreStatsState, "stats" | "l
               {stats.sync_runs.map((run) => (
                 <tr key={run.run_id}>
                   <td title={run.started_at}>{relativeTime(run.started_at)}</td>
-                  <td>{run.source_id}</td>
+                  <td><EntityLink sourceId={run.source_id} entity={{ kind: "source" }}>{run.source_id}</EntityLink></td>
                   <td>{run.mode}</td>
                   <td>
                     <Badge text={run.status} kind={`status-${run.status}`} />
@@ -619,7 +620,7 @@ export function RateLimitPanel({ tokenRates }: { tokenRates: TokenRateLimitsStat
               <tbody>
                 {tokenRates.info.tokens.map((t: TokenRateLimit) => (
                   <tr key={`${t.source_id}|${t.env}`}>
-                    <td>{t.source_display}</td>
+                    <td><EntityLink sourceId={t.source_id} entity={{ kind: "source" }}>{t.source_display}</EntityLink></td>
                     <td>{t.kind === "github_app" ? "bot" : "PAT"}</td>
                     <td>{t.name ?? (t.kind === "github_app" ? "GitHub App" : "—")}</td>
                     <td>{t.strategy === "budget_aware" || t.strategy === "round_robin" ? "budget aware" : "failover"}</td>

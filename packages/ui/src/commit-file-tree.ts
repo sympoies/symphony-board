@@ -22,6 +22,7 @@
 export interface CommitFileTree {
   // Rendered lines, root (".") first. Empty when there are no paths.
   lines: string[];
+  entries: { prefix: string; name: string; path: string; directory: boolean }[];
   // Directory count INCLUDING the root, matching `tree`'s own summary line
   // (which `git-scope` reproduces).
   directories: number;
@@ -45,17 +46,20 @@ function sortedEntries(node: TreeNode): Array<[string, TreeNode]> {
   return [...node.children.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-function walk(node: TreeNode, prefix: string, out: string[], counts: { directories: number; files: number }): void {
+function walk(node: TreeNode, prefix: string, parent: string, out: string[], links: CommitFileTree["entries"], counts: { directories: number; files: number }): void {
   const entries = sortedEntries(node);
   entries.forEach(([name, child], index) => {
     const last = index === entries.length - 1;
-    out.push(`${prefix}${last ? "└── " : "├── "}${name}`);
+    const connector = `${prefix}${last ? "└── " : "├── "}`;
+    const path = parent ? `${parent}/${name}` : name;
+    out.push(`${connector}${name}`);
+    links.push({ prefix: connector, name, path, directory: !child.isFile || child.children.size > 0 });
     if (child.isFile && child.children.size === 0) {
       counts.files++;
       return;
     }
     counts.directories++;
-    walk(child, `${prefix}${last ? "    " : "│   "}`, out, counts);
+    walk(child, `${prefix}${last ? "    " : "│   "}`, path, out, links, counts);
   });
 }
 
@@ -83,14 +87,15 @@ export function buildCommitFileTree(paths: readonly string[]): CommitFileTree {
       node = child;
     });
   }
-  if (!any) return { lines: [], directories: 0, files: 0 };
+  if (!any) return { lines: [], entries: [], directories: 0, files: 0 };
 
   const lines = ["."];
+  const entries: CommitFileTree["entries"] = [{ prefix: "", name: ".", path: ".", directory: true }];
   // The root counts as a directory, which is what makes the CLI's summary read
   // "8 directories" for seven named ones.
   const counts = { directories: 1, files: 0 };
-  walk(root, "", lines, counts);
-  return { lines, directories: counts.directories, files: counts.files };
+  walk(root, "", "", lines, entries, counts);
+  return { lines, entries, directories: counts.directories, files: counts.files };
 }
 
 export function commitFileTreeSummary(tree: CommitFileTree): string {

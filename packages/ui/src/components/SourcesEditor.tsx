@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 import { useEffect, useRef, useState } from "react";
 import {
   configProjectPath,
@@ -194,9 +195,9 @@ export function SourcesEditor({ config, sync, variant = "default" }: Props) {
             return (
               <div className={`config-source${sourceEnabled ? "" : " config-source-disabled"}`} key={s.source_id}>
                 <div className="config-source-head">
-                  <span className="source-name">{s.source_id}</span>
+                  <EntityLink className="source-name" source={s} entity={{ kind: "source" }}>{s.source_id}</EntityLink>
                   <span className="muted">
-                    {s.kind} @ {s.host}
+                    {s.kind} @ <EntityLink source={s} entity={{ kind: "source" }}>{s.host}</EntityLink>
                   </span>
                   <span className="muted">auth: {authPolicyLabel(s.auth_policy)}</span>
                   <label className="config-enabled">
@@ -258,7 +259,7 @@ export function SourcesEditor({ config, sync, variant = "default" }: Props) {
                     const path = configProjectPath(p);
                     return (
                       <li key={path}>
-                        <span className="settings-repo-name">{path}</span>
+                        <EntityLink className="settings-repo-name" source={s} entity={{ kind: "repo", projectPath: path }}>{path}</EntityLink>
                         {projectAuthPolicy(p) ? <span className="muted">auth: {authPolicyLabel(projectAuthPolicy(p))}</span> : null}
                         <button
                           type="button"

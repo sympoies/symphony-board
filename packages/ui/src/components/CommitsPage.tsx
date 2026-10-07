@@ -1,3 +1,8 @@
+import { RankEntityLabel } from "./ExternalLink.tsx";
+import { actorDestinations, branchDestinations } from "../entity-links.ts";
+import { Fragment } from "react";
+import { ActorLink, EntityLink } from "./ExternalLink.tsx";
+import { ExternalLink, NavigationLink } from "./ExternalLink.tsx";
 import { DetailNav } from "./DetailNav.tsx";
 import { CheckIcon, CopyIcon } from "./icons.tsx";
 import { copyText } from "../clipboard.ts";
@@ -317,9 +322,9 @@ function CommitTimeline({
                 <div className="commit-row-main">
                   <div className="commit-title-line">
                     {commit.url ? (
-                      <a className="commit-message-link" href={commit.url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="commit-message-link" href={commit.url} target="_blank" rel="noopener noreferrer">
                         {commitMessage(commit)}
-                      </a>
+                      </ExternalLink>
                     ) : (
                       <span className="commit-message-link commit-message-text">{commitMessage(commit)}</span>
                     )}
@@ -343,14 +348,14 @@ function CommitTimeline({
                         line: the provider mark belongs to the repo path, not to
                         whatever follows it. */}
                     <span className="commit-meta-repo">
-                      <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
+                      <SourceRepo sourceId={commit.source_id} kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
                     </span>
-                    <span className="commit-meta-who">{actor} committed {relativeTime(commit.occurred_at)}</span>
+                    <span className="commit-meta-who"><ActorLink sourceId={commit.source_id} name={commit.actor} url={typeof commit.details?.actor_profile_url === "string" ? commit.details.actor_profile_url : null}>{actor}</ActorLink> committed {relativeTime(commit.occurred_at)}</span>
                     {/* Before the branch chips, which are what gets clipped when
                         the meta line runs out of room. */}
                     {changeRequest ? (
                       changeRequest.href ? (
-                        <a
+                        <NavigationLink
                           className="commit-cr-chip"
                           href={changeRequest.href}
                           title={changeRequest.view.title ?? "Change request"}
@@ -358,13 +363,14 @@ function CommitTimeline({
                           {...(changeRequest.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                         >
                           {changeRequest.view.label}
-                        </a>
+                        </NavigationLink>
                       ) : (
                         <span className="commit-cr-chip" title={changeRequest.view.title ?? "Change request"}>
                           {changeRequest.view.label}
                         </span>
                       )
                     ) : null}
+                    {changeRequest ? <EntityLink sourceId={commit.source_id} entity={{ kind: "change_request", projectPath: commit.project_path, iid: changeRequest.view.iid, url: changeRequest.view.url }} aria-label={`Open ${changeRequest.view.label} on provider`}>↗</EntityLink> : null}
                     {/* Default branch first (commitRefs), since the row has room for
                         two: a commit on `main` and three feature branches should
                         say `main`. */}
@@ -375,7 +381,7 @@ function CommitTimeline({
                         data-default={ref.isDefault ? "true" : undefined}
                         title={ref.isDefault ? `${ref.name} · default branch` : undefined}
                       >
-                        {ref.name}
+                        <EntityLink sourceId={commit.source_id} entity={{ kind: "branch", projectPath: commit.project_path, ref: ref.name }}>{ref.name}</EntityLink>
                       </span>
                     ))}
                   </div>
@@ -396,7 +402,7 @@ function CommitTimeline({
                   ) : (
                     <DiffStat stats={commitStats(commit)} />
                   )}
-                  {short ? <code className="commit-sha">{short}</code> : null}
+                  {short ? <ExternalLink href={commit.url}><code className="commit-sha">{short}</code></ExternalLink> : null}
                   <button
                     type="button"
                     className={`commit-icon-button commit-copy-button${copied ? " is-copied" : ""}`}
@@ -413,7 +419,7 @@ function CommitTimeline({
                     {copied ? <span className="commit-copy-tooltip" role="status">Copied!</span> : null}
                   </button>
                   {commit.url ? (
-                    <a
+                    <ExternalLink
                       className="commit-icon-button"
                       href={commit.url}
                       target="_blank"
@@ -423,7 +429,7 @@ function CommitTimeline({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <CodeIcon />
-                    </a>
+                    </ExternalLink>
                   ) : null}
                 </div>
               </div>
@@ -760,15 +766,14 @@ export function CommitsPage({
       <div className="toggle-group commits-source-group">
         <span className="toggle-label">source</span>
         {[...new Set([...sourceOptions, ...(selectedSource ? [selectedSource] : [])])].map((id) => (
-          <button
-            key={id}
+          <Fragment key={id}><button
             type="button"
             className={`toggle${id === selectedSource ? " toggle-on" : ""}`}
             onClick={() => onSource(id === selectedSource ? null : id)}
             title={id}
           >
             {sourceDisplayName(id)}
-          </button>
+          </button><EntityLink sourceId={id} entity={{ kind: "source" }} aria-label={`Open ${sourceDisplayName(id)} on provider`}>↗</EntityLink></Fragment>
         ))}
       </div>
     ) : null;
@@ -829,6 +834,7 @@ export function CommitsPage({
           ))}
         </select>
       </label>
+      {selectedBranch ? <RankEntityLabel label={selectedBranch} entities={branchDestinations(railBranchSource, selectedBranch)}>↗</RankEntityLabel> : null}
       {/* Author, the third SCM filter the route has always carried. Until now
           only the digest rail could set it, which left it unreachable wherever
           the rail is a sheet — and unfindable even on desktop, since nothing
@@ -860,6 +866,7 @@ export function CommitsPage({
           ))}
         </select>
       </label>
+      {selectedAuthor ? <RankEntityLabel label={selectedAuthor} entities={actorDestinations(railAuthorSource, selectedAuthor, actorIndex)}>↗</RankEntityLabel> : null}
       {mergeToggle}
       {pathChip}
     </div>
@@ -887,8 +894,7 @@ export function CommitsPage({
           const key = `${option.source_id}|${option.project_path}`;
           const selected = key === selectedRepoKey;
           return (
-            <button
-              key={key}
+            <Fragment key={key}><button
               type="button"
               className={`commit-filter-option${selected ? " is-selected" : ""}`}
               data-kind="repo"
@@ -899,7 +905,7 @@ export function CommitsPage({
               <span className="commit-filter-option-meta">
                 {option.count} {pluralize(option.count, "commit")} · {sourceKind.get(option.source_id) ?? option.source_id}
               </span>
-            </button>
+            </button><EntityLink sourceId={option.source_id} entity={{ kind: "repo", projectPath: option.project_path }} aria-label={`Open ${option.project_path} repository`}>↗</EntityLink></Fragment>
           );
         })}
       </div>
@@ -938,8 +944,7 @@ export function CommitsPage({
           </button>
         ) : null}
         {branchOptions.map((option) => (
-          <button
-            key={option.branch}
+          <Fragment key={option.branch}><button
             type="button"
             className={`commit-filter-option${option.branch === selectedBranch ? " is-selected" : ""}`}
             data-kind="branch"
@@ -950,7 +955,7 @@ export function CommitsPage({
             <span className="commit-filter-option-meta">
               {option.count} {pluralize(option.count, "commit")}
             </span>
-          </button>
+          </button><RankEntityLabel label={option.branch} entities={branchDestinations(railBranchSource, option.branch)}>↗</RankEntityLabel></Fragment>
         ))}
       </div>
     </div>
@@ -990,8 +995,7 @@ export function CommitsPage({
           </button>
         ) : null}
         {authorOptions.map((option) => (
-          <button
-            key={option.author}
+          <Fragment key={option.author}><button
             type="button"
             className={`commit-filter-option${option.author === selectedAuthor ? " is-selected" : ""}`}
             data-kind="author"
@@ -1002,7 +1006,7 @@ export function CommitsPage({
             <span className="commit-filter-option-meta">
               {option.count} {pluralize(option.count, "commit")}
             </span>
-          </button>
+          </button><RankEntityLabel label={option.author} entities={actorDestinations(railAuthorSource, option.author, actorIndex)}>↗</RankEntityLabel></Fragment>
         ))}
       </div>
     </div>
@@ -1042,6 +1046,7 @@ export function CommitsPage({
         </button>
       </div>
       {sourceChips}
+      {selectedAuthor ? <RankEntityLabel label={selectedAuthor} entities={actorDestinations(railAuthorSource, selectedAuthor, actorIndex)}>↗</RankEntityLabel> : null}
       {mergeToggle}
       {pathChip}
       {filterSheetTab === "repo" ? repoFilterSection() : filterSheetTab === "branch" ? branchFilterSection() : authorFilterSection()}

@@ -1,3 +1,5 @@
+import { ActorLink } from "./ExternalLink.tsx";
+import { ExternalLink } from "./ExternalLink.tsx";
 import { DetailNav } from "./DetailNav.tsx";
 import { useDetailSwipe } from "../useDetailSwipe.ts";
 import { detailNavigation } from "../detail-navigation.ts";
@@ -149,16 +151,16 @@ function statusBadge(status: ThreadStatus) {
 
 const catStyle = (colorVar: string): CSSProperties => ({ "--cat": colorVar }) as CSSProperties;
 
-function commentersLabel(thread: ReviewThreadDTO, target: ItemDTO | null): string {
+function Commenters({ thread, target }: { thread: ReviewThreadDTO; target: ItemDTO | null }) {
   const authors: string[] = [];
   for (const comment of thread.comments) {
     const author = comment.author?.trim();
     if (author && !authors.includes(author)) authors.push(author);
   }
   if (authors.length > 0) {
-    return authors.length === 1 ? `@${authors[0]}` : `@${authors[0]} +${authors.length - 1}`;
+    return <><ActorLink sourceId={thread.source_id} name={authors[0]!} username>@{authors[0]}</ActorLink>{authors.length > 1 ? ` +${authors.length - 1}` : ""}</>;
   }
-  return target?.author ? `@${target.author}` : "unknown";
+  return target?.author ? <ActorLink sourceId={target.source_id} name={target.author} username>@{target.author}</ActorLink> : <>unknown</>;
 }
 
 function threadTitle(row: ThreadRow): string {
@@ -232,6 +234,7 @@ function ReviewRow({
       aria-posinset={index + 1}
       aria-setsize={total}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
@@ -241,14 +244,14 @@ function ReviewRow({
       <div className="live-event-main">
         <div className="live-event-head">
           {statusBadge(status)}
-          <span className="live-event-title">{threadTitle(row)}</span>
+          <ExternalLink className="live-event-title" href={thread.url ?? target?.url}>{threadTitle(row)}</ExternalLink>
         </div>
         <div className="review-row-meta">
           <span className="review-row-repo">
-            <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
+            <SourceRepo sourceId={thread.source_id} kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
           </span>
-          <span className="review-row-by">{commentersLabel(thread, target)}</span>
-          <span className="review-row-loc">{location ?? "general discussion"}</span>
+          <span className="review-row-by"><Commenters thread={thread} target={target} /></span>
+          <ExternalLink className="review-row-loc" href={thread.url}>{location ?? "general discussion"}</ExternalLink>
         </div>
         {preview ? (
           <div
@@ -270,22 +273,22 @@ function ReviewRow({
 }
 
 
-function ReviewComment({ comment }: { comment: ReviewThreadCommentDTO }) {
+function ReviewComment({ comment, sourceId }: { comment: ReviewThreadCommentDTO; sourceId: string }) {
   const link = safeHref(comment.url);
   const when = comment.created_at ?? comment.updated_at;
   return (
     <article className="review-comment-card">
-      <ReviewAvatar author={comment.author} avatarUrl={comment.avatar_url} className="review-comment-avatar" />
+      <ActorLink sourceId={sourceId} name={comment.author} username><ReviewAvatar author={comment.author} avatarUrl={comment.avatar_url} className="review-comment-avatar" /></ActorLink>
       <div className="review-comment-main">
         <div className="review-comment-head">
-          <strong>{comment.author ? `@${comment.author}` : "unknown"}</strong>
+          <strong><ActorLink sourceId={sourceId} name={comment.author} username>{comment.author ? `@${comment.author}` : "unknown"}</ActorLink></strong>
           {when ? (
             <time title={when}>{relativeTime(when)}</time>
           ) : null}
           {link ? (
-            <a href={link} target="_blank" rel="noopener noreferrer" className="review-comment-link">
+            <ExternalLink href={link} target="_blank" rel="noopener noreferrer" className="review-comment-link">
               view ↗
-            </a>
+            </ExternalLink>
           ) : null}
         </div>
         <MarkdownBody text={comment.body ?? "(empty comment)"} className="live-md" />
@@ -325,31 +328,31 @@ function ReviewDetail({
         <div className="live-detail-main">
           <div className="live-detail-head">
             {statusBadge(status)}
-            {thread.resolved_by ? <span className="review-resolved-by">resolved by @{thread.resolved_by}</span> : null}
+            {thread.resolved_by ? <span className="review-resolved-by">resolved by <ActorLink sourceId={thread.source_id} name={thread.resolved_by} username>@{thread.resolved_by}</ActorLink></span> : null}
             <time title={threadTimeTitle(thread)}>{relativeTime(displayTime)}</time>
           </div>
           <h2 className="live-detail-title">
             {link ? (
-              <a className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
                 {threadTitle(row)}
                 <span className="live-detail-title-arrow" aria-hidden="true"> ↗</span>
-              </a>
+              </ExternalLink>
             ) : (
               threadTitle(row)
             )}
           </h2>
           <div className="live-detail-ref">
-            <SourceRepo kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
+            <SourceRepo sourceId={thread.source_id} kind={sourceKind.get(thread.source_id)} repo={thread.project_path} />
             <span className="review-detail-dot" aria-hidden="true">·</span>
-            <span>{commentersLabel(thread, target)}</span>
+            <span><Commenters thread={thread} target={target} /></span>
           </div>
-          <div className="review-detail-loc">{location ?? "general discussion"}</div>
+          <div className="review-detail-loc"><ExternalLink href={thread.url}>{location ?? "general discussion"}</ExternalLink></div>
           {thread.comments.length === 0 ? (
             <p className="muted">No synced comment detail for this thread.</p>
           ) : (
             <div className="review-comment-thread">
               {thread.comments.map((comment) => (
-                <ReviewComment key={comment.id} comment={comment} />
+                <ReviewComment key={comment.id} comment={comment} sourceId={thread.source_id} />
               ))}
               {hiddenComments > 0 ? (
                 <p className="muted review-comment-more">
@@ -366,7 +369,7 @@ function ReviewDetail({
             <div className={`review-thread-resolution${resolution.outdated ? " is-outdated" : ""}`} role="note">
               <span className="review-thread-resolution-mark" aria-hidden="true">✓</span>
               <span>
-                {resolution.label}
+                {thread.resolved_by ? <>Resolved by <ActorLink sourceId={thread.source_id} name={thread.resolved_by} username>@{thread.resolved_by}</ActorLink></> : resolution.label}
                 {resolution.outdated ? " · outdated" : ""}
               </span>
             </div>

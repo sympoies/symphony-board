@@ -1,3 +1,5 @@
+import { ActorLink, EntityLink } from "./ExternalLink.tsx";
+import { ExternalLink, NavigationLink } from "./ExternalLink.tsx";
 import type { ActivityDTO } from "@symphony-board/contract";
 import type { CSSProperties } from "react";
 import { SourceRepo } from "./SourceRepo.tsx";
@@ -102,9 +104,9 @@ export function CommitDetail({
             "Open on provider" line was a second control for the same target. */}
         <h3 className="commit-detail-title">
           {href ? (
-            <a className="commit-detail-title-link" href={href} target="_blank" rel="noreferrer noopener">
+            <ExternalLink className="commit-detail-title-link" href={href} target="_blank" rel="noreferrer noopener">
               {commitMessage(commit)}
-            </a>
+            </ExternalLink>
           ) : (
             commitMessage(commit)
           )}
@@ -115,7 +117,7 @@ export function CommitDetail({
             <dt>Repo</dt>
             <dd>
               {commit.project_path ? (
-                <SourceRepo kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
+                <SourceRepo sourceId={commit.source_id} kind={sourceKind.get(commit.source_id)} repo={commit.project_path} />
               ) : (
                 <span className="muted">unknown</span>
               )}
@@ -123,7 +125,7 @@ export function CommitDetail({
           </div>
           <div className="commit-detail-row">
             <dt>Author</dt>
-            <dd>{commit.actor ? <span className="commit-detail-actor">@{commit.actor}</span> : <span className="muted">unattributed</span>}</dd>
+            <dd>{commit.actor ? <ActorLink className="commit-detail-actor" sourceId={commit.source_id} name={commit.actor} username={commit.kind !== "commit"} url={typeof commit.details?.actor_profile_url === "string" ? commit.details.actor_profile_url : null}>@{commit.actor}</ActorLink> : <span className="muted">unattributed</span>}</dd>
           </div>
           <div className="commit-detail-row">
             <dt>Committed</dt>
@@ -141,7 +143,7 @@ export function CommitDetail({
                     shows the short form; this pane is where the complete
                     identifier has to be readable and selectable, so rendering
                     `shortSha ?? sha` here would leave it nowhere on screen. */}
-                <code className="commit-detail-sha">{sha}</code>
+                <EntityLink sourceId={commit.source_id} entity={{ kind: "commit", projectPath: commit.project_path, sha }}><code className="commit-detail-sha">{sha}</code></EntityLink>
               </dd>
             </div>
           ) : null}
@@ -172,17 +174,18 @@ export function CommitDetail({
                 ) : (
                   <>
                     {changeRequest.href ? (
-                      <a
+                      <NavigationLink
                         className="commit-cr-chip"
                         href={changeRequest.href}
                         {...(changeRequest.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                       >
                         {changeRequest.view.label}
-                      </a>
+                      </NavigationLink>
                     ) : (
                       <span className="commit-cr-chip">{changeRequest.view.label}</span>
                     )}
-                    {changeRequest.view.title ? <span className="commit-detail-cr-title">{changeRequest.view.title}</span> : null}
+                    <EntityLink sourceId={commit.source_id} entity={{ kind: "change_request", projectPath: commit.project_path, iid: changeRequest.view.iid, url: changeRequest.view.url }} aria-label={`Open ${changeRequest.view.label} on provider`}>↗</EntityLink>
+                    {changeRequest.view.title ? <EntityLink className="commit-detail-cr-title" sourceId={commit.source_id} entity={{ kind: "change_request", projectPath: commit.project_path, iid: changeRequest.view.iid, url: changeRequest.view.url }}>{changeRequest.view.title}</EntityLink> : null}
                     {changeRequest.view.state ? (
                       <Badge
                         text={changeRequest.view.draft && changeRequest.view.state === "open" ? "draft" : changeRequest.view.state}
@@ -207,7 +210,7 @@ export function CommitDetail({
               <dd className="commit-detail-branches">
                 {refs.map((ref) => (
                   <span key={ref.name} className="chip commit-branch-chip" data-default={ref.isDefault ? "true" : undefined}>
-                    {ref.name}
+                    <EntityLink sourceId={commit.source_id} entity={{ kind: "branch", projectPath: commit.project_path, ref: ref.name }}>{ref.name}</EntityLink>
                     {ref.isDefault ? <small>default</small> : null}
                   </span>
                 ))}

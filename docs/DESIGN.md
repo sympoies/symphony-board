@@ -1548,11 +1548,19 @@ allowlist, by env-var name, and never holds a provider token or config mount.
   neutral shared module. Absolute
   instants (`generated_at`, `updated_at`, `occurred_at`) stay UTC ISO-8601 —
   only calendar-day bucketing honors the zone.
-- **Provider links (3.2.0)**: the producer owns GitHub/GitLab URL construction
-  for repo metrics and activity rows. Repo Analytics uses `repo_url` for external
-  repo navigation and hash routes for internal drilldowns; Activity uses
-  `activities[].url` directly and leaves rows unlinked when the provider cannot
-  expose a reliable destination.
+- **Provider links**: `shared/provider-links.ts` owns pure GitHub/GitLab URL
+  construction for the producer and UI, including configured self-hosted
+  provider instances. Exact emitted permalinks take precedence over reconstructed
+  URLs. The UI's shared `ExternalLink` / `EntityLink` components apply safe web
+  URLs, new-tab attributes, consistent styling, and independent row selection;
+  the existing Tauri runtime adapter opens web links in the external browser.
+  Sources are resolved from the contract's configured `kind` and `host`; Live
+  can use its explicit provider-instance `source_id` before a contract loads.
+  Repo Analytics and other count controls keep hash routes for internal
+  drilldowns. Aggregate names spanning multiple repositories or accounts offer
+  qualified destinations. Missing identities and name-only commit authors stay
+  unlinked rather than guessing a profile; reviews and comments require exact
+  permalinks. No provider fetch or write is needed to build a link.
 - **The selected range is what the client downloads (#488)**: the shared
   date-range control is the single source of truth for the primary contract the
   client fetches — picking a range loads `/api/range` for exactly that window AS

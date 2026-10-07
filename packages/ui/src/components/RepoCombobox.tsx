@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { pluralize, type CommitRepoOption } from "../model.ts";
 
@@ -98,7 +99,7 @@ export function RepoCombobox({
         // clear button keep their own handlers, so we forward only the gaps.
         onMouseDown={(e) => {
           const target = e.target as HTMLElement;
-          if (target === inputRef.current || target.closest("button")) return;
+          if (target === inputRef.current || target.closest("button, a")) return;
           e.preventDefault();
           inputRef.current?.focus();
           setOpen(true);
@@ -127,7 +128,7 @@ export function RepoCombobox({
           onClick={() => setOpen(true)}
           // Mouse-down on an option commits before this blur fires (it prevents
           // default), so blur only closes a genuine focus-out (outside click, tab).
-          onBlur={() => setOpen(false)}
+          onBlur={(event) => { if (!rootRef.current?.contains(event.relatedTarget)) setOpen(false); }}
           onKeyDown={onKeyDown}
         />
         {value ? (
@@ -140,6 +141,7 @@ export function RepoCombobox({
           </span>
         )}
       </div>
+      {value ? <EntityLink sourceId={selectedSource} entity={{ kind: "repo", projectPath: value }} aria-label={`Open ${value} repository`}>↗</EntityLink> : null}
       {open && filtered.length > 0 ? (
         <ul className="repo-combobox-list" id="repo-combobox-list" role="listbox">
           {filtered.map((o, i) => (

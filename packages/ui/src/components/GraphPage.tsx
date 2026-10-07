@@ -1,3 +1,4 @@
+import { ActorLink, EntityLink, ExternalLink } from "./ExternalLink.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -176,15 +177,15 @@ function ItemNode({ data }: NodeProps) {
           keeps the node-body click (which FOCUSES the node) from also firing.
           Untracked nodes have no URL and keep the plain text title. */}
       {d.url ? (
-        <a className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+        <ExternalLink className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
           {d.label}
-        </a>
+        </ExternalLink>
       ) : (
         <div className="rf-node-title">{d.label}</div>
       )}
       <div className="rf-node-repo">
-        <span className={d.repo ? "card-repo" : "muted"}>{d.repo ?? "untracked"}</span>
-        {d.iid != null ? <span className="card-iid"> #{d.iid}</span> : null}
+        <EntityLink className={d.repo ? "card-repo nodrag" : "muted"} sourceId={d.item?.source_id} entity={{ kind: "repo", projectPath: d.repo }}>{d.repo ?? "untracked"}</EntityLink>
+        {d.iid != null ? <ExternalLink className="card-iid nodrag" href={d.url}> #{d.iid}</ExternalLink> : null}
       </div>
       {/* Two fixed rows mirroring the board/side-list card: the counts row
           (@author + shared item metrics) then the times row (updated · created).
@@ -192,7 +193,7 @@ function ItemNode({ data }: NodeProps) {
           unpredictably and could overflow the fixed-height node box. */}
       {!d.untracked && (d.author || metricCount > 0) && (
         <div className="rf-node-meta muted">
-          {d.author ? <span>@{d.author}</span> : null}
+          {d.author ? <ActorLink sourceId={d.item?.source_id} name={d.author} username>@{d.author}</ActorLink> : null}
           {d.item ? <ItemMetricStrip item={d.item} related={d.related} relatedTitle={d.related ? graphNodeRelatedTitle(d) : undefined} /> : null}
         </div>
       )}
@@ -218,12 +219,12 @@ function AttachedNode({ data }: NodeProps) {
       <div className="rf-node-head">
         <ItemKindIcon kind={d.kind} className="rf-node-kind-icon" />
         <Badge text={d.state} kind={d.state} />
-        {d.iid != null ? <span className="card-iid">#{d.iid}</span> : null}
+        {d.iid != null ? <ExternalLink className="card-iid nodrag" href={d.url}>#{d.iid}</ExternalLink> : null}
       </div>
       {d.url ? (
-        <a className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+        <ExternalLink className="rf-node-title nodrag" href={d.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
           {d.label}
-        </a>
+        </ExternalLink>
       ) : (
         <div className="rf-node-title">{d.label}</div>
       )}
@@ -1277,9 +1278,9 @@ export function GraphPage({
         <div className="graph-program-head">
           <span className="graph-program-kicker muted">program</span>
           {trackerItem?.url ? (
-            <a className="graph-program-title" href={trackerItem.url} target="_blank" rel="noopener noreferrer">
+            <ExternalLink className="graph-program-title" href={trackerItem.url} target="_blank" rel="noopener noreferrer">
               {trackerItem.title ?? focusId}
-            </a>
+            </ExternalLink>
           ) : (
             <span className="graph-program-title">{trackerItem?.title ?? focusId.split("|").pop()}</span>
           )}

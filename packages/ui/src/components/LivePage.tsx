@@ -1,3 +1,5 @@
+import { ActorLink, EntityLink, RankEntityLabel } from "./ExternalLink.tsx";
+import { ExternalLink } from "./ExternalLink.tsx";
 import { DetailNav } from "./DetailNav.tsx";
 import { useDetailSwipe } from "../useDetailSwipe.ts";
 // Contract-independent Live tab. Renders the realtime webhook feed from the
@@ -184,6 +186,7 @@ function targetText(ev: LiveEvent): { repo: string; num: string } {
 
 function LiveAvatar({
   actor,
+  sourceId,
   linked = true,
   // The native `title` is the browser's own tooltip: it waits about a second,
   // dismisses on the smallest pointer move, and will not re-arm until the pointer
@@ -193,6 +196,7 @@ function LiveAvatar({
   titled = true,
 }: {
   actor: LiveEventActor | null | undefined;
+  sourceId?: string;
   linked?: boolean;
   titled?: boolean;
 }) {
@@ -211,22 +215,21 @@ function LiveAvatar({
     <span className="live-avatar-fallback" aria-hidden="true">{model.initials}</span>
   );
   const className = `live-avatar${model.imageUrl && !failed ? " live-avatar-image" : " live-avatar-text"}`;
-  if (!linked || !model.profileUrl) {
+  if (!linked) {
     return <span className={className} title={titled ? model.label : undefined} aria-label={model.label}>{body}</span>;
   }
   return (
-    <a
+    <ActorLink
       className={className}
-      href={model.profileUrl}
+      sourceId={sourceId} name={actor?.login ?? null} username url={model.profileUrl}
       title={titled ? model.label : undefined}
       aria-label={`Open ${model.label} profile on provider`}
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
     >
       {body}
-    </a>
+    </ActorLink>
   );
 }
 
@@ -291,21 +294,22 @@ function LiveRow({
       aria-posinset={index + 1}
       aria-setsize={total}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
         }
       }}
     >
-      <LiveAvatar actor={ev.actor} />
+      <LiveAvatar actor={ev.actor} sourceId={ev.source_id} />
       <div className="live-event-main">
         <div className="live-event-head">
           <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />
-          <span className="live-event-title">{ev.title ?? `${actor} · ${ev.event_type}`}</span>
+          <ExternalLink className="live-event-title" href={eventLink(ev)}>{ev.title ?? `${actor} · ${ev.event_type}`}</ExternalLink>
         </div>
         <div className="live-event-repo">
-          {repo}
-          {num ? <span className="live-event-num"> {num}</span> : null}
+          <EntityLink sourceId={ev.source_id} entity={{ kind: "repo", projectPath: eventRepo(ev) }}>{repo}</EntityLink>
+          {num ? <ExternalLink className="live-event-num" href={ev.target?.url ?? eventLink(ev)}> {num}</ExternalLink> : null}
         </div>
         {targetTitle || ev.body ? (
           <div
@@ -313,7 +317,7 @@ function LiveRow({
             className={`live-event-preview${clamped ? " is-clamped" : ""}`}
             style={{ "--preview-lines": previewLines } as CSSProperties}
           >
-            {targetTitle ? <div className="live-event-target-title">{targetTitle}</div> : null}
+            {targetTitle ? <ExternalLink className="live-event-target-title" href={ev.target?.url}>{targetTitle}</ExternalLink> : null}
             {ev.body ? <MarkdownBody text={ev.body} className="live-md live-md-preview" /> : null}
           </div>
         ) : null}
@@ -376,7 +380,7 @@ function LiveDetail({
           relative-time re-render (the key is stable across ticks); react-markdown
           is lazy + module-cached, so the swap re-parses without a Suspense flash. */}
       <div className="live-detail-shell" key={liveEventKey(ev)} data-motion={motion} style={catStyle(ev.category)}>
-        <LiveAvatar actor={ev.actor} />
+        <LiveAvatar actor={ev.actor} sourceId={ev.source_id} />
         <div className="live-detail-main">
           <div className="live-detail-head">
             <Badge text={action} kind={ACTION_KIND[action] ?? "status-unknown"} />
@@ -389,24 +393,24 @@ function LiveDetail({
               repo + number stays as a plain reference line below. */}
           <h2 className="live-detail-title">
             {link ? (
-              <a className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="live-detail-title-link" href={link} target="_blank" rel="noopener noreferrer">
                 {ev.title ?? `${actor} · ${ev.event_type}`}
                 <span className="live-detail-title-arrow" aria-hidden="true"> ↗</span>
-              </a>
+              </ExternalLink>
             ) : (
               (ev.title ?? `${actor} · ${ev.event_type}`)
             )}
           </h2>
           <div className="live-detail-ref">
-            {repo}
-            {num ? <span className="live-event-num"> {num}</span> : null}
+            <EntityLink sourceId={ev.source_id} entity={{ kind: "repo", projectPath: eventRepo(ev) }}>{repo}</EntityLink>
+            {num ? <ExternalLink className="live-event-num" href={ev.target?.url ?? eventLink(ev)}> {num}</ExternalLink> : null}
           </div>
           {targetTitle ? (
             <h3 className="live-detail-target-title">
               {targetLink ? (
-                <a href={targetLink} target="_blank" rel="noopener noreferrer">
+                <ExternalLink href={targetLink} target="_blank" rel="noopener noreferrer">
                   {targetTitle}
-                </a>
+                </ExternalLink>
               ) : (
                 targetTitle
               )}
@@ -885,7 +889,7 @@ export function LivePage({
             {latestInstant != null ? `${relativeAge(latestInstant, now)} ago` : "—"}
           </div>
           <div className="live-card-sub">
-            {latest ? `${humanizeCategory(latest.category)} · ${shortRepo(eventRepo(latest))}` : "waiting…"}
+            {latest ? <>{humanizeCategory(latest.category)} · <EntityLink sourceId={latest.source_id} entity={{ kind: "repo", projectPath: eventRepo(latest) }}>{shortRepo(eventRepo(latest))}</EntityLink></> : "waiting…"}
           </div>
         </div>
         <div className="live-card live-card-ranked">
@@ -906,7 +910,8 @@ export function LivePage({
               key: rank.key,
               label: rank.label,
               count: rank.count,
-              footer: <LiveAvatar actor={rank.actor} titled={false} />,
+              nameTip: <ActorLink sourceId={rank.key.split("|")[0]} name={rank.actor?.login ?? null} url={rank.actor?.profile_url} username>{rank.label}</ActorLink>,
+              footer: <LiveAvatar actor={rank.actor} sourceId={rank.key.split("|")[0]} titled={false} />,
             }))}
           />
         </div>
@@ -931,7 +936,8 @@ export function LivePage({
               key: rank.key,
               label: rank.label,
               count: rank.count,
-              footer: <span className="live-rank-name" aria-hidden="true">{shortRepo(rank.label)}</span>,
+              nameTip: <EntityLink sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: rank.label }}>{rank.label}</EntityLink>,
+              footer: <EntityLink className="live-rank-name" sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: rank.label }} aria-label={`Open ${rank.label} repository on provider`}>{shortRepo(rank.label)}</EntityLink>,
             }))}
           />
         </div>
@@ -977,8 +983,8 @@ export function LivePage({
             ))}
           </div>
           <div className="live-selects">
-            <MultiSelect label="Repo" options={repoOptions} selected={repos} onChange={setRepos} />
-            <MultiSelect label="People" options={peopleOptions} selected={people} onChange={setPeople} />
+            <MultiSelect label="Repo" options={repoOptions} selected={repos} onChange={setRepos} renderLink={path => <RankEntityLabel label={path} entities={visibleEvents.filter(ev => eventRepo(ev) === path).map(ev => ({ sourceId: ev.source_id, label: `${path} · ${ev.source_id}`, entity: { kind: "repo", projectPath: path } }))}>↗</RankEntityLabel>} />
+            <MultiSelect label="People" options={peopleOptions} selected={people} onChange={setPeople} renderLink={name => <RankEntityLabel label={name} entities={visibleEvents.filter(ev => actorKey(ev) === name).map(ev => ({ sourceId: ev.source_id, label: `${name} · ${ev.source_id}`, entity: { kind: "profile", username: ev.actor?.login, url: ev.actor?.profile_url } }))}>↗</RankEntityLabel>} />
           </div>
         </div>
       ) : null}

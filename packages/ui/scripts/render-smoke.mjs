@@ -1447,6 +1447,38 @@ try {
 
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
+  const outboundChecks = [];
+  const captureOutboundLinks = async (screen, selectors) => {
+    const result = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const selectors = ${JSON.stringify(selectors)};
+        const links = selectors.flatMap(selector => [...document.querySelectorAll(selector)]);
+        const missing = selectors.filter(selector => !document.querySelector(selector));
+        const bad = links.filter(link => link.tagName !== 'A' || !/^https?:/.test(link.href) ||
+          link.target !== '_blank' || !link.rel.includes('noopener') || !link.rel.includes('noreferrer') ||
+          link.closest('button') || link.closest('[aria-hidden="true"]'));
+        const link = links[0];
+        const before = location.hash;
+        const selection = () => [...document.querySelectorAll('[aria-pressed="true"], .commit-row-selected, .live-event-selected')].map(el => el.className).join('|');
+        const selectedBefore = selection();
+        let shortcutPropagated = false;
+        if (link) {
+          window.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
+          link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          link.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          const onShortcut = () => { shortcutPropagated = true; };
+          window.addEventListener('keydown', onShortcut);
+          link.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9', bubbles: true }));
+          window.removeEventListener('keydown', onShortcut);
+        }
+        return { count: links.length, missing, bad: bad.map(link => link.outerHTML.slice(0, 200)),
+          independent: location.hash === before && selection() === selectedBefore, shortcutPropagated,
+          destinations: [...new Set(links.map(link => link.getAttribute('href')))].slice(0, 8) };
+      })()`, returnByValue: true,
+    })).result.value || {};
+    outboundChecks.push([result.count > 0 && result.missing?.length === 0 && result.bad?.length === 0 && result.independent === true && result.shortcutPropagated === true,
+      `${screen}: shared outbound links have safe destinations, new-tab attributes, accessible targets and independent selection (${JSON.stringify(result)})`]);
+  };
   const titleLinkHitTargets = [];
   const captureTitleLinkHitTarget = async (surface, linkSelector, containerSelector) => {
     const result = (await send("Runtime.evaluate", {
@@ -1831,6 +1863,7 @@ try {
   await sleep(300);
   // Page 1 — the full-bleed 5-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-lanes .card')");
+  await captureOutboundLinks('Board', ['.board-lanes a.card-repo', '.board-lanes .card-meta a.muted']);
   await captureTitleLinkHitTarget("board card", ".board-lanes .card-title[href]", ".card");
   const boardKindLabelSummary = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -2019,6 +2052,7 @@ try {
   })).result.value || {};
   let graphNodeMetricCounts = {};
   await captureTitleLinkHitTarget("graph canvas node", ".graph-page .rf-node-title[href]", ".rf-node");
+  await captureOutboundLinks('Graph', ['.rf-node-repo a.card-repo']);
   const graphPaneLayout = (await send("Runtime.evaluate", {
     expression: `(() => {
       const list = document.querySelector('.graph-list');
@@ -2619,7 +2653,9 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   const activityHtml = await waitHtml("document.querySelector('.activity-row')");
+  await captureOutboundLinks('Activity', ['.activity-meta a.card-repo']);
   await captureTitleLinkHitTarget("activity row", ".activity-page .activity-title[href]", ".activity-row");
+  const activityListText = await textOf(".activity-list");
   const activityRangeButtons = await rangeButtonLabels();
   const activityCountText = await textOf(".activity-head .count");
   const activityDomRows = (await send("Runtime.evaluate", {
@@ -2844,6 +2880,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
   await sleep(300);
   const itemsHtml = await waitHtml("document.querySelector('.items-page .item-row')");
+  await captureOutboundLinks('Items', ['.item-row-meta a.card-repo']);
   await captureTitleLinkHitTarget("items row", ".items-page .item-row-title[href]", ".item-row");
   await captureTitleLinkHitTarget("items detail", ".items-page .items-detail-title-link", ".items-detail-title");
   const itemsRangeButtons = await rangeButtonLabels();
@@ -2936,7 +2973,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
   await sleep(300);
   await waitHtml("document.querySelectorAll('.items-page .item-row').length >= 2");
-  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.items-page .item-row')[1]?.click()" });
+  await send("Runtime.evaluate", { expression: "(() => { const title = document.querySelectorAll('.items-page .item-row')[1]?.querySelector('.item-row-title'); title?.addEventListener('click', e => { if (title.tagName === 'A') e.preventDefault(); }, { once: true }); title?.click(); })()" });
   await sleep(180);
   const itemsMobileDetail = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -3072,6 +3109,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
+  await captureOutboundLinks('Commits', ['.commit-meta-repo a.card-repo', '.commit-ref-chip a']);
   await captureTitleLinkHitTarget("commits row", ".commits-page .commit-message-link[href]", ".commit-row-body");
   // The repo + branch filters collapse by default at narrow widths; expand them
   // so the toolbar layout / chrome / combobox checks below can see the controls.
@@ -3333,7 +3371,7 @@ try {
     expression: `(() => {
       const opt = Array.from(document.querySelectorAll('.repo-combobox-option'))
         .find((el) => (el.textContent || '').includes('example-group/symphony-board-fixture'));
-      if (opt) opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      opt?.querySelector('.repo-combobox-name')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     })()`,
   });
   await sleep(250);
@@ -3351,6 +3389,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/repo-analytics'" });
   await sleep(300);
   const repoHtml = await waitHtml("document.querySelector('.repo-table tbody tr')");
+  await captureOutboundLinks('Metrics', ['.repo-provider-link', '.repo-actor-link']);
   await captureTitleLinkHitTarget("metrics repo", ".repo-analytics-page .repo-provider-link[href]", ".repo-name-main");
   const repoRangeButtons = await rangeButtonLabels();
   const repoCountText = await textOf(".repo-analytics-head .count");
@@ -3422,6 +3461,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/reviews?ireview=unresolved'" });
   await sleep(300);
   const reviewsHtml = await waitHtml("document.querySelector('.reviews-page .live-feed .live-event')");
+  await captureOutboundLinks('Reviews', ['.review-row-repo a.card-repo', '.review-comment-head strong a']);
   await captureTitleLinkHitTarget("reviews detail", ".reviews-page .live-detail-title-link", ".live-detail-title");
   const reviewsRangeButtons = await rangeButtonLabels();
   const reviewsCountText = await textOf(".reviews-head .count");
@@ -3455,7 +3495,7 @@ try {
           const avatarRect = avatar?.getBoundingClientRect();
           const mainRect = main?.getBoundingClientRect();
           return {
-            avatarIsCardChild: !!(card && avatar && avatar.parentElement === card),
+            avatarIsCardChild: !!(card && avatar && (avatar.closest('a') ?? avatar).parentElement === card),
             mainStartsAfterAvatar: !!(avatarRect && mainRect && mainRect.left >= avatarRect.right + 6),
           };
         })(),
@@ -3542,6 +3582,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  await captureOutboundLinks('Settings', ['a.settings-repo-name']);
   const settingsGroups = (await send("Runtime.evaluate", {
     expression: `(() => {
       const groups = Array.from(document.querySelectorAll('.settings-group'));
@@ -4687,6 +4728,7 @@ try {
   });
   await sleep(300);
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
+  await captureOutboundLinks('Live', ['.live-card .live-rank-name[href]', '.live-event-repo a']);
   await sleep(120); // let the auto-select effect populate the detail pane
   await captureTitleLinkHitTarget("live detail", ".live-page .live-detail-title-link", ".live-detail-title");
   await captureSelectionSurface('Live', '.live-event-selected');
@@ -5296,6 +5338,19 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  const liveFilterLabelToggles = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const label = document.querySelector('.live-selects .ms-option');
+      const input = label?.querySelector('input');
+      const name = label?.querySelector('.ms-option-label');
+      const before = input?.checked;
+      name?.addEventListener('click', e => { if (e.target.closest('a')) e.preventDefault(); });
+      name?.click();
+      const toggled = !!input && input.checked !== before;
+      name?.click();
+      return { toggled, restored: input?.checked === before, nestedLink: !!label?.querySelector('a, details') };
+    })()`, returnByValue: true,
+  })).result.value || {};
   await send("Runtime.evaluate", { expression: "document.body.click()" });
   await sleep(80);
   await send("Runtime.evaluate", { expression: "document.querySelector('.live-feed .live-event')?.click()" });
@@ -5540,9 +5595,8 @@ try {
         stripsImg: !body?.querySelector('img'),
         // Safe tags survive but event-handler attributes on them are stripped.
         stripsEventHandler: !body?.querySelector('[onclick]'),
-        // The javascript: link renders as a real <a> (proving urlTransform ran),
-        // but its href is neutralized — never a javascript: URL.
-        linkRendered: Array.from(body?.querySelectorAll('a') || []).some((a) => (a.textContent || '').includes('tracking link')),
+        // Unsafe links keep their readable text as a span, without an outbound target.
+        linkRendered: Array.from(body?.querySelectorAll('span') || []).some((a) => (a.textContent || '').includes('tracking link')),
         stripsJsHref: !Array.from(body?.querySelectorAll('a[href]') || []).some((a) => /^\\s*javascript:/i.test(a.getAttribute('href') || '')),
         xssNotExecuted: typeof window.__xss === 'undefined',
       };
@@ -6352,11 +6406,11 @@ try {
         // it was built for an avatar, so a bare word wrapped inside it mid-word:
         // "chore" read "chor / e" and "committed" was cut to "com / mi...".
         // Measured on short single tokens, which have no legitimate break.
-        brokenNames: [...rail.querySelectorAll('.live-rank-name')]
+        brokenNames: [...rail.querySelectorAll('.live-rank-footer > .live-rank-name')]
           .filter((el) => /^[a-z0-9]{1,9}$/i.test((el.textContent || '').trim()))
           .filter((el) => el.getBoundingClientRect().height > parseFloat(getComputedStyle(el).fontSize) * 1.6 || el.scrollWidth > el.clientWidth + 1)
           .map((el) => (el.textContent || '').trim()),
-        shortNames: [...rail.querySelectorAll('.live-rank-name')].filter((el) => /^[a-z0-9]{1,9}$/i.test((el.textContent || '').trim())).length,
+        shortNames: [...rail.querySelectorAll('.live-rank-footer > .live-rank-name')].filter((el) => /^[a-z0-9]{1,9}$/i.test((el.textContent || '').trim())).length,
         hourBars: overview.querySelectorAll('.rail-hourbar').length,
         summaryTiles: overview.querySelectorAll('.hm-summary > div').length,
         // The trailing-12-month commit calendar. Unlike every other block in
@@ -6572,7 +6626,7 @@ try {
     expression: `(() => ({
       hash: location.hash,
       hasRepoParam: /[?&]repo=/.test(location.hash),
-      pressed: !!document.querySelector('.commits-rail .live-rank-item-on'),
+      pressed: !!document.querySelector('.commits-rail .live-rank-item-action[aria-pressed="true"]'),
     }))()`,
     returnByValue: true,
   })).result.value || {};
@@ -6584,11 +6638,11 @@ try {
     expression: `(() => {
       const repoRows = [...document.querySelectorAll('.commits-rail .live-rank-chart-repos .live-rank-item')];
       const rowsInList = document.querySelectorAll('.commit-list .commit-row').length;
-      const pressed = document.querySelector('.commits-rail .live-rank-item-on');
+      const pressed = document.querySelector('.commits-rail .live-rank-item-action[aria-pressed="true"]');
       return {
         // Still offers repos other than the one now selected.
         repoRows: repoRows.length,
-        pressedRows: document.querySelectorAll('.commits-rail .live-rank-item-on').length,
+        pressedRows: document.querySelectorAll('.commits-rail .live-rank-item-action[aria-pressed="true"]').length,
         // Sanity: the LIST really did narrow, so the rail keeping its breadth is
         // a deliberate difference and not just "nothing was filtered".
         rowsInList,
@@ -6817,7 +6871,7 @@ try {
   })).result.value || { found: false };
   await sleep(350);
   const railRowPressedAfter = (await send("Runtime.evaluate", {
-    expression: "document.querySelector('.commits-rail .live-rank-item-on')?.getAttribute('aria-pressed') ?? null",
+    expression: "document.querySelector('.commits-rail .live-rank-item-action.live-rank-item-on')?.getAttribute('aria-pressed') ?? null",
     returnByValue: true,
   })).result.value;
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
@@ -7428,19 +7482,19 @@ try {
       const after = legend();
       const row = document.querySelectorAll('.activity-overview .activity-busiest-row')[1];
       const label = row?.querySelector('.pane-row-cr-number')?.textContent?.trim() || '';
-      row?.click();
+      row?.querySelector('.entity-row-select')?.click();
       await wait(200);
       const detailTitle = document.querySelector('.activity-detail .activity-detail-title')?.textContent?.trim() || '';
       // The item's newest event may be a commit that names it as its change
       // request; either way the pane names the item.
       const detailNamesItem = (document.querySelector('.activity-detail')?.textContent || '').includes(label);
       const where = [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Where');
-      const repoButton = where?.querySelector('.live-rank-item');
+      const repoButton = where?.querySelector('.live-rank-item-action');
       repoButton?.click();
       await wait(250);
       const hashOn = location.hash;
-      const pressed = where ? [...where.querySelectorAll('.live-rank-item')].some((b) => b.getAttribute('aria-pressed') === 'true') : false;
-      [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Where')?.querySelector('.live-rank-item[aria-pressed="true"]')?.click();
+      const pressed = where ? [...where.querySelectorAll('.live-rank-item-action')].some((b) => b.getAttribute('aria-pressed') === 'true') : false;
+      [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'Where')?.querySelector('.live-rank-item-action[aria-pressed="true"]')?.click();
       await wait(250);
       const hashOff = location.hash;
       // A review verdict toggles the action facet with the action's own value.
@@ -7454,10 +7508,10 @@ try {
       const verdictCleared = location.hash;
       // A What row toggles the kind facet.
       const whatBlock = () => [...document.querySelectorAll('.activity-panes-rail .rail-block')].find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === 'What');
-      whatBlock()?.querySelector('.live-rank-item')?.click();
+      whatBlock()?.querySelector('.live-rank-item-action')?.click();
       await wait(250);
       const kindHash = location.hash;
-      whatBlock()?.querySelector('.live-rank-item[aria-pressed="true"]')?.click();
+      whatBlock()?.querySelector('.live-rank-item-action[aria-pressed="true"]')?.click();
       await wait(250);
       return { before, after, actorPressed, label, detailTitle, detailNamesItem, hashOn, pressed, hashOff, verdictHash, verdictPressed, verdictCleared, kindHash, kindCleared: location.hash };
     })()`,
@@ -7842,7 +7896,7 @@ try {
       meta: (pane?.querySelector('.rail-block-meta')?.textContent || '').trim(),
       rows: pane?.querySelectorAll('.live-rank-item').length ?? -1,
       selectable: pane?.querySelectorAll('.live-rank-item-action').length ?? -1,
-      on: pane?.querySelectorAll('.live-rank-item-on').length ?? -1,
+      on: pane?.querySelectorAll('.live-rank-item-action[aria-pressed="true"]').length ?? -1,
       firstName: (pane?.querySelector('.live-rank-item .live-rank-name')?.textContent || '').trim(),
       firstBarPx: Math.round(rect(pane?.querySelector('.live-rank-bar') || document.body).width),
       // The head names the row's columns only if it sits over them.
@@ -7886,7 +7940,7 @@ try {
   await send("Runtime.evaluate", { expression: "document.querySelector('.commits-rail .rank-cols-authors .live-rank-item-action')?.click()" });
   await sleep(350);
   const hotUnderAuthor = (await send("Runtime.evaluate", { expression: hotFilesProbe, returnByValue: true })).result.value || {};
-  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-rail .rank-cols-authors .live-rank-item-on')?.click()" });
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-rail .rank-cols-authors .live-rank-item-action.live-rank-item-on')?.click()" });
   await sleep(350);
   // A commit's change request (contract 4.8.2): the number on its row, the
   // item in its detail, and the range regrouped by change request in a pane.
@@ -8019,7 +8073,7 @@ try {
   });
   await sleep(150);
   // A row of Largest commits is a way INTO that commit: it pins the detail pane.
-  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-overview .pane-row-commit')?.click()" });
+  await send("Runtime.evaluate", { expression: "document.querySelector('.commits-overview .pane-row-commit .entity-row-select')?.click()" });
   await sleep(350);
   const commitsWideLargestPin = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -8030,7 +8084,8 @@ try {
       const doc = document.documentElement;
       return {
         hasDetail: !!detail,
-        pressedRows: document.querySelectorAll('.commits-overview .pane-row-commit[aria-pressed="true"]').length,
+        pressedRows: document.querySelectorAll('.commits-overview .pane-row-commit .entity-row-select[aria-pressed="true"]').length,
+        selectedPaint: (() => { const button = document.querySelector('.commits-overview .pane-row-commit .entity-row-select[aria-pressed="true"]'); if (!button) return false; const probe = document.createElement('span'); probe.style.backgroundColor = 'var(--selection-bg)'; button.parentElement.append(probe); const expected = getComputedStyle(probe).backgroundColor; probe.remove(); return getComputedStyle(button.parentElement).backgroundColor === expected; })(),
         // With the detail card above it the overview has less height than its
         // panes need. It scrolls inside its column; it does not squeeze them and
         // it does not push the page.
@@ -8468,6 +8523,7 @@ try {
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
 
   const checks = [
+    ...outboundChecks,
     ...debugFillChecks,
     debugStickyCheck,
     debugSyncGqlCheck,
@@ -8981,7 +9037,7 @@ try {
     ],
     [
       commitsWideLargestPin.hasDetail === true &&
-        commitsWideLargestPin.pressedRows === 1 &&
+        commitsWideLargestPin.pressedRows === 1 && commitsWideLargestPin.selectedPaint === true &&
         commitsWideLargestPin.overviewScrolls === true &&
         Math.abs(commitsWideLargestPin.contextShort) <= 2 &&
         commitsWideLargestPin.dayPlotPx === commitsWidePanes.dayPlotPx &&
@@ -9037,10 +9093,9 @@ try {
         rankAvatarAffordance.tipText.length > 0 &&
         rankAvatarAffordance.tipHiddenAtRest === true &&
         /^0s(,\s*0s)*$/.test(rankAvatarAffordance.tipDelay || "") &&
-        // An actor with no profile URL must stay a span with an arrow, so the
-        // cursor still tells the truth about what is clickable.
-        rankAvatarAffordance.unlinkedTag === "SPAN" &&
-        rankAvatarAffordance.unlinkedCursor === "default",
+        // Unknown identities remain spans; known provider usernames can now
+        // reconstruct their profile even without an observed URL.
+        (rankAvatarAffordance.unlinkedTag === null || (rankAvatarAffordance.unlinkedTag === "SPAN" && rankAvatarAffordance.unlinkedCursor === "default")),
       `live: a rank avatar links to its profile and names itself through an instant tip (${JSON.stringify(rankAvatarAffordance)})`,
     ],
     [badTitleLinkHitTargets.length === 0, `app: provider title links only use their rendered text as the hit target (${JSON.stringify(titleLinkHitTargets)})`],
@@ -9352,7 +9407,7 @@ try {
     [has(activityHtml, "committed") && has(activityHtml, "merged") && has(activityHtml, "closed"), "activity: action badges rendered"],
     [has(activityHtml, ">abc12348<") && has(activityHtml, "Ship activity feed"), "activity: commit headline shows short sha and title"],
     [has(activityHtml, ">#13<") && has(activityHtml, "Fix flaky sync-engine test"), "activity: change request headline shows iid and title"],
-    [has(activityHtml, "branch main") && has(activityHtml, "111 → 222"), "activity: push row shows ref and commit range chip"],
+    [has(activityHtml, "branch main") && has(activityListText, "111 → 222"), "activity: push row shows ref and commit range chip"],
     [
       activityDetailFollowing.present === true &&
         activityDetailFollowing.following === false &&
@@ -9610,6 +9665,7 @@ try {
     // … and selecting a row without an event url falls back to the target url.
     [/\/pull\/\d+$/.test(liveFallbackLink), `live: a selected row without an event url falls back to the target url (${liveFallbackLink || "none"})`],
     [liveMobileCards.bufferChartHidden === true && liveMobileCards.activeChartHidden === true && liveMobileCards.bufferMobileSubVisible === true && liveMobileCards.activeMobileSubVisible === true && liveMobileCards.bufferMobileSub === "retained events · memory cap", `live: phone hides rank charts and shows compact summaries (${JSON.stringify(liveMobileCards)})`],
+    [liveFilterLabelToggles.toggled === true && liveFilterLabelToggles.restored === true && liveFilterLabelToggles.nestedLink === false, `live: filter name toggles selection independently of outbound action (${JSON.stringify(liveFilterLabelToggles)})`],
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileNav.navButtons === 2 && liveMobileNav.motion === "next" && liveMobileNav.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileNav.count || "") && liveMobileNav.selectedMatchesDetail === true && liveMobileNav.newerDisabled === false && liveMobileNav.olderDisabled === false, `live: phone detail Older button advances detail and selected feed row together (${JSON.stringify(liveMobileNav)})`],

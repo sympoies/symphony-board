@@ -1,3 +1,5 @@
+import { EntityLink, RankEntityLabel } from "./ExternalLink.tsx";
+import { actorDestinations, branchDestinations } from "../entity-links.ts";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, useState, type ReactNode } from "react";
 import { RankChart } from "./RankChart.tsx";
@@ -129,11 +131,12 @@ export function ActivityPanesRail({
               detail: facts
                 ? `${share(rank.count, total)} of the range, ${facts.repos} ${pluralize(facts.repos, "repo")}, active ${facts.activeDays} of ${dayCount} ${pluralize(dayCount, "day")}`
                 : undefined,
+              nameTip: <RankEntityLabel label={rank.label} entities={actorDestinations(activities, rank.label, actorIndex)} />,
               footer: (
-                <span className="activity-rank-actor">
+                <RankEntityLabel className="rank-actor-link" label={rank.label} entities={actorDestinations(activities, rank.label, actorIndex)}><span className="activity-rank-actor">
                   <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />
-                  <span className="activity-rank-actor-name" aria-hidden="true">{rank.label}</span>
-                </span>
+                  <span className="activity-rank-actor-name">{rank.label}</span>
+                </span></RankEntityLabel>
               ),
             };
           })}
@@ -179,10 +182,9 @@ export function ActivityPanesRail({
                 ? `${share(rank.count, total)} of the range, ${facts.authors} ${pluralize(facts.authors, "person", "people")}, active ${facts.activeDays} of ${facts.perDay.length} ${pluralize(facts.perDay.length, "day")}, last event ${relativeTime(facts.lastAt)}`
                 : undefined,
               onSelect: onFacet ? () => onFacet("repos", path) : undefined,
+              nameTip: <EntityLink sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: path }}>{rank.label}</EntityLink>,
               footer: (
-                <span className="live-rank-name" aria-hidden="true">
-                  {shortRepoLabel(rank.label)}
-                </span>
+                <EntityLink className="live-rank-name" sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: path }}>{shortRepoLabel(rank.label)}</EntityLink>
               ),
             };
           })}
@@ -210,11 +212,12 @@ export function ActivityPanesRail({
               count: rank.count,
               extra: facts ? <span>{facts.repos}</span> : undefined,
               detail: facts ? `${facts.isDefault ? "default branch, " : ""}in ${facts.repos} ${pluralize(facts.repos, "repo")}` : undefined,
+              nameTip: <RankEntityLabel label={rank.label} entities={branchDestinations(activities, rank.label)} />,
               footer: (
-                <span className="live-rank-name" aria-hidden="true">
+                <RankEntityLabel label={rank.label} entities={branchDestinations(activities, rank.label)}>
                   {rank.label}
                   {facts?.isDefault ? <small className="rank-default-tag">default</small> : null}
-                </span>
+                </RankEntityLabel>
               ),
             };
           })}
