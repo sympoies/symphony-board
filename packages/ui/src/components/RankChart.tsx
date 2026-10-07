@@ -43,7 +43,23 @@ function armNameTip(row: HTMLElement, label: string, selectable: boolean) {
   const name = shown && shown.getClientRects().length > 0 ? shown : null;
   const clipped = labelClipped(name) || (name !== null && labelShortened(name.textContent ?? "", label));
   row.dataset.nameTip = showsNameTip({ clipped, selectable }) ? "show" : "none";
-  if (!footer || !name) return;
+  if (!footer) return;
+  const tip = footer.querySelector<HTMLElement>(".rank-name-tip");
+  if (tip) {
+    // Clear the previous focus's override before measuring again, so a row that
+    // moved since its last focus gets positioned for its current place.
+    tip.style.top = "";
+    tip.style.bottom = "";
+    const viewportBottom = document.documentElement.clientHeight - 8;
+    const tipRect = tip.getBoundingClientRect();
+    // CSS tips usually open below their footer. Flip only when that placement
+    // would cross the bottom gutter.
+    if (tipRect.bottom > viewportBottom) {
+      tip.style.top = "auto";
+      tip.style.bottom = "calc(100% + 6px)";
+    }
+  }
+  if (!name) return;
   const nameLeft = name.getBoundingClientRect().left;
   row.style.setProperty("--tip-x", `${Math.round(nameLeft - footer.getBoundingClientRect().left)}px`);
   row.style.setProperty("--tip-max", `${Math.max(0, Math.round(row.getBoundingClientRect().right - nameLeft))}px`);
