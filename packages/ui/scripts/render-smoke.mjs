@@ -1448,6 +1448,58 @@ try {
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
   const outboundChecks = [];
+  const destinationMenuChecks = [];
+  const captureDestinationMenus = async (screen) => {
+    const original = (await send("Runtime.evaluate", {
+      expression: "({ width: innerWidth, height: innerHeight, x: scrollX, y: scrollY })", returnByValue: true,
+    })).result.value;
+    for (const width of [360, 412, 1440]) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await sleep(160);
+      const result = (await send("Runtime.evaluate", {
+        expression: `(async () => {
+          const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+          const scrolls = [...document.querySelectorAll('*')].filter(el => el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)
+            .map(el => [el, el.scrollLeft, el.scrollTop]);
+          const menus = [...document.querySelectorAll('.rank-entity-menu')];
+          const observed = [];
+          for (const menu of menus) {
+            const summary = menu.querySelector(':scope > summary');
+            if (!summary || !summary.getBoundingClientRect().width) continue;
+            // Full-name tooltip menus become visible through the same row focus
+            // action available to a keyboard user.
+            menu.closest('.live-rank-item')?.querySelector('button')?.focus();
+            await frame();
+            if (getComputedStyle(summary).visibility === 'hidden') continue;
+            summary.scrollIntoView({ block: 'center', inline: 'nearest' });
+            summary.focus();
+            menu.open = true;
+            await frame(); await frame();
+            const panel = menu.querySelector('.rank-entity-destinations');
+            const rect = panel.getBoundingClientRect();
+            const link = panel.querySelector('a');
+            const linkRect = link?.getBoundingClientRect();
+            const target = linkRect ? document.elementFromPoint(linkRect.left + linkRect.width / 2, linkRect.top + linkRect.height / 2) : null;
+            observed.push({ label: summary.getAttribute('aria-label'), left: rect.left, right: rect.right, width: rect.width,
+              viewport: document.documentElement.clientWidth, overflow: panel.scrollWidth - panel.clientWidth,
+              reachable: !!link && (target === link || link.contains(target)) });
+            menu.open = false;
+            summary.blur();
+            await frame();
+          }
+          for (const [el, x, y] of scrolls) { el.scrollLeft = x; el.scrollTop = y; }
+          return { observed };
+        })()`, awaitPromise: true, returnByValue: true,
+      })).result.value || {};
+      const rows = result.observed || [];
+      const mainPresent = screen !== 'Commits' || rows.some(row => row.label === 'Choose provider destination for main');
+      destinationMenuChecks.push([mainPresent && rows.every(row => row.left >= 7.5 && row.right <= row.viewport - 7.5 && row.overflow <= 1 && row.reachable),
+        `${screen}: qualified destination menus fit the viewport gutter and expose reachable labels at ${width}px (${JSON.stringify(result)})`]);
+    }
+    await send("Emulation.setDeviceMetricsOverride", { width: original.width, height: original.height, deviceScaleFactor: 1, mobile: false });
+    await sleep(160);
+    await send("Runtime.evaluate", { expression: `scrollTo(${original.x}, ${original.y})` });
+  };
   const captureOutboundLinks = async (screen, selectors) => {
     const result = (await send("Runtime.evaluate", {
       expression: `(() => {
@@ -1478,6 +1530,7 @@ try {
     })).result.value || {};
     outboundChecks.push([result.count > 0 && result.missing?.length === 0 && result.bad?.length === 0 && result.independent === true && result.shortcutPropagated === true,
       `${screen}: shared outbound links have safe destinations, new-tab attributes, accessible targets and independent selection (${JSON.stringify(result)})`]);
+    await captureDestinationMenus(screen);
   };
   const titleLinkHitTargets = [];
   const captureTitleLinkHitTarget = async (surface, linkSelector, containerSelector) => {
@@ -8523,6 +8576,7 @@ try {
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
 
   const checks = [
+    ...destinationMenuChecks,
     ...outboundChecks,
     ...debugFillChecks,
     debugStickyCheck,
