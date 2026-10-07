@@ -1,3 +1,4 @@
+import { ExternalLink } from "./ExternalLink.tsx";
 // Markdown renderer for UNTRUSTED webhook bodies. GitHub/GitLab bodies mix
 // markdown with a little inline HTML (e.g. `<sub>` badges), so raw HTML IS
 // parsed (rehype-raw) but then sanitized against a hardened allowlist
@@ -16,7 +17,7 @@ import { safeHref } from "../url.ts";
 
 const components: Components = {
   a({ node: _node, ...props }) {
-    return <a {...props} target="_blank" rel="noopener noreferrer" />;
+    return <ExternalLink {...props} target="_blank" rel="noopener noreferrer" />;
   },
 };
 

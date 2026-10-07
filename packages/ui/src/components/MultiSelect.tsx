@@ -3,7 +3,7 @@
 // no free-text input — you pick from what is actually present. Selection is a
 // Set the parent owns; closing on outside-click / Escape keeps it keyboard- and
 // pointer-dismissable.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { multiSelectDisabled } from "./multiSelectState.ts";
 
 export function MultiSelect({
@@ -11,11 +11,13 @@ export function MultiSelect({
   options,
   selected,
   onChange,
+  renderLabel,
 }: {
   label: string;
   options: string[];
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
+  renderLabel?: (value: string) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ export function MultiSelect({
             return (
               <label key={opt} className={`ms-option${on ? " ms-option-on" : ""}`}>
                 <input type="checkbox" checked={on} onChange={() => toggle(opt)} />
-                <span className="ms-option-label">{opt}</span>
+                <span className="ms-option-label">{renderLabel ? renderLabel(opt) : opt}</span>
               </label>
             );
           })}

@@ -1,3 +1,4 @@
+import { EntityLink, SelectableEntityRow } from "./ExternalLink.tsx";
 import type { ActivityDTO, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
 import { memo, useMemo, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { CommitRhythm } from "./CommitsOverview.tsx";
@@ -283,20 +284,15 @@ function BusiestRow({
     `last ${relativeTime(row.lastAt)}`,
   ].filter(Boolean);
   return (
-    <button
-      type="button"
-      className="pane-row activity-busiest-row"
-      aria-pressed={selected}
-      title={`Open the newest event on ${label ?? "this item"}`}
-      onClick={() => onSelect(row.latest)}
+    <SelectableEntityRow className="pane-row activity-busiest-row" selected={selected}
+      label={`Open the newest event on ${label ?? "this item"}`} onSelect={() => onSelect(row.latest)}
     >
       <span className="pane-row-main">
         <b>
-          {label ? <span className="pane-row-cr-number">{label}</span> : null}
-          {` ${title}`}
+          <EntityLink sourceId={row.sourceId} entity={{ kind: kind === "issue" ? "issue" : "change_request", projectPath: row.projectPath, iid, url: item?.url }}>{label ? <span className="pane-row-cr-number">{label}</span> : null}{` ${title}`}</EntityLink>
         </b>
         <small>
-          {row.projectPath ? `${shortRepoLabel(row.projectPath)} · ` : ""}
+          {row.projectPath ? <><EntityLink sourceId={row.sourceId} entity={{ kind: "repo", projectPath: row.projectPath }}>{shortRepoLabel(row.projectPath)}</EntityLink> · </> : ""}
           {facts.join(" · ")}
         </small>
       </span>
@@ -304,6 +300,6 @@ function BusiestRow({
         {state ? <Badge text={state} kind={state} /> : null}
         <span className="activity-busiest-count">{eventCountLabel(row.events)}</span>
       </span>
-    </button>
+    </SelectableEntityRow>
   );
 }

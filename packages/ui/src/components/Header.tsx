@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
 import { relativeTime, isSyncRunActive, liveSourceStatus, syncRunSummary, visibleHeaderSources } from "../model.ts";
@@ -103,7 +104,7 @@ export function Header({
               return (
                 <span key={s.source_id} className="source-chip" title={`${s.kind} @ ${s.host}`}>
                   <Badge text={status} kind={`status-${status}`} />
-                  <span className="source-name">{s.display_name ?? s.source_id}</span>
+                  <EntityLink className="source-name" sourceId={s.source_id} entity={{ kind: "source" }}>{s.display_name ?? s.source_id}</EntityLink>
                   <span className="muted" title="last successful sync">{relativeTime(s.last_success_at)}</span>
                 </span>
               );

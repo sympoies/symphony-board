@@ -1,3 +1,4 @@
+import { ExternalLink } from "./ExternalLink.tsx";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
 import { relativeTime, repoCoverage, repoTrend, sourceDisplayName, type ColorOf, type RepoCoverage, type TimeRange } from "../model.ts";
@@ -177,7 +178,7 @@ function TopActors({ metric }: { metric: RepoMetricDTO }) {
           ? `${actor.activities} activities (also ${aliases.join(", ")})`
           : `${actor.activities} activities`;
         return actor.profile_url ? (
-          <a
+          <ExternalLink
             key={actor.actor_key}
             className="repo-actor-link"
             href={actor.profile_url}
@@ -187,7 +188,7 @@ function TopActors({ metric }: { metric: RepoMetricDTO }) {
             aria-label={`Open ${actor.display_name} profile on provider`}
           >
             @{actor.display_name}
-          </a>
+          </ExternalLink>
         ) : (
           <span key={actor.actor_key} title={title}>
             @{actor.display_name}
@@ -304,9 +305,9 @@ export function RepoAnalyticsPage({
                         <span className="repo-name-main">
                           <SourceIcon kind={sourceKind.get(metric.source_id)} />
                           {metric.repo_url ? (
-                            <a className="repo-provider-link" href={metric.repo_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${metric.project_path ?? "repo"} on provider`}>
+                            <ExternalLink className="repo-provider-link" href={metric.repo_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${metric.project_path ?? "repo"} on provider`}>
                               {metric.project_path ?? "(unknown repo)"}
-                            </a>
+                            </ExternalLink>
                           ) : (
                             <span>{metric.project_path ?? "(unknown repo)"}</span>
                           )}

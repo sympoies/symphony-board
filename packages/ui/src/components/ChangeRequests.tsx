@@ -1,3 +1,5 @@
+import { EntityLink } from "./ExternalLink.tsx";
+import { NavigationLink } from "./ExternalLink.tsx";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { memo, useMemo } from "react";
 import { pluralize, relativeTime, spanLabel, type ChangeRequestView, type ResolvedChangeRequest } from "../model.ts";
@@ -64,12 +66,13 @@ export const ChangeRequests = memo(function ChangeRequests({
             const body = (
               <>
                 <span className="pane-row-main">
-                  <b>
+                  <b><NavigationLink href={href}
+                    {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
                     <span className="pane-row-cr-number">{view.label}</span>
                     {view.title ? ` ${view.title}` : ""}
-                  </b>
+                  </NavigationLink><EntityLink sourceId={group.sourceId} entity={{ kind: "change_request", projectPath: group.projectPath, iid: view.iid, url: view.url }} aria-label={`Open ${view.label} on provider`}> ↗</EntityLink></b>
                   <small>
-                    {group.projectPath ? `${shortRepoLabel(group.projectPath)} · ` : ""}
+                    {group.projectPath ? <><EntityLink sourceId={group.sourceId} entity={{ kind: "repo", projectPath: group.projectPath }}>{shortRepoLabel(group.projectPath)}</EntityLink> · </> : ""}
                     {`${group.commits.toLocaleString("en-US")} ${pluralize(group.commits, "commit")} · ${stateLine(view)}`}
                   </small>
                 </span>
@@ -85,20 +88,7 @@ export const ChangeRequests = memo(function ChangeRequests({
             );
             return (
               <li key={group.ref}>
-                {href ? (
-                  <a
-                    className="pane-row pane-row-cr"
-                    href={href}
-                    data-state={view.state ?? "unknown"}
-                    {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  >
-                    {body}
-                  </a>
-                ) : (
-                  <div className="pane-row pane-row-cr" data-state={view.state ?? "unknown"} data-inert="true">
-                    {body}
-                  </div>
-                )}
+                <div className="pane-row pane-row-cr" data-state={view.state ?? "unknown"}>{body}</div>
               </li>
             );
           })}

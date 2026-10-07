@@ -1,3 +1,5 @@
+import { ActorLink, EntityLink } from "./ExternalLink.tsx";
+import { ExternalLink } from "./ExternalLink.tsx";
 import type { CSSProperties } from "react";
 import type { ItemDTO } from "@symphony-board/contract";
 import { Badge } from "./Badge.tsx";
@@ -104,7 +106,7 @@ export function ItemCard({
             clickable (e.g. the graph side list's focus target) doesn't also
             trigger the wrapper's click; harmless on the board where the card has
             no click handler. */}
-          <a
+          <ExternalLink
             className="card-title"
             href={item.url || undefined}
             target="_blank"
@@ -112,19 +114,19 @@ export function ItemCard({
             onClick={(e) => e.stopPropagation()}
           >
             {item.title ?? "(untitled)"}
-          </a>
+          </ExternalLink>
         </div>
 
         {/* Two meta rows, mirroring the graph node card: the identity row
           (source · repo · #iid) then the people/metric row. The metric row only renders when it has
           content, so a bare item doesn't leave an empty line. */}
         <div className="card-meta">
-          <SourceRepo kind={sourceKind} repo={item.project_path} />
-          {item.iid != null ? <span className="card-iid">#{item.iid}</span> : null}
+          <SourceRepo sourceId={item.source_id} kind={sourceKind} repo={item.project_path} />
+          {item.iid != null ? <EntityLink className="card-iid" sourceId={item.source_id} entity={{ kind: item.kind === "issue" ? "issue" : "change_request", url: item.url, projectPath: item.project_path, iid: item.iid }}>#{item.iid}</EntityLink> : null}
         </div>
         {(item.author || hasMetrics) && (
           <div className="card-meta">
-            {item.author ? <span className="muted">@{item.author}</span> : null}
+            {item.author ? <ActorLink className="muted" sourceId={item.source_id} name={item.author} username>@{item.author}</ActorLink> : null}
             <ItemMetricStrip item={item} related={related} />
           </div>
         )}
@@ -186,7 +188,7 @@ export function ItemCard({
             <span className="muted">ready</span>
             {programSummary.ready.map((child) =>
               child.url ? (
-                <a
+                <ExternalLink
                   key={child.id}
                   className="card-program-child"
                   href={child.url}
@@ -196,7 +198,7 @@ export function ItemCard({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {child.name}
-                </a>
+                </ExternalLink>
               ) : (
                 <span key={child.id} className="card-program-child" title={child.name}>
                   {child.name}
@@ -210,7 +212,7 @@ export function ItemCard({
         {item.labels.length > 0 && (
           <div className="card-labels">
             {item.labels.map((l) => (
-              <LabelChip key={l.name} label={l} />
+              <LabelChip key={l.name} label={l} sourceId={item.source_id} projectPath={item.project_path} />
             ))}
           </div>
         )}

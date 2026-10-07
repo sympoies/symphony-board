@@ -1,3 +1,5 @@
+import { EntityLink, RepoReference } from "./ExternalLink.tsx";
+import { Fragment } from "react";
 import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
 import { type ChangeEvent } from "react";
 
@@ -51,8 +53,7 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
     <div className="toggle-group">
       <span className="toggle-label">{label}</span>
       {shown.map((v) => (
-        <button
-          key={v}
+        <Fragment key={v}><button
           type="button"
           className={`toggle${active.has(v) ? " toggle-on" : ""}`}
           onClick={() => onToggle(v)}
@@ -60,6 +61,8 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
         >
           {displayValue ? displayValue(v) : v}
         </button>
+        {group.dim === "sources" ? <EntityLink sourceId={v} entity={{ kind: "source" }} aria-label={`Open ${v} provider`}>↗</EntityLink> : group.dim === "repos" ? <RepoReference path={v}>↗</RepoReference> : null}
+        </Fragment>
       ))}
     </div>
   );

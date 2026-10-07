@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
 import {
@@ -418,8 +419,8 @@ function ActivityTopRepos({ trend }: { trend: ActivityTrend }) {
               }
             >
               <span className="hm-range-repo">
-                <span className="hm-range-repo-name">{repo.project_path ?? "(no project)"}</span>
-                <small>{sourceDisplayName(repo.source_id) || repo.source_id}</small>
+                <EntityLink className="hm-range-repo-name" sourceId={repo.source_id} entity={{ kind: "repo", projectPath: repo.project_path }}>{repo.project_path ?? "(no project)"}</EntityLink>
+                <small><EntityLink sourceId={repo.source_id} entity={{ kind: "source" }}>{sourceDisplayName(repo.source_id) || repo.source_id}</EntityLink></small>
               </span>
               <b>{repo.count.toLocaleString("en-US")}</b>
               <span className="hm-range-repo-bar" aria-hidden="true" />

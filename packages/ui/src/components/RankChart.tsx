@@ -14,6 +14,7 @@ export type RankChartItem = {
   label: string;
   count: number;
   footer: ReactNode;
+  nameTip?: ReactNode;
   // Facts drawn beside the bar where the chart is laid out as rows with room
   // for them (the Commits wide-panes tier). Hidden everywhere else by the
   // stylesheet, so a caller can pass it without knowing the layout.
@@ -116,8 +117,8 @@ export function RankChart({
                   only when it adds something (see armNameTip). */}
               <span className="live-rank-footer">
                 {item.footer}
-                <span className="rank-name-tip" aria-hidden="true">
-                  {nameTipText(item.label, { selectable, selected: item.selected === true })}
+                <span className="rank-name-tip">
+                  {item.nameTip ?? nameTipText(item.label, { selectable, selected: item.selected === true })}
                 </span>
               </span>
             </>
@@ -138,17 +139,11 @@ export function RankChart({
           // selected state at all.
           return (
             <div key={item.key} className="live-rank-item-slot" role="listitem">
-              <button
-                type="button"
-                className={`live-rank-item live-rank-item-action${item.selected ? " live-rank-item-on" : ""}`}
-                aria-label={label}
-                aria-pressed={item.selected === true}
-                onClick={item.onSelect}
-                onPointerEnter={arm}
-                onFocus={arm}
-              >
+              <div className={`live-rank-item${item.selected ? " live-rank-item-on" : ""}`} onPointerEnter={arm} onFocus={arm}>
+                <button type="button" className={`live-rank-item-action rank-filter-hit${item.selected ? " live-rank-item-on" : ""}`}
+                  aria-label={label} aria-pressed={item.selected === true} onClick={item.onSelect} />
                 {bar}
-              </button>
+              </div>
             </div>
           );
         })}

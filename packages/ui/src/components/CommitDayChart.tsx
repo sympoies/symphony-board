@@ -1,3 +1,6 @@
+import { RankEntityLabel } from "./ExternalLink.tsx";
+import { actorDestinations, type EntityDestination } from "../entity-links.ts";
+import { EMPTY_ACTOR_INDEX } from "../rail-stats.ts";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { memo, useMemo, useState, type CSSProperties } from "react";
 import { commitIsMerge, commitMessage, commitOnDefaultBranch } from "../model.ts";
@@ -121,12 +124,26 @@ export const StackedDayChart = memo(function StackedDayChart({
     () => (option ? stackedDays(rows, timezone, range.from, range.to, option.keyOf, STACK_SERIES_LIMIT) : { days: [], series: [], max: 0 }),
     [rows, timezone, range.from, range.to, option],
   );
-  if (stack.days.length === 0) return null;
-
   const total = stack.days.reduce((sum, day) => sum + day.total, 0);
   const axisMax = niceAxisMax(Math.max(1, stack.max));
   const capLabels = stack.days.length <= CAP_LABEL_DAYS_MAX;
   const weekdayTicks = stack.days.length <= WEEKDAY_TICK_DAYS_MAX;
+  const destinationIndex = useMemo(() => {
+    const groups = new Map<string, Map<string, EntityDestination>>();
+    for (const row of rows) {
+      const key = option?.keyOf(row).key;
+      if (!key || key === STACK_FOLD_KEY) continue;
+      const candidates: EntityDestination[] = by === "repo" && row.project_path
+        ? [{ sourceId: row.source_id, label: `${row.project_path} · ${row.source_id}`, entity: { kind: "repo", projectPath: row.project_path } }]
+        : by === "actor" || by === "author" ? actorDestinations([row], row.actor ?? "", EMPTY_ACTOR_INDEX) : [];
+      const group = groups.get(key) ?? new Map<string, EntityDestination>();
+      for (const candidate of candidates) group.set(`${candidate.sourceId}|${candidate.label}|${candidate.entity.url ?? ""}`, candidate);
+      groups.set(key, group);
+    }
+    return new Map([...groups].map(([key, group]) => [key, [...group.values()]]));
+  }, [rows, option, by]);
+  if (stack.days.length === 0) return null;
+  const destinations = (key: string): EntityDestination[] => destinationIndex.get(key) ?? [];
   const ticks = new Map(dayAxisTicks(stack.days).map((tick) => [tick.index, tick.label]));
   // The slot a series paints with. The fold is always the neutral one, whatever
   // its rank, so "everything else" never borrows a hue that reads as a name.
@@ -158,7 +175,7 @@ export const StackedDayChart = memo(function StackedDayChart({
         {stack.series.map((series, index) => (
           <li key={series.key} className="stack-legend-item">
             <span className="stack-swatch" data-series={slotOf(index)} aria-hidden="true" />
-            {series.label}
+            <RankEntityLabel label={series.label} entities={destinations(series.key)} />
             <small>{series.count.toLocaleString("en-US")}</small>
           </li>
         ))}
@@ -166,7 +183,7 @@ export const StackedDayChart = memo(function StackedDayChart({
 
       <div
         className="stack-plot"
-        role="img"
+        role="group"
         aria-label={`${title} by ${by}, ${range.from} to ${range.to}: ${countLabel(total)}, busiest day ${stack.max.toLocaleString("en-US")}`}
       >
         <div className="stack-yaxis" aria-hidden="true">
@@ -181,13 +198,13 @@ export const StackedDayChart = memo(function StackedDayChart({
           {stack.days.map((day) => {
             const top = day.segments.reduce((last, count, index) => (count > 0 ? index : last), -1);
             const parts = stack.series
-              .map((series, index) => ({ label: series.label, count: day.segments[index] ?? 0 }))
-              .filter((part) => part.count > 0)
-              .map((part) => `${part.label} ${part.count.toLocaleString("en-US")}`);
+              .map((series, index) => ({ key: series.key, label: series.label, count: day.segments[index] ?? 0 }))
+              .filter((part) => part.count > 0);
             return (
-              <span key={day.date} className="stack-col" data-empty={day.total === 0 ? "true" : undefined}>
+              <span key={day.date} tabIndex={0} className="stack-col" data-empty={day.total === 0 ? "true" : undefined}>
                 <span className="rail-daybar-tip">
-                  {`${weekdayLabel(day.date)} ${day.date} · ${countLabel(day.total)}${parts.length > 1 ? ` · ${parts.join(" · ")}` : ""}`}
+                  {`${weekdayLabel(day.date)} ${day.date} · ${countLabel(day.total)}`}
+                  {parts.length > 1 ? parts.map(part => <span key={part.key}> · <RankEntityLabel label={part.label} entities={destinations(part.key)} /> {part.count.toLocaleString("en-US")}</span>) : null}
                 </span>
                 <span className="stack-bar" style={{ "--stack-h": `${(day.total / axisMax) * 100}%` } as CSSProperties}>
                   {capLabels && day.total > 0 ? <span className="stack-cap">{day.total.toLocaleString("en-US")}</span> : null}

@@ -1,3 +1,4 @@
+import { EntityLink } from "./ExternalLink.tsx";
 import { useState, type ReactNode } from "react";
 import type { SourceDTO } from "@symphony-board/contract";
 import {
@@ -421,12 +422,12 @@ export function SettingsPage({
                   <input type="checkbox" checked={!sourceHidden} onChange={() => onToggleSource(sourceId)} />
                 </label>
                 <Badge text={status} kind={`status-${status}`} />
-                <span className="source-name">{meta?.display_name ?? sourceId}</span>
+                <EntityLink className="source-name" sourceId={sourceId} entity={{ kind: "source" }}>{meta?.display_name ?? sourceId}</EntityLink>
                 {meta?.color && isHexColor(meta.color) ? (
                   <span className="color-swatch" style={{ background: meta.color }} title={`source color ${meta.color} (set in config)`} />
                 ) : null}
                 <span className="muted">
-                  {meta?.kind ?? "?"} @ {meta?.host ?? "?"} · ok {relativeTime(meta?.last_success_at ?? null)}
+                  {meta?.kind ?? "?"} @ <EntityLink sourceId={sourceId} entity={{ kind: "source" }}>{meta?.host ?? "?"}</EntityLink> · ok {relativeTime(meta?.last_success_at ?? null)}
                 </span>
                 <span className="settings-source-actions">
                   <span className="count">
@@ -448,7 +449,7 @@ export function SettingsPage({
                     <li key={r.key}>
                       <label className="settings-repo">
                         <input type="checkbox" checked={!hidden.has(r.key)} onChange={() => onToggle(r.key)} />
-                        <span className="settings-repo-name">{r.project_path ?? "(no project)"}</span>
+                        <EntityLink className="settings-repo-name" sourceId={r.source_id} entity={{ kind: "repo", projectPath: r.project_path }}>{r.project_path ?? "(no project)"}</EntityLink>
                         <span
                           className="count"
                           title={`${r.count} ${r.count === 1 ? "item" : "items"}${

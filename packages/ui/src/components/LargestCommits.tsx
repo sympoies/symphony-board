@@ -1,3 +1,4 @@
+import { ActorLink, EntityLink, ExternalLink, SelectableEntityRow } from "./ExternalLink.tsx";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
 import { activityKey, commitMessage, relativeTime } from "../model.ts";
@@ -54,18 +55,17 @@ export function LargestCommits({
             const actor = sized.commit.actor ? `@${sized.commit.actor}` : "unknown author";
             return (
               <li key={key}>
-                <button
-                  type="button"
-                  className="pane-row pane-row-commit"
-                  aria-pressed={key === selectedKey}
-                  onClick={() => onSelect(sized.commit)}
+                <SelectableEntityRow
+                  className="pane-row pane-row-commit" label={`Select ${commitMessage(sized.commit)}`}
+                  selected={key === selectedKey}
+                  onSelect={() => onSelect(sized.commit)}
                 >
                   <span className="pane-row-rank" aria-hidden="true">{index + 1}</span>
                   <span className="pane-row-main">
-                    <b>{commitMessage(sized.commit)}</b>
+                    <b><ExternalLink href={sized.commit.url}>{commitMessage(sized.commit)}</ExternalLink></b>
                     <small>
-                      {sized.commit.project_path ? `${shortRepoLabel(sized.commit.project_path)} · ` : ""}
-                      {actor} · {relativeTime(sized.commit.occurred_at)}
+                      {sized.commit.project_path ? <><EntityLink sourceId={sized.commit.source_id} entity={{ kind: "repo", projectPath: sized.commit.project_path }}>{shortRepoLabel(sized.commit.project_path)}</EntityLink> · </> : ""}
+                      <ActorLink sourceId={sized.commit.source_id} name={sized.commit.actor} url={typeof sized.commit.details?.actor_profile_url === "string" ? sized.commit.details.actor_profile_url : null}>{actor}</ActorLink> · {relativeTime(sized.commit.occurred_at)}
                     </small>
                   </span>
                   <span className="pane-row-bar" aria-hidden="true">
@@ -76,7 +76,7 @@ export function LargestCommits({
                     <span className="commit-diffstat-add">+{sized.additions.toLocaleString("en-US")}</span>
                     <span className="commit-diffstat-del">-{sized.deletions.toLocaleString("en-US")}</span>
                   </span>
-                </button>
+                </SelectableEntityRow>
               </li>
             );
           })}

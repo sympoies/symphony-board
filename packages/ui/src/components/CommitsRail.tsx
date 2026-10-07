@@ -1,3 +1,5 @@
+import { EntityLink, RankEntityLabel } from "./ExternalLink.tsx";
+import { actorDestinations, branchDestinations } from "../entity-links.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import {
   COMMITS_PANES_AUTHOR_LIMIT,
@@ -278,11 +280,12 @@ export function CommitsRail({
             // below. Leaving it to the route setter would make `onAuthor` a
             // setter that secretly toggles, unlike `onRepo`.
             onSelect: () => onAuthor(rank.label === selectedAuthor ? null : rank.label),
+            nameTip: <RankEntityLabel label={rank.label} entities={actorDestinations(authorSource, rank.label, actorIndex)} />,
             footer: (
-              <span className="activity-rank-actor">
+              <RankEntityLabel className="rank-actor-link" label={rank.label} entities={actorDestinations(authorSource, rank.label, actorIndex)}><span className="activity-rank-actor">
                 <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />
-                <span className="activity-rank-actor-name" aria-hidden="true">{rank.label}</span>
-              </span>
+                <span className="activity-rank-actor-name">{rank.label}</span>
+              </span></RankEntityLabel>
             ),
           };
         })}
@@ -328,10 +331,9 @@ export function CommitsRail({
               ? `${facts.authors} ${pluralize(facts.authors, "author")}, last commit ${relativeTime(facts.lastAt)}`
               : undefined,
             onSelect: () => onRepo(on ? null : { source_id: sourceId, project_path: projectPath, count: rank.count }),
+            nameTip: <EntityLink sourceId={sourceId} entity={{ kind: "repo", projectPath: projectPath }}>{rank.label}</EntityLink>,
             footer: (
-              <span className="live-rank-name" aria-hidden="true">
-                {shortRepoLabel(rank.label)}
-              </span>
+              <EntityLink className="live-rank-name" sourceId={sourceId} entity={{ kind: "repo", projectPath: projectPath }}>{shortRepoLabel(rank.label)}</EntityLink>
             ),
           };
         })}
@@ -395,14 +397,15 @@ export function CommitsRail({
               ? `${facts.isDefault ? "default branch, " : ""}in ${facts.repos} ${pluralize(facts.repos, "repo")}`
               : undefined,
             onSelect: () => onBranch(rank.label === selectedBranch ? null : rank.label),
+            nameTip: <RankEntityLabel label={rank.label} entities={branchDestinations(branchSource, rank.label)} />,
             footer: (
-              <span className="live-rank-name" aria-hidden="true">
+              <RankEntityLabel label={rank.label} entities={branchDestinations(branchSource, rank.label)}>
                 {/* A bar's footer has room for the last path segment only. A row
                     has room for the name, and `fix/x` and `docs/x` are two
                     different branches. */}
                 {hasPanes ? rank.label : shortRepoLabel(rank.label)}
                 {facts?.isDefault ? <small className="rank-default-tag">default</small> : null}
-              </span>
+              </RankEntityLabel>
             ),
           };
         })}
@@ -512,12 +515,13 @@ export function CommitsRail({
                 ),
                 detail: `${row.additions.toLocaleString("en-US")} added, ${row.deletions.toLocaleString("en-US")} removed, ${row.authors} ${pluralize(row.authors, "author")}`,
                 onSelect: onPath ? () => onPath(on ? null : row) : undefined,
+                nameTip: <EntityLink sourceId={row.sourceId} entity={{ kind: "commit", projectPath: row.projectPath, sha: row.shas[0] }}>{row.path} · {row.projectPath}</EntityLink>,
                 footer: (
-                  <span className="live-rank-name" aria-hidden="true">
+                  <span className="live-rank-name">
                     {/* The path first: when the line runs out it is the
                         repository that is cut, and the file is still named. */}
-                    {shortPathLabel(row.path)}
-                    {multiRepo ? <span className="rank-path-repo">{` · ${shortRepoLabel(row.projectPath)}`}</span> : null}
+                    <EntityLink sourceId={row.sourceId} entity={{ kind: "commit", projectPath: row.projectPath, sha: row.shas[0] }}>{shortPathLabel(row.path)}</EntityLink>
+                    {multiRepo ? <span className="rank-path-repo"> · <EntityLink sourceId={row.sourceId} entity={{ kind: "repo", projectPath: row.projectPath }}>{shortRepoLabel(row.projectPath)}</EntityLink></span> : null}
                   </span>
                 ),
               };

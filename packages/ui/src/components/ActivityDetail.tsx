@@ -1,3 +1,6 @@
+import { SelectableEntityRow } from "./ExternalLink.tsx";
+import { ActorLink, EntityLink } from "./ExternalLink.tsx";
+import { ExternalLink, NavigationLink } from "./ExternalLink.tsx";
 import type { ActivityDTO, ItemDTO } from "@symphony-board/contract";
 import type { CSSProperties } from "react";
 import { Badge } from "./Badge.tsx";
@@ -172,9 +175,9 @@ export function ActivityDetail({
         <h3 className="commit-detail-title activity-detail-title">
           {view.label ? <span className="activity-ref">{view.label}</span> : null}
           {href ? (
-            <a className="commit-detail-title-link" href={href} target="_blank" rel="noreferrer noopener">
+            <ExternalLink className="commit-detail-title-link" href={href} target="_blank" rel="noreferrer noopener">
               {view.title}
-            </a>
+            </ExternalLink>
           ) : (
             view.title
           )}
@@ -185,7 +188,7 @@ export function ActivityDetail({
             <dt>Repo</dt>
             <dd>
               {activity.project_path ? (
-                <SourceRepo kind={sourceKind.get(activity.source_id)} repo={activity.project_path} />
+                <SourceRepo sourceId={activity.source_id} kind={sourceKind.get(activity.source_id)} repo={activity.project_path} />
               ) : (
                 <span className="muted">unknown</span>
               )}
@@ -196,8 +199,8 @@ export function ActivityDetail({
             <dd>
               {activity.actor ? (
                 <span className="activity-detail-actor">
-                  <ActorAvatar login={activity.actor} avatarUrl={avatarUrl} titled={false} />
-                  <span className="commit-detail-actor">@{activity.actor}</span>
+                  <ActorLink sourceId={activity.source_id} name={activity.actor} username={activity.kind !== "commit"} url={typeof activity.details?.actor_profile_url === "string" ? activity.details.actor_profile_url : null}><ActorAvatar login={activity.actor} avatarUrl={avatarUrl} titled={false} /></ActorLink>
+                  <ActorLink className="commit-detail-actor" sourceId={activity.source_id} name={activity.actor} username={activity.kind !== "commit"} url={typeof activity.details?.actor_profile_url === "string" ? activity.details.actor_profile_url : null}>@{activity.actor}</ActorLink>
                   {association && association !== "NONE" ? <span className="muted">{association.toLowerCase()}</span> : null}
                 </span>
               ) : (
@@ -218,13 +221,13 @@ export function ActivityDetail({
               <dt>{item ? (item.kind === "issue" ? "Issue" : "Change request") : "Target"}</dt>
               <dd>
                 {destination?.href ? (
-                  <a
+                  <NavigationLink
                     className="commit-cr-chip"
                     href={destination.href}
                     {...(destination.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   >
                     {itemLabel}
-                  </a>
+                  </NavigationLink>
                 ) : (
                   <span className="commit-cr-chip">{itemLabel}</span>
                 )}
@@ -247,7 +250,7 @@ export function ActivityDetail({
             <div className="commit-detail-row">
               <dt>Thread</dt>
               <dd>
-                {item.author ? <span className="muted">{`opened by @${item.author}`}</span> : null}
+                {item.author ? <span className="muted">opened by <ActorLink sourceId={item.source_id} name={item.author} username>@{item.author}</ActorLink></span> : null}
                 {item.comments?.total != null ? (
                   <span className="muted">{`${item.comments.total} ${pluralize(item.comments.total, "comment")}`}</span>
                 ) : null}
@@ -260,7 +263,7 @@ export function ActivityDetail({
               <dt>Labels</dt>
               <dd className="activity-detail-labels">
                 {item.labels.map((label) => (
-                  <LabelChip key={label.name} label={label} />
+                  <LabelChip key={label.name} label={label} sourceId={item.source_id} projectPath={item.project_path} />
                 ))}
               </dd>
             </div>
@@ -270,7 +273,7 @@ export function ActivityDetail({
             <div className="commit-detail-row">
               <dt>On</dt>
               <dd>
-                <code className="activity-detail-path">{commentLine !== null ? `${commentPath}:${commentLine}` : commentPath}</code>
+                <ExternalLink href={activity.url}><code className="activity-detail-path">{commentLine !== null ? `${commentPath}:${commentLine}` : commentPath}</code></ExternalLink>
                 {reply ? <span className="muted">reply in a review thread</span> : null}
               </dd>
             </div>
@@ -280,7 +283,7 @@ export function ActivityDetail({
             <div className="commit-detail-row">
               <dt>SHA</dt>
               <dd>
-                <code className="commit-detail-sha">{sha}</code>
+                <EntityLink sourceId={activity.source_id} entity={{ kind: "commit", projectPath: activity.project_path, sha }}><code className="commit-detail-sha">{sha}</code></EntityLink>
               </dd>
             </div>
           ) : null}
@@ -295,17 +298,18 @@ export function ActivityDetail({
               <dt>Change request</dt>
               <dd>
                 {changeRequest.href ? (
-                  <a
+                  <NavigationLink
                     className="commit-cr-chip"
                     href={changeRequest.href}
                     {...(changeRequest.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   >
                     {changeRequest.view.label}
-                  </a>
+                  </NavigationLink>
                 ) : (
                   <span className="commit-cr-chip">{changeRequest.view.label}</span>
                 )}
-                {changeRequest.view.title ? <span className="commit-detail-cr-title">{changeRequest.view.title}</span> : null}
+                <EntityLink sourceId={activity.source_id} entity={{ kind: "change_request", projectPath: activity.project_path, iid: changeRequest.view.iid, url: changeRequest.view.url }} aria-label={`Open ${changeRequest.view.label} on provider`}>↗</EntityLink>
+                    {changeRequest.view.title ? <EntityLink className="commit-detail-cr-title" sourceId={activity.source_id} entity={{ kind: "change_request", projectPath: activity.project_path, iid: changeRequest.view.iid, url: changeRequest.view.url }}>{changeRequest.view.title}</EntityLink> : null}
                 {changeRequest.view.state ? <Badge text={changeRequest.view.state} kind={changeRequest.view.state} /> : null}
               </dd>
             </div>
@@ -316,7 +320,7 @@ export function ActivityDetail({
               <dd className="commit-detail-branches">
                 {refs.map((ref) => (
                   <span key={ref.name} className="chip commit-branch-chip" data-default={ref.isDefault ? "true" : undefined}>
-                    {ref.name}
+                    <EntityLink sourceId={activity.source_id} entity={{ kind: "branch", projectPath: activity.project_path, ref: ref.name }}>{ref.name}</EntityLink>
                     {ref.isDefault ? <small>default</small> : null}
                   </span>
                 ))}
@@ -328,7 +332,7 @@ export function ActivityDetail({
             <div className="commit-detail-row">
               <dt>Ref</dt>
               <dd>
-                <code className="activity-detail-path">{rawRef}</code>
+                <EntityLink sourceId={activity.source_id} entity={{ kind: "branch", projectPath: activity.project_path, ref: rawRef }}><code className="activity-detail-path">{rawRef}</code></EntityLink>
                 {pushType ? <span className="muted">{pushType.replace(/_/g, " ")}</span> : null}
               </dd>
             </div>
@@ -337,9 +341,9 @@ export function ActivityDetail({
             <div className="commit-detail-row">
               <dt>Commits</dt>
               <dd className="activity-detail-range">
-                <code>{before ? before.slice(0, 12) : "new"}</code>
+                <EntityLink sourceId={activity.source_id} entity={{ kind: "commit", projectPath: activity.project_path, sha: before }}><code>{before ? before.slice(0, 12) : "new"}</code></EntityLink>
                 <span aria-hidden="true">→</span>
-                <code>{after ? after.slice(0, 12) : "deleted"}</code>
+                <EntityLink sourceId={activity.source_id} entity={{ kind: "commit", projectPath: activity.project_path, sha: after }}><code>{after ? after.slice(0, 12) : "deleted"}</code></EntityLink>
               </dd>
             </div>
           ) : null}
@@ -350,6 +354,7 @@ export function ActivityDetail({
                 <button type="button" className="activity-detail-link" onClick={() => onSelect(headCommit)}>
                   {activityRowView(headCommit, undefined, providerKind).title}
                 </button>
+                <ExternalLink href={headCommit.url} aria-label="Open head commit on provider">↗</ExternalLink>
               </dd>
             </div>
           ) : null}
@@ -361,7 +366,7 @@ export function ActivityDetail({
               <MarkdownBody text={`${excerpt.body}${excerpt.truncated ? " …" : ""}`} className="live-md activity-detail-md" />
             </blockquote>
             <figcaption className="muted">
-              {`from the review thread${excerpt.path ? ` on ${excerpt.path}${excerpt.line !== null ? `:${excerpt.line}` : ""}` : ""} · ${excerpt.resolved ? "resolved" : "open"}`}
+              <ExternalLink href={excerpt.threadUrl}>{`from the review thread${excerpt.path ? ` on ${excerpt.path}${excerpt.line !== null ? `:${excerpt.line}` : ""}` : ""}`}</ExternalLink>{` · ${excerpt.resolved ? "resolved" : "open"}`}
             </figcaption>
           </figure>
         ) : null}
@@ -384,12 +389,12 @@ export function ActivityDetail({
             <ol>
               {related.rows.map((row) => (
                 <li key={`${row.source_id}|${row.external_id}`}>
-                  <button type="button" className="activity-detail-related-row" onClick={() => onSelect(row)}>
+                  <SelectableEntityRow className="activity-detail-related-row" label={`Select ${relatedWhat(row, item, providerKind)}`} selected={false} onSelect={() => onSelect(row)}>
                     <Badge text={row.action.replace(/_/g, " ")} kind={ACTION_KIND[row.action] ?? "status-unknown"} />
-                    <span className="activity-detail-related-who">{row.actor ? `@${row.actor}` : displayKind(row.kind)}</span>
-                    <span className="activity-detail-related-what">{relatedWhat(row, item, providerKind)}</span>
+                    <ActorLink className="activity-detail-related-who" sourceId={row.source_id} name={row.actor} username={row.kind !== "commit"} url={typeof row.details?.actor_profile_url === "string" ? row.details.actor_profile_url : null}>{row.actor ? `@${row.actor}` : displayKind(row.kind)}</ActorLink>
+                    <ExternalLink className="activity-detail-related-what" href={row.url}>{relatedWhat(row, item, providerKind)}</ExternalLink>
                     <time dateTime={row.occurred_at}>{relativeTime(row.occurred_at)}</time>
-                  </button>
+                  </SelectableEntityRow>
                 </li>
               ))}
             </ol>

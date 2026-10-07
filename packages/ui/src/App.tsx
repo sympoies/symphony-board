@@ -1,6 +1,7 @@
+import { ProviderLinks } from "./components/ExternalLink.tsx";
 import { detailRouteController } from "./detail-route.ts";
 import { inPageHref } from "./nav.ts";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ContractEnvelope, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, fetchGraphNeighborhood, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
@@ -254,6 +255,7 @@ export function App() {
   if (startupHashRef.current === null) startupHashRef.current = readStartupHash();
   const initialStartupHash = startupHashRef.current;
   const [env, setEnv] = useState<ContractEnvelope | null>(null);
+  const withProviderLinks = (children: ReactNode) => <ProviderLinks env={env}>{children}</ProviderLinks>;
   const [envAuthority, setEnvAuthority] = useState<EnvAuthority | null>(null);
   const [contractMeta, setContractMeta] = useState<ContractLoadMetadata | null>(null);
   const fileEnvAuthoritativeRef = useRef(false);
@@ -1735,7 +1737,7 @@ export function App() {
   // purpose: it must stay reachable when the contract fails to load — that is
   // exactly when it is needed. It does its own data fetching (useDebug.ts).
   if (route.page === "debug") {
-    return (
+    return withProviderLinks(
       <div className="app app-wide">
         <DebugPage serverBaseUrl={serverBaseUrl} env={env} contractMeta={contractMeta} tab={debugTab} onTab={setDebugTab} onRefreshData={reloadData} onClose={toggleDebug} />
       </div>
@@ -1840,7 +1842,7 @@ export function App() {
   );
 
   if (standaloneSetupLocked) {
-    return (
+    return withProviderLinks(
       <div className="app app-wide">
         <BrandHeader />
         {setupLockedTabs}
@@ -1854,7 +1856,7 @@ export function App() {
   // missing or failing to load. It keeps the shell header + tab bar so it reads
   // as a normal tab; the Header only shows once a contract is loaded.
   if (route.page === "live") {
-    return (
+    return withProviderLinks(
       <div className="app app-wide">
         {env ? (
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
@@ -1880,7 +1882,7 @@ export function App() {
   // it (to pick a board-scope window, turn board data off/on, or fix the server
   // URL). Its repo lists are empty until a contract loads; every other control works.
   if (route.page === "settings") {
-    return (
+    return withProviderLinks(
       <div className="app app-wide">
         {env ? (
           <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
@@ -1899,7 +1901,7 @@ export function App() {
   // flight. Live and Settings are handled above; this covers Activity/Board/etc.
   if (contractDisabled) {
     const canEnableLiveHere = !liveTabEffectivelyEnabled && !livePreferencesDisabled;
-    return (
+    return withProviderLinks(
       <div className="app app-wide">
         <BrandHeader />
         {pageTabs}
@@ -2031,7 +2033,7 @@ export function App() {
   };
   const { fullItemTotal, fullRepoMetricTotal, reviewThreadEntityTotal } = fullEntityTotals;
 
-  return (
+  return withProviderLinks(
     <div className="app app-wide">
       <Header env={env} sync={sync} hiddenSources={hiddenSources} refreshing={refreshingData} onRefresh={refreshData} />
       {pageTabs}

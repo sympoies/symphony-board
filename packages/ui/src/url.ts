@@ -1,17 +1,8 @@
-// Small URL helpers shared by views that render externally-sourced links.
+import { externalWebUrl } from "../../../shared/provider-links.ts";
 
-// Only web/mail schemes may become a clickable href. URLs that originate from a
-// provider/webhook payload reach the DOM via React, which does NOT sanitize the
-// href attribute — so a `javascript:` / `data:` value must be dropped, not
-// rendered as a link. Returns the url unchanged when safe, else null (no link).
+// Markdown may contain email links; entity destinations use web URLs only.
 export function safeHref(url: string | null | undefined): string | null {
   if (!url) return null;
-  try {
-    const scheme = new URL(url).protocol;
-    return scheme === "http:" || scheme === "https:" || scheme === "mailto:"
-      ? url
-      : null;
-  } catch {
-    return null;
-  }
+  try { if (new URL(url).protocol === "mailto:") return url; } catch { return null; }
+  return externalWebUrl(url);
 }
