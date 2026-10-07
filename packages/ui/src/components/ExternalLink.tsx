@@ -1,5 +1,5 @@
 import { linkSource, profileIndex, type EntityDestination } from "../entity-links.ts";
-import { createContext, useContext, useMemo, type AnchorHTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { externalWebUrl, providerEntityUrl, type ProviderEntity, type ProviderLinkSource } from "../../../../shared/provider-links.ts";
 
@@ -22,10 +22,13 @@ export function useLinkSource(sourceId?: string | null): ProviderLinkSource | nu
 type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & { href?: string | null };
 export function ExternalLink({ href, children, className = "", onClick, onKeyDown, ...props }: LinkProps) {
   const safe = href?.startsWith("mailto:") ? href : externalWebUrl(href);
-  if (!safe) return <span className={className} title={props.title}>{children}</span>;
+  if (!safe) {
+    const { target: _target, rel: _rel, download: _download, ...presentation } = props;
+    return <span {...presentation as HTMLAttributes<HTMLSpanElement>} className={className}>{children}</span>;
+  }
   return <a aria-description="Opens in a new tab" {...props} className={`external-link ${className}`.trim()} href={safe} target="_blank" rel="noopener noreferrer"
     onClick={event => { event.stopPropagation(); onClick?.(event); }}
-    onKeyDown={event => { event.stopPropagation(); onKeyDown?.(event); }}>{children}</a>;
+    onKeyDown={event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); onKeyDown?.(event); }}>{children}</a>;
 }
 
 export function EntityLink({ sourceId, source, entity, ...props }: Omit<LinkProps, "href"> & {
@@ -69,8 +72,8 @@ export function RankEntityLabel({ label, entities, children, className = "live-r
   const body = children ?? label;
   if (destinations.length === 0) return <span className={className}>{body}</span>;
   if (destinations.length === 1) return <ExternalLink className={className} href={destinations[0]![0]} aria-label={`Open ${label} on provider`}>{body}</ExternalLink>;
-  return <details className="rank-entity-menu" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-    <summary className={className} aria-label={`Choose provider destination for ${label}`}>{body} ↗</summary>
+  return <details className="rank-entity-menu" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}>
+    <summary className={className} aria-label={`Choose provider destination for ${label}`}>{body}{children === "↗" ? null : " ↗"}</summary>
     <div className="rank-entity-destinations">{destinations.map(([href, name]) => <ExternalLink key={href} href={href}>{name}</ExternalLink>)}</div>
   </details>;
 }

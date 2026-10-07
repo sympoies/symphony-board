@@ -11,13 +11,13 @@ export function MultiSelect({
   options,
   selected,
   onChange,
-  renderLabel,
+  renderLink,
 }: {
   label: string;
   options: string[];
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
-  renderLabel?: (value: string) => ReactNode;
+  renderLink?: (value: string) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -82,10 +82,13 @@ export function MultiSelect({
           {options.map((opt) => {
             const on = selected.has(opt);
             return (
-              <label key={opt} className={`ms-option${on ? " ms-option-on" : ""}`}>
-                <input type="checkbox" checked={on} onChange={() => toggle(opt)} />
-                <span className="ms-option-label">{renderLabel ? renderLabel(opt) : opt}</span>
-              </label>
+              <div key={opt} className="ms-option-row">
+                <label className={`ms-option${on ? " ms-option-on" : ""}`}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(opt)} />
+                  <span className="ms-option-label">{opt}</span>
+                </label>
+                {renderLink ? <span className="ms-option-outbound">{renderLink(opt)}</span> : null}
+              </div>
             );
           })}
         </div>

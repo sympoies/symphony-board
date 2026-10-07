@@ -1390,7 +1390,6 @@ try {
       returnByValue: true,
     })).result.value || {};
     const checks = [
-    ...outboundChecks,
       [setupHtml.length > 200, "standalone: setup screen rendered"],
       [setupState.hash === "#/settings?tab=sources", `standalone: missing PAT lands on Settings -> Sources (${setupState.hash || "empty"})`],
       [JSON.stringify(setupState.pageTabs) === JSON.stringify(["Settings"]), `standalone: setup lock exposes only Settings tab (${JSON.stringify(setupState.pageTabs || [])})`],
@@ -1462,17 +1461,22 @@ try {
         const before = location.hash;
         const selection = () => [...document.querySelectorAll('[aria-pressed="true"], .commit-row-selected, .live-event-selected')].map(el => el.className).join('|');
         const selectedBefore = selection();
+        let shortcutPropagated = false;
         if (link) {
           window.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
           link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
           link.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          const onShortcut = () => { shortcutPropagated = true; };
+          window.addEventListener('keydown', onShortcut);
+          link.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9', bubbles: true }));
+          window.removeEventListener('keydown', onShortcut);
         }
         return { count: links.length, missing, bad: bad.map(link => link.outerHTML.slice(0, 200)),
-          independent: location.hash === before && selection() === selectedBefore,
+          independent: location.hash === before && selection() === selectedBefore, shortcutPropagated,
           destinations: [...new Set(links.map(link => link.getAttribute('href')))].slice(0, 8) };
       })()`, returnByValue: true,
     })).result.value || {};
-    outboundChecks.push([result.count > 0 && result.missing?.length === 0 && result.bad?.length === 0 && result.independent === true,
+    outboundChecks.push([result.count > 0 && result.missing?.length === 0 && result.bad?.length === 0 && result.independent === true && result.shortcutPropagated === true,
       `${screen}: shared outbound links have safe destinations, new-tab attributes, accessible targets and independent selection (${JSON.stringify(result)})`]);
   };
   const titleLinkHitTargets = [];
@@ -1859,7 +1863,7 @@ try {
   await sleep(300);
   // Page 1 — the full-bleed 5-column board.
   const boardHtml = await waitHtml("document.querySelector('.board-lanes .card')");
-  await captureOutboundLinks('Board', ['.board-lanes a.card-repo', '.board-lanes .card-metrics a']);
+  await captureOutboundLinks('Board', ['.board-lanes a.card-repo', '.board-lanes .card-meta a.muted']);
   await captureTitleLinkHitTarget("board card", ".board-lanes .card-title[href]", ".card");
   const boardKindLabelSummary = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -2969,7 +2973,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
   await sleep(300);
   await waitHtml("document.querySelectorAll('.items-page .item-row').length >= 2");
-  await send("Runtime.evaluate", { expression: "document.querySelectorAll('.items-page .item-row')[1]?.click()" });
+  await send("Runtime.evaluate", { expression: "(() => { const title = document.querySelectorAll('.items-page .item-row')[1]?.querySelector('.item-row-title'); title?.addEventListener('click', e => { if (title.tagName === 'A') e.preventDefault(); }, { once: true }); title?.click(); })()" });
   await sleep(180);
   const itemsMobileDetail = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -3367,7 +3371,7 @@ try {
     expression: `(() => {
       const opt = Array.from(document.querySelectorAll('.repo-combobox-option'))
         .find((el) => (el.textContent || '').includes('example-group/symphony-board-fixture'));
-      if (opt) opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      opt?.querySelector('.repo-combobox-name')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     })()`,
   });
   await sleep(250);
@@ -5333,6 +5337,19 @@ try {
       };
     })()`,
     returnByValue: true,
+  })).result.value || {};
+  const liveFilterLabelToggles = (await send("Runtime.evaluate", {
+    expression: `(() => {
+      const label = document.querySelector('.live-selects .ms-option');
+      const input = label?.querySelector('input');
+      const name = label?.querySelector('.ms-option-label');
+      const before = input?.checked;
+      name?.addEventListener('click', e => { if (e.target.closest('a')) e.preventDefault(); });
+      name?.click();
+      const toggled = !!input && input.checked !== before;
+      name?.click();
+      return { toggled, restored: input?.checked === before, nestedLink: !!label?.querySelector('a, details') };
+    })()`, returnByValue: true,
   })).result.value || {};
   await send("Runtime.evaluate", { expression: "document.body.click()" });
   await sleep(80);
@@ -8068,6 +8085,7 @@ try {
       return {
         hasDetail: !!detail,
         pressedRows: document.querySelectorAll('.commits-overview .pane-row-commit .entity-row-select[aria-pressed="true"]').length,
+        selectedPaint: (() => { const button = document.querySelector('.commits-overview .pane-row-commit .entity-row-select[aria-pressed="true"]'); if (!button) return false; const probe = document.createElement('span'); probe.style.backgroundColor = 'var(--selection-bg)'; button.parentElement.append(probe); const expected = getComputedStyle(probe).backgroundColor; probe.remove(); return getComputedStyle(button.parentElement).backgroundColor === expected; })(),
         // With the detail card above it the overview has less height than its
         // panes need. It scrolls inside its column; it does not squeeze them and
         // it does not push the page.
@@ -8505,6 +8523,7 @@ try {
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
 
   const checks = [
+    ...outboundChecks,
     ...debugFillChecks,
     debugStickyCheck,
     debugSyncGqlCheck,
@@ -9018,7 +9037,7 @@ try {
     ],
     [
       commitsWideLargestPin.hasDetail === true &&
-        commitsWideLargestPin.pressedRows === 1 &&
+        commitsWideLargestPin.pressedRows === 1 && commitsWideLargestPin.selectedPaint === true &&
         commitsWideLargestPin.overviewScrolls === true &&
         Math.abs(commitsWideLargestPin.contextShort) <= 2 &&
         commitsWideLargestPin.dayPlotPx === commitsWidePanes.dayPlotPx &&
@@ -9646,6 +9665,7 @@ try {
     // … and selecting a row without an event url falls back to the target url.
     [/\/pull\/\d+$/.test(liveFallbackLink), `live: a selected row without an event url falls back to the target url (${liveFallbackLink || "none"})`],
     [liveMobileCards.bufferChartHidden === true && liveMobileCards.activeChartHidden === true && liveMobileCards.bufferMobileSubVisible === true && liveMobileCards.activeMobileSubVisible === true && liveMobileCards.bufferMobileSub === "retained events · memory cap", `live: phone hides rank charts and shows compact summaries (${JSON.stringify(liveMobileCards)})`],
+    [liveFilterLabelToggles.toggled === true && liveFilterLabelToggles.restored === true && liveFilterLabelToggles.nestedLink === false, `live: filter name toggles selection independently of outbound action (${JSON.stringify(liveFilterLabelToggles)})`],
     [liveMobileFilterMenu.buttonEnabled === true && liveMobileFilterMenu.menuPresent === true && liveMobileFilterMenu.left >= 0 && liveMobileFilterMenu.right <= liveMobileFilterMenu.viewportWidth, `live: phone repo filter menu stays inside the viewport (${JSON.stringify(liveMobileFilterMenu)})`],
     [liveMobileOpen.detailOpen === "true" && liveMobileOpen.detailDisplay !== "none" && liveMobileOpen.detailPosition === "fixed" && liveMobileOpen.backVisible === true && /[?&]liveDetail=1/.test(liveMobileOpen.hash || ""), `live: phone row opens a fixed detail overlay (${JSON.stringify(liveMobileOpen)})`],
     [liveMobileNav.navButtons === 2 && liveMobileNav.motion === "next" && liveMobileNav.selectedIndex === "1" && /2\s*\/\s*\d+/.test(liveMobileNav.count || "") && liveMobileNav.selectedMatchesDetail === true && liveMobileNav.newerDisabled === false && liveMobileNav.olderDisabled === false, `live: phone detail Older button advances detail and selected feed row together (${JSON.stringify(liveMobileNav)})`],

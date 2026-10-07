@@ -373,7 +373,14 @@ export function ItemsPage({
                         </a>
                       ) : null}
                       <span className="item-row-title-break" aria-hidden="true" />
-                      {item.url ? (
+                      {isDetailOverlay ? (
+                        <>
+                          <button type="button" className="item-row-title item-row-title-select" onClick={event => { event.stopPropagation(); selectItem(item); }}>
+                            {item.title ?? "(untitled)"}
+                          </button>
+                          {item.url ? <ExternalLink className="item-row-provider" href={item.url} aria-label={`Open ${item.title ?? "item"} on provider`}>↗</ExternalLink> : null}
+                        </>
+                      ) : item.url ? (
                         <ExternalLink className="item-row-title" href={item.url} target="_blank" rel="noopener noreferrer">
                           {item.title ?? "(untitled)"}
                         </ExternalLink>

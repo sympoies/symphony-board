@@ -153,13 +153,12 @@ export function RepoCombobox({
               // Mouse-down (not click) so the commit lands before the input's blur,
               // and preventDefault keeps focus on the input so blur never fires here.
               onMouseDown={(e) => {
-                if ((e.target as Element).closest("a")) { e.preventDefault(); return; }
                 e.preventDefault();
                 commit(o);
               }}
               onMouseEnter={() => setHighlight(i)}
             >
-              <EntityLink className="repo-combobox-name" sourceId={o.source_id} entity={{ kind: "repo", projectPath: o.project_path }}>{o.project_path}</EntityLink>
+              <span className="repo-combobox-name">{o.project_path}</span>
               <span className="repo-combobox-meta">
                 {o.count} {pluralize(o.count, "commit")} · {sourceKind.get(o.source_id) ?? o.source_id}
               </span>

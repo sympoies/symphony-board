@@ -6130,7 +6130,7 @@ span.live-avatar { cursor: default; }
 }
 .pane-rows > li:first-child .pane-row { border-top-color: transparent; }
 .pane-row:hover { background: var(--hover-soft); }
-.pane-row[aria-pressed="true"] { background: var(--selection-bg); }
+.pane-row[aria-pressed="true"], .pane-row:has(> .entity-row-select[aria-pressed="true"]) { background: var(--selection-bg); }
 .pane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .pane-row-commit {
   grid-template-columns: 1.6rem minmax(0, 1fr) minmax(56px, 9rem) 7.6rem;
@@ -6654,3 +6654,13 @@ a.pane-row-cr:hover { text-decoration: none; }
 .stack-col:focus-within .rail-daybar-tip { opacity: 1; }
 .stack-col:hover .rail-daybar-tip, .stack-col:focus-within .rail-daybar-tip { pointer-events: auto; }
 .stack-col:focus-visible { outline: 2px solid var(--accent); }
+
+/* Selection labels retain their action; outbound controls sit beside them. */
+.ms-option-row { display: flex; align-items: center; gap: 8px; }
+.ms-option-row .ms-option { flex: 1; min-width: 0; }
+.ms-option-outbound { flex: none; padding-right: 8px; }
+.ms-option-outbound .live-rank-name { overflow: visible; }
+.item-row-title-select { appearance: none; border: 0; padding: 0; background: none; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.ms-option-row:has(.rank-entity-menu[open]) { flex-wrap: wrap; }
+.ms-option-outbound:has(.rank-entity-menu[open]) { flex-basis: 100%; padding: 0 8px 6px; }
+.ms-option-outbound .rank-entity-destinations { position: static; width: auto; max-width: none; }

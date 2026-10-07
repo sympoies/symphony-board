@@ -227,7 +227,6 @@ function LiveAvatar({
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
     >
       {body}
     </ActorLink>
@@ -984,8 +983,8 @@ export function LivePage({
             ))}
           </div>
           <div className="live-selects">
-            <MultiSelect label="Repo" options={repoOptions} selected={repos} onChange={setRepos} renderLabel={path => <RankEntityLabel label={path} entities={visibleEvents.filter(ev => eventRepo(ev) === path).map(ev => ({ sourceId: ev.source_id, label: `${path} · ${ev.source_id}`, entity: { kind: "repo", projectPath: path } }))} />} />
-            <MultiSelect label="People" options={peopleOptions} selected={people} onChange={setPeople} renderLabel={name => <RankEntityLabel label={name} entities={visibleEvents.filter(ev => actorKey(ev) === name).map(ev => ({ sourceId: ev.source_id, label: `${name} · ${ev.source_id}`, entity: { kind: "profile", username: ev.actor?.login, url: ev.actor?.profile_url } }))} />} />
+            <MultiSelect label="Repo" options={repoOptions} selected={repos} onChange={setRepos} renderLink={path => <RankEntityLabel label={path} entities={visibleEvents.filter(ev => eventRepo(ev) === path).map(ev => ({ sourceId: ev.source_id, label: `${path} · ${ev.source_id}`, entity: { kind: "repo", projectPath: path } }))}>↗</RankEntityLabel>} />
+            <MultiSelect label="People" options={peopleOptions} selected={people} onChange={setPeople} renderLink={name => <RankEntityLabel label={name} entities={visibleEvents.filter(ev => actorKey(ev) === name).map(ev => ({ sourceId: ev.source_id, label: `${name} · ${ev.source_id}`, entity: { kind: "profile", username: ev.actor?.login, url: ev.actor?.profile_url } }))}>↗</RankEntityLabel>} />
           </div>
         </div>
       ) : null}
