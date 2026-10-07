@@ -146,6 +146,8 @@ import {
   syncProducedFreshData,
   liveSourceStatus,
   syncRunSummary,
+  headerSyncState,
+  graphStatsHeadline,
   type Filters,
   type ResolvedEdge,
   type GraphNode,
@@ -2750,13 +2752,28 @@ test("isSyncRunActive is true only for a running run", () => {
   assert.equal(isSyncRunActive(null), false);
 });
 
-test("syncProducedFreshData only when a non-dry run emitted without failing", () => {
+test("syncProducedFreshData only when a terminal non-dry run published a contract", () => {
   assert.equal(syncProducedFreshData(syncRun({ status: "ok", emitted: true })), true);
   assert.equal(syncProducedFreshData(syncRun({ status: "partial", emitted: true })), true, "partial still emitted fresh data");
   assert.equal(syncProducedFreshData(syncRun({ status: "ok", dry_run: true, emitted: false })), false, "a dry-run never refreshes the data view");
-  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "a failed run is not fresh");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "a run with no publication is not fresh");
   assert.equal(syncProducedFreshData(syncRun({ status: "running" })), false);
   assert.equal(syncProducedFreshData(null), false);
+});
+
+test("syncProducedFreshData reloads published checkpoints after a sibling or final emit failure", () => {
+  for (const trigger of ["manual", "scheduled"] as const) {
+    assert.equal(syncProducedFreshData(syncRun({
+      trigger, status: "error", emitted: true, error: "one or more sources failed to sync",
+    })), true, trigger + " run must reload the successfully published sibling checkpoint");
+    assert.equal(syncProducedFreshData(syncRun({
+      trigger, status: "error", emitted: true, error: "contract emit failed: final output failure",
+    })), true, trigger + " run must retain freshness of an earlier successful checkpoint");
+  }
+  assert.equal(syncProducedFreshData(syncRun({ status: "running", emitted: true })), false, "mid-run publication waits for the existing terminal reload");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: true, dry_run: true })), false, "dry-run never reloads");
+  assert.equal(syncProducedFreshData(syncRun({ status: "error", emitted: false })), false, "all-failed/no-publication never reloads");
+  assert.equal(syncProducedFreshData(syncRun({ status: "skipped", emitted: false })), false, "lease-denied run never reloads");
 });
 
 test("syncRunSummary distinguishes running, reloaded, dry-run, and error states", () => {
@@ -3875,4 +3892,25 @@ test("commitScopeIsWhole is true only with no route filter and nothing hidden", 
   assert.equal(commitScopeIsWhole({ ...whole, mergesHidden: false }), true);
   // Narrowed to the commits that touched one path.
   assert.equal(commitScopeIsWhole({ ...whole, pathFiltered: true }), false);
+});
+
+test("headerSyncState folds per-source status into one header label", () => {
+  assert.deepEqual(headerSyncState(["ok", "ok"], false), { label: "Synced", tone: "ok" });
+  assert.deepEqual(headerSyncState(["ok", "partial"], false), { label: "Partial", tone: "partial" });
+  assert.deepEqual(headerSyncState(["partial", "error", "ok"], false), { label: "Sync error", tone: "error" });
+  assert.deepEqual(headerSyncState(["unknown"], false), { label: "Not synced", tone: "unknown" });
+  assert.deepEqual(headerSyncState([], false), { label: "Not synced", tone: "unknown" });
+  // A run in flight wins over whatever the contract last recorded.
+  assert.deepEqual(headerSyncState(["error"], true), { label: "Syncing", tone: "syncing" });
+  // A failed run or start surfaces even when every source last read ok.
+  assert.deepEqual(headerSyncState(["ok"], false, true), { label: "Sync error", tone: "error" });
+});
+
+test("graphStatsHeadline merges the focus summary into the stats headline", () => {
+  const stats = { items: 5, edges: 5 };
+  assert.equal(graphStatsHeadline({ ...stats, depth: null, limit: null }), "5 nodes · 5 links");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "1", limit: "depth" }), "depth 1 · 5 nodes · 5 links · limited by depth");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "1/3", limit: "nodes, edges" }), "depth 1/3 · 5 nodes · 5 links · limited by nodes, edges");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "program", limit: null }), "program · 5 nodes · 5 links · complete");
+  assert.equal(graphStatsHeadline({ ...stats, depth: "1", limit: null }), "depth 1 · 5 nodes · 5 links · complete");
 });

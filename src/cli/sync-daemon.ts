@@ -166,6 +166,7 @@ export class SyncController {
         if (this.active !== status) return;
         status.sources = p.sources;
         status.active_source_id = p.active_source_id;
+        if (p.emitted !== undefined) status.emitted = p.emitted;
       });
       status.status = result.status;
       status.totals = result.totals;

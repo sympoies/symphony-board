@@ -1,6 +1,6 @@
-import { ActorLink, EntityLink } from "./ExternalLink.tsx";
-import { ExternalLink } from "./ExternalLink.tsx";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ActorLink, EntityLink, ExternalLink } from "./ExternalLink.tsx";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -34,9 +34,11 @@ import { ItemMetricStrip } from "./ItemMetricStrip.tsx";
 import { ItemKindIcon } from "./ItemKindIcon.tsx";
 import { StatsBar } from "./StatsBar.tsx";
 import { itemMetricEntries } from "../item-metrics.ts";
-import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, graphFocusDropped, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusResetState, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
+import { MOBILE_VIEWPORT_QUERY, GRAPH_FOCUS_MAX_DEPTH, buildGraph, buildAdjacency, computeGraphStats, findContractScopedStats, focusNeighborhoodNodes, focusSubgraph, graphOverviewVisibility, graphCanvasEmptyReason, graphConnectedComponents, packGraphComponentLayouts, relatedItems, relationCountOf, compareGraphNodes, relativeTime, pluralize, graphTopologyKey, graphStatsHeadline, graphForceLayoutTicks, graphForceLayoutTickBudgets, graphEdgeStyle, graphEdgeTypes, graphNodeRelatedTitle, graphRelationTypes, graphProgramView, graphFocusDropped, programLayers, programScopeEdges, type GraphCanvasEmptyReason, type GraphFocusResetState, type GraphFocusScope, type GraphMentionTarget, type GraphOverviewOptions, type GraphProgramView, type GraphNode, type GraphLink, type GraphData, type ResolvedEdge, type RelatedRef, type RelationCount, type ColorOf, type TimeRange, type GraphNeighborhoodResponse, type GraphNeighborhoodNode } from "../model.ts";
 import { programRollups, type ProgramChildStatus } from "../program.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
+import { COMPACT_CHROME_QUERY, NARROW_VIEWPORT_QUERY } from "../layout-tier.ts";
+import { minimapSize } from "../graph-minimap.ts";
 import { useContentPaneHeight } from "../useContentPaneHeight.ts";
 import type { ResolvedViewTheme } from "../viewconfig.ts";
 import type { GraphView } from "../nav.ts";
@@ -400,7 +402,8 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme }: { rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
+function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme, paneWidth }: { paneWidth: number; rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
+  const compactMinimap = useMediaQuery(COMPACT_CHROME_QUERY);
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -481,6 +484,8 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
       <Controls showInteractive={false} />
       <MiniMap
         pannable zoomable
+        // Sized through React Flow (not CSS) so its drag-pan scale matches the drawn size.
+        style={minimapSize(paneWidth, compactMinimap)}
         nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color}
         nodeClassName={(n) => (n.data as unknown as ItemNodeData).focused ? "graph-minimap-target" : ""}
       />
@@ -817,6 +822,8 @@ export function GraphPage({
   theme,
   mobileView,
   onMobileView,
+  controlsSlot = null,
+  onControlsSummary,
 }: {
   edges: ResolvedEdge[];
   // Range-loaded membership for focus badges/ranking. Unlike `edges`, this
@@ -879,6 +886,11 @@ export function GraphPage({
   // `mobileView` to avoid colliding with the local graph-data `view` below.)
   mobileView: GraphView;
   onMobileView: (view: GraphView) => void;
+  // Narrow tier: depth / layout move into the filters sheet. The host provides
+  // the sheet's slot element (null while the sheet is closed) and receives the
+  // one-line summary the collapsed filters disclosure shows.
+  controlsSlot?: HTMLElement | null;
+  onControlsSummary?: (summary: string) => void;
 }) {
   const isMobile = useMediaQuery(MOBILE_VIEWPORT_QUERY);
   // Below the breakpoint the list and canvas can't share the narrow column
@@ -1118,9 +1130,81 @@ export function GraphPage({
     view.nodes.length,
     view.links.length,
   ]);
+  // The canvas pane's width drives the desktop minimap size. Observed on the pane
+  // itself (not the window), so a resized sidebar counts too.
+  const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null);
+  const canvasRef = useCallback((node: HTMLDivElement | null) => setCanvasEl(node), []);
+  const [canvasWidth, setCanvasWidth] = useState(0);
+  useEffect(() => {
+    if (!canvasEl) return undefined;
+    const measure = () => setCanvasWidth(canvasEl.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(canvasEl);
+    return () => observer.disconnect();
+  }, [canvasEl]);
   // What the legend keys: the relation types on the canvas right now.
   const legendTypes = useMemo(() => graphRelationTypes(view.links.map((l) => l.type)), [view]);
   const trackerItem = focusId && program ? itemsByRef.get(focusId) ?? null : null;
+
+  // Depth and layout. Inline on wider viewports; on the narrow tier they ride in
+  // the filters sheet instead (portaled into `controlsSlot`) so the Graph tab
+  // spends its short phone height on the graph itself.
+  const narrowChrome = useMediaQuery(NARROW_VIEWPORT_QUERY);
+  const foldedControls = narrowChrome && !!onControlsSummary;
+  const viewControls = (
+    <>
+      {focusId && !program ? (
+        <div className="toggle-group graph-depth-controls">
+          <span className="toggle-label">depth</span>
+          {Array.from({ length: GRAPH_FOCUS_MAX_DEPTH }, (_, index) => index + 1).map((depth) => (
+            <button
+              key={depth}
+              type="button"
+              className={`toggle${focusDepth === depth ? " toggle-on" : ""}`}
+              onClick={() => onFocusDepthChange(depth)}
+              aria-label={`${depth} relationship ${depth === 1 ? "hop" : "hops"}`}
+            >
+              {depth}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {program ? null : (
+        <div className="toggle-group">
+          <span className="toggle-label">layout</span>
+          <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
+            Force
+          </button>
+          <button type="button" className={`toggle${layout === "hierarchy" ? " toggle-on" : ""}`} onClick={() => setLayout("hierarchy")}>
+            Hierarchy
+          </button>
+        </div>
+      )}
+    </>
+  );
+  // The ready summary row folds into the stats disclosure on the narrow tier
+  // (the row itself is hidden there); loading / fallback messages keep theirs.
+  const focusHeadline =
+    narrowChrome && focusId && focusLoadStatus === "ready" && focusNeighborhood
+      ? graphStatsHeadline({
+          items: view.nodes.length,
+          edges: view.links.length,
+          depth: program
+            ? "program"
+            : focusNeighborhood.reached_depth === focusNeighborhood.requested_depth
+              ? String(focusNeighborhood.reached_depth)
+              : `${focusNeighborhood.reached_depth}/${focusNeighborhood.requested_depth}`,
+          limit: focusNeighborhood.complete ? null : focusNeighborhood.limit_reasons.join(", "),
+        })
+      : undefined;
+  const controlsSummary = [focusId && !program ? `depth ${focusDepth}` : null, program ? null : layout === "force" ? "Force" : "Hierarchy"].filter(Boolean).join(" · ");
+  useEffect(() => {
+    if (!foldedControls) return undefined;
+    onControlsSummary?.(controlsSummary);
+    return () => onControlsSummary?.("");
+  }, [foldedControls, controlsSummary, onControlsSummary]);
 
   return (
     <section className="graph-page">
@@ -1146,33 +1230,7 @@ export function GraphPage({
             ))}
           </div>
         ) : null}
-        {focusId && !program ? (
-          <div className="toggle-group graph-depth-controls">
-            <span className="toggle-label">depth</span>
-            {Array.from({ length: GRAPH_FOCUS_MAX_DEPTH }, (_, index) => index + 1).map((depth) => (
-              <button
-                key={depth}
-                type="button"
-                className={`toggle${focusDepth === depth ? " toggle-on" : ""}`}
-                onClick={() => onFocusDepthChange(depth)}
-                aria-label={`${depth} relationship ${depth === 1 ? "hop" : "hops"}`}
-              >
-                {depth}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {program ? null : (
-          <div className="toggle-group">
-            <span className="toggle-label">layout</span>
-            <button type="button" className={`toggle${layout === "force" ? " toggle-on" : ""}`} onClick={() => setLayout("force")}>
-              Force
-            </button>
-            <button type="button" className={`toggle${layout === "hierarchy" ? " toggle-on" : ""}`} onClick={() => setLayout("hierarchy")}>
-              Hierarchy
-            </button>
-          </div>
-        )}
+        {foldedControls ? null : viewControls}
         {!focusId && edgeTypes.length > 0 ? (
           <div className="toggle-group graph-type-toggles">
             <span className="toggle-label">edges</span>
@@ -1203,6 +1261,7 @@ export function GraphPage({
           </div>
         )}
       </div>
+      {foldedControls && controlsSlot ? createPortal(viewControls, controlsSlot) : null}
       {focusId && focusLoadStatus !== "idle" ? (
         <p className={`graph-focus-load graph-focus-load-${focusLoadStatus}`} role={focusLoadStatus === "fallback" ? "status" : undefined}>
           {focusLoadStatus === "loading"
@@ -1257,6 +1316,7 @@ export function GraphPage({
         scoped={scopedStats}
         totalLabel="nodes"
         edgeLabel="links"
+        headline={focusHeadline}
         footer={
           <div className="graph-legend">
             {NODE_LEGEND.map((x) => (
@@ -1343,7 +1403,7 @@ export function GraphPage({
               />
             ) : null}
             {showGraphPane ? (
-              <div className="graph-canvas">
+              <div className="graph-canvas" ref={canvasRef}>
                 {/* Re-clicking the focused node clears focus — the same toggle
                     exit as the side list's active card. */}
                 {view.links.length === 0 && !program ? (
@@ -1360,7 +1420,7 @@ export function GraphPage({
                     onShowAllTypes={() => setHiddenTypes(new Set())}
                   />
                 ) : (
-                  <Flow key={flowKey} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus && !program} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
+                  <Flow key={flowKey} paneWidth={canvasWidth} rfNodes={rfNodes} rfEdges={rfEdges} focusId={focusId} showEdgeLabels={inFocus && !program} onNodeActivate={(id) => onFocusChange(id === focusId ? null : id)} theme={theme} />
                 )}
               </div>
             ) : null}

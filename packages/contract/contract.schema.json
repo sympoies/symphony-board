@@ -25,6 +25,29 @@
       "type": "string",
       "description": "IANA timezone the producer uses to bucket calendar days (from config; \"UTC\" when unset). Consumers align `today`/`this week` boundaries and heatmap day cells to it. Optional (added in 3.1.0); an old consumer ignores it, a consumer reading an older contract reads it as \"UTC\"."
     },
+    "sync_run": {
+      "type": "object",
+      "description": "Current selected-source run coverage at this emit checkpoint (4.10.0). Historical sources[].last_status is separate. Absent on standalone emits, where current-run completeness is unknown.",
+      "additionalProperties": false,
+      "required": ["mode", "source_scope", "status", "sources"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["incremental", "full"] },
+        "source_scope": { "type": ["string", "null"] },
+        "status": { "type": "string", "enum": ["running", "ok", "partial", "error"] },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_id", "status"],
+            "properties": {
+              "source_id": { "type": "string" },
+              "status": { "type": "string", "enum": ["pending", "ok", "partial", "error", "skipped"] }
+            }
+          }
+        }
+      }
+    },
     "sources": {
       "type": "array",
       "description": "The record sources represented in this contract, with their last sync health so a consumer can flag stale/partial data.",

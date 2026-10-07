@@ -1,13 +1,9 @@
-// Reusable "sync the selected sources, then emit the contract" runner. The board
-// loop daemon and the standalone sync CLI both go through here, so manual and
-// scheduled syncs share one definition of a run and one emit-gating rule.
-//
-// Network lives in the sources (src/sources/*); this module only orchestrates the
-// engine + emit and reports structured, per-source results suitable for the UI
-// sync status. The emit rule is deliberately single-sourced: emit the contract
-// only after a non-dry run that did not fail — a dry-run must never write a
-// contract, and a failed run must never present stale derived data as fresh.
+// Shared source-by-source sync + contract publication. Each committed leg can
+// publish independently of its siblings. Dry-runs never emit; an all-failed run
+// does not refresh stale data. Current-run coverage accompanies every checkpoint
+// so historical source health cannot masquerade as a completed all-source sync.
 
+import type { SyncRunDTO } from "@symphony-board/contract";
 import type { AppConfig, SourceConfig } from "./config.ts";
 import { commitFilesPerSweep, projectPaths, sourceEnabled, sourceTokenEnvNames } from "./config.ts";
 import { createAuthTokenResolver, type AuthTokenResolver } from "./auth.ts";
@@ -76,6 +72,7 @@ export interface PreparedSource {
 export interface SyncRunProgress {
   sources: SourceRunResult[];
   active_source_id: string | null;
+  emitted?: boolean;
 }
 
 export type SyncProgressReporter = (progress: SyncRunProgress) => void;
@@ -92,22 +89,20 @@ function emptyTotals(): SyncRunTotals {
   return { items: 0, edges: 0, activities: 0, soft_deleted: 0, soft_deleted_edges: 0 };
 }
 
-// Core run over already-built sources and an open store — no network setup, no
-// config/token resolution — so it is unit-testable with fake sources and an
-// in-memory store. The optional `emit` callback is invoked only on a non-dry,
-// non-failed run; that gating is the single definition of "emit unless dry-run or
-// failed". `emit` rejecting (e.g. a contract that fails producer validation)
-// fails the whole run rather than silently shipping nothing.
+// Core run over built sources and an open store. Emit after intermediate legs
+// and once at the end (the last leg uses that final emit). A source failure
+// does not block a sibling's committed data. Emit failures are retried at the
+// next checkpoint; a failure at the final checkpoint fails the run.
 export async function executeSyncRun(
   store: Store,
   prepared: PreparedSource[],
   skipped: string[],
   opts: SyncRunOptions,
-  emit?: () => Promise<void> | void,
+  emit?: (coverage: SyncRunDTO) => Promise<void> | void,
   onProgress?: SyncProgressReporter,
   // Pre-resolved per-source error results (e.g. a source whose GitHub App token
   // mint hard-failed before any fetch). They count toward overallStatus, so a
-  // hard auth failure blocks emit exactly like an in-flight fetch failure.
+  // hard auth failure stays visible even when a sibling publishes data.
   errored: SourceRunResult[] = [],
 ): Promise<SyncRunResult> {
   const full = opts.mode === "full";
@@ -138,13 +133,41 @@ export async function executeSyncRun(
       ...errored,
     ];
 
-    for (const { config, source, telemetry } of prepared) {
+    let emitted = false;
+    let emitError: string | null = null;
+    let hasCommittedLeg = false;
+    const publish = async (running: boolean): Promise<void> => {
+      // Preserve the no-source/skipped-only final emit, but never refresh an
+      // all-failed run's data as though it had successfully synced.
+      if (!emit || opts.dryRun || (!hasCommittedLeg && (prepared.length > 0 || overallStatus(results) === "error"))) return;
+      const completed = new Map(results.map((r) => [r.source_id, r.status]));
+      const coverage: SyncRunDTO = {
+        mode: opts.mode,
+        source_scope: opts.sourceId,
+        status: running ? "running" : overallStatus(results),
+        sources: [
+          ...results.map((r) => ({ source_id: r.source_id, status: r.status })),
+          ...prepared.filter(({ config }) => !completed.has(config.source_id))
+            .map(({ config }) => ({ source_id: config.source_id, status: "pending" as const })),
+        ],
+      };
+      try {
+        await emit(coverage);
+        emitted = true;
+        emitError = null;
+      } catch (err) {
+        emitError = `contract emit failed: ${(err as Error).message}`;
+        log.error(emitError);
+      }
+    };
+
+    for (const [index, { config, source, telemetry }] of prepared.entries()) {
       const prev = full ? null : await store.getWatermark(config.source_id);
       // Announce the in-flight source before the (possibly slow) fetch so a tail of
       // the logs shows which source is currently syncing — the prior line, if it has
       // no matching result, is where a stall is happening.
       log.info(`[${config.source_id}] syncing…`);
-      onProgress?.({ sources: [...results], active_source_id: config.source_id });
+      onProgress?.({ sources: [...results], active_source_id: config.source_id, emitted });
       const rep = await syncSource(store, source, prev, {
         full,
         dryRun: opts.dryRun,
@@ -179,7 +202,9 @@ export async function executeSyncRun(
         soft_deleted_edges: rep.softDeletedEdges,
         error: rep.error,
       });
-      onProgress?.({ sources: [...results], active_source_id: null });
+      if (rep.status !== "error") hasCommittedLeg = true;
+      if (index < prepared.length - 1) await publish(true);
+      onProgress?.({ sources: [...results], active_source_id: null, emitted });
     }
 
     const status = overallStatus(results);
@@ -192,23 +217,9 @@ export async function executeSyncRun(
       return acc;
     }, emptyTotals());
 
-    let emitted = false;
-    let error: string | null = status === "error" ? "one or more sources failed to sync" : null;
-    if (emit && !opts.dryRun && status !== "error") {
-      try {
-        await emit();
-        emitted = true;
-      } catch (err) {
-        return {
-          status: "error",
-          sources: results,
-          totals,
-          emitted: false,
-          error: `contract emit failed: ${(err as Error).message}`,
-        };
-      }
-    }
-    return { status, sources: results, totals, emitted, error };
+    await publish(false);
+    const error = emitError ?? (status === "error" ? "one or more sources failed to sync" : null);
+    return { status: emitError ? "error" : status, sources: results, totals, emitted, error };
   } finally {
     if (!opts.dryRun) await store.releaseWriterLease();
   }
@@ -257,7 +268,7 @@ export async function runConfiguredSync(
       : new Map<string, typeof tokens>();
     // A configured GitHub App mint that hard-failed (no usable fallback token in
     // its pool) is an actionable auth error, not a benign "token unset" skip:
-    // surface it so the run fails and does not silently re-emit a stale contract
+    // surface it so the run fails without labelling this source as complete
     // or fetch the repo with credentials outside its selected pool.
     const mintFailure = authTokenResolver.hardMintFailure?.(sc) ?? null;
     if (mintFailure) {
@@ -296,8 +307,8 @@ export async function runConfiguredSync(
   const store = await openStore(cfg);
   try {
     const emit = out
-      ? async () => {
-          const counts = await emitContractToFile(store, cfg, out, now());
+      ? async (coverage: SyncRunDTO) => {
+          const counts = await emitContractToFile(store, cfg, out, now(), true, { syncRun: coverage });
           log.info(
             `emit wrote ${counts.items}/${counts.totalItems} items / ${counts.edges} edges / ${counts.activities} activities -> ${out}`,
           );

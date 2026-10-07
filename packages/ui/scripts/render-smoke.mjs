@@ -2362,6 +2362,116 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // The Graph minimap must scale with the viewport: on phones it may not cover a
+  // large share of the pane or collide with the zoom controls / Locate button,
+  // and on every width the whole graph stays inside it.
+  const minimapMeasurements = [];
+  for (const [width, height, mobile] of [[360, 780, true], [390, 844, true], [430, 932, true], [844, 390, true], [1280, 900, false], [1920, 1080, false], [2560, 1440, false], [3840, 2160, false]]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
+    await sleep(400);
+    // Phones show one pane at a time; switch to the Graph tab to measure its canvas.
+    await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-view-toggle [role=\"tab\"]')].find((tab) => tab.textContent.trim() === 'Graph')?.click()" });
+    await sleep(500);
+    minimapMeasurements.push({ width, height, ...((await send("Runtime.evaluate", {
+      expression: `(() => {
+        const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; };
+        const overlap = (a, b) => !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const pane = document.querySelector('.graph-canvas');
+        const mm = document.querySelector('.react-flow__minimap');
+        const svg = mm?.querySelector('svg')?.getBoundingClientRect();
+        const rects = { pane: box(pane), minimap: box(mm), controls: box(document.querySelector('.react-flow__controls')), locate: box(document.querySelector('.graph-locate-focus')) };
+        const nodes = [...document.querySelectorAll('.react-flow__minimap-node')].map((n) => n.getBoundingClientRect());
+        const eps = 1;
+        return {
+          ...rects,
+          areaRatio: rects.pane && rects.minimap ? +((rects.minimap.w * rects.minimap.h) / (rects.pane.w * rects.pane.h)).toFixed(3) : null,
+          overlapsControls: overlap(rects.minimap, rects.controls),
+          overlapsLocate: overlap(rects.minimap, rects.locate),
+          insidePane: !!rects.pane && !!rects.minimap && rects.minimap.left >= rects.pane.left && rects.minimap.right <= rects.pane.right && rects.minimap.bottom <= rects.pane.bottom,
+          nodeCount: nodes.length,
+          allNodesInside: !!svg && nodes.length > 0 && nodes.every((r) => r.left >= svg.left - eps && r.right <= svg.right + eps && r.top >= svg.top - eps && r.bottom <= svg.bottom + eps),
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {}) });
+    if (process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
+      const shot = await send("Page.captureScreenshot", { format: "png" });
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
+      writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, `graph-minimap-${width}x${height}.png`), Buffer.from(shot.data, "base64"));
+    }
+  }
+  console.log("minimap measurements:", JSON.stringify(minimapMeasurements));
+  // Short phone screens, Graph tab in focus mode: the chrome above the graph pane
+  // must leave it most of the viewport. SYMPHONY_BOARD_SMOKE_SHOTS=<dir> also
+  // writes a screenshot per size, for before/after comparisons in a PR.
+  const phoneGraphMeasurements = [];
+  for (const [width, height] of [[360, 640], [412, 620]]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
+    await sleep(400);
+    await send("Runtime.evaluate", { expression: "[...document.querySelectorAll('.graph-view-toggle [role=\"tab\"]')].find((tab) => tab.textContent.trim() === 'Graph')?.click()" });
+    await sleep(600);
+    phoneGraphMeasurements.push({ width, height, ...((await send("Runtime.evaluate", {
+      expression: `(() => {
+        const pane = document.querySelector('.graph-body')?.getBoundingClientRect();
+        const canvas = document.querySelector('.graph-canvas')?.getBoundingClientRect();
+        return {
+          paneTop: pane ? Math.round(pane.top + scrollY) : null,
+          paneHeight: pane ? Math.round(pane.height) : null,
+          canvasHeight: canvas ? Math.round(canvas.height) : null,
+          share: pane ? +(pane.height / innerHeight).toFixed(3) : null,
+          headerRows: document.querySelector('.app-header')?.getBoundingClientRect().height | 0,
+          chrome: [...document.querySelectorAll('.app > *, .view-chrome > *, .view-chrome .controls > *, .graph-page > *')].filter((el) => el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().top + scrollY < (pane ? pane.top + scrollY : 0)).map((el) => el.className.toString().split(' ')[0] + ':' + Math.round(el.getBoundingClientRect().top + scrollY) + '+' + Math.round(el.getBoundingClientRect().height)),
+          focusCaptions: [...document.querySelectorAll('.search-suspended-note')].filter((el) => el.getBoundingClientRect().height > 0).length,
+          summaryRows: [...document.querySelectorAll('.graph-focus-load, .stats-disclosure')].filter((el) => el.getBoundingClientRect().height > 0).length,
+          statsHeadline: document.querySelector('.stats-disclosure .filter-summary-disclosure-summary')?.textContent || '',
+          filtersSummary: document.querySelector('.filter-disclosure .filter-summary-disclosure-summary')?.textContent || '',
+          inlineGraphControls: document.querySelectorAll('.graph-controls .graph-depth-controls, .graph-controls .toggle-label').length,
+          syncToggle: document.querySelector('.sync-popover-toggle')?.textContent?.trim() || '',
+          headerChips: [...document.querySelectorAll('.app-header .source-chip')].filter((el) => el.getBoundingClientRect().height > 0).length,
+        };
+      })()`,
+      returnByValue: true,
+    })).result.value || {}) });
+    if (process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
+      const shot = await send("Page.captureScreenshot", { format: "png" });
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
+      writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, `graph-phone-${width}x${height}.png`), Buffer.from(shot.data, "base64"));
+    }
+    // The folded controls: depth / layout live in the filters sheet, and the
+    // header's sync popover holds the per-source chips.
+    await send("Runtime.evaluate", { expression: "document.querySelector('.filter-disclosure')?.click()" });
+    await sleep(300);
+    phoneGraphMeasurements[phoneGraphMeasurements.length - 1].sheet = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const sheet = document.querySelector('.mobile-control-sheet');
+        const depth = sheet?.querySelectorAll('.graph-depth-controls .toggle').length || 0;
+        const layout = [...(sheet?.querySelectorAll('.toggle') || [])].filter((b) => /^(Force|Hierarchy)$/.test(b.textContent.trim())).length;
+        sheet?.querySelector('.mobile-control-sheet-close')?.click();
+        return { depth, layout };
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    await sleep(200);
+    await send("Runtime.evaluate", { expression: "document.querySelector('.sync-popover-toggle')?.click()" });
+    await sleep(200);
+    phoneGraphMeasurements[phoneGraphMeasurements.length - 1].popover = (await send("Runtime.evaluate", {
+      expression: `(() => {
+        const pop = document.querySelector('.sync-popover');
+        const r = pop?.getBoundingClientRect();
+        const out = { open: !!pop, chips: pop?.querySelectorAll('.source-chip').length || 0, insideViewport: !!r && r.left >= 0 && r.right <= innerWidth };
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        return out;
+      })()`,
+      returnByValue: true,
+    })).result.value || {};
+    await sleep(200);
+    phoneGraphMeasurements[phoneGraphMeasurements.length - 1].popoverClosed = (await send("Runtime.evaluate", { expression: "!document.querySelector('.sync-popover')", returnByValue: true })).result.value === true;
+  }
+  console.log("phone graph measurements:", JSON.stringify(phoneGraphMeasurements));
+  await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
+  await sleep(300);
   const focusRoute = (await send("Runtime.evaluate", { expression: "location.hash", returnByValue: true })).result.value || "";
   await send("Runtime.evaluate", { expression: `(() => {
     const [path, query] = location.hash.split('?');
@@ -5725,7 +5835,7 @@ try {
               && filterToggle.classList.contains('filter-summary-disclosure')
               && !!filterToggleSummary
               && (filterToggleRect?.width ?? 0) >= 70
-              && (filterToggleRect?.width ?? 0) <= window.innerWidth * 0.45),
+              && (filterToggleRect?.width ?? 0) <= window.innerWidth * ${page.page === "graph" ? 0.7 : 0.45}),
             // The local-file contract loader is a desktop dev affordance; on a
             // phone it is hidden entirely so it doesn't spend a row.
             fileLoadHidden: !controls || !localFile || getComputedStyle(localFile).display === 'none',
@@ -5763,6 +5873,8 @@ try {
             commitMaxBodyHeight: Math.max(0, ...commitRows.map((row) => { const b = row.querySelector('.commit-row-body'); return b ? Math.round(b.getBoundingClientRect().height) : 0; })),
             commitMinSlotHeight: commitRows.length ? Math.min(...commitRows.map((row) => Math.round(row.getBoundingClientRect().height))) : 0,
             headerSourcesCount: sourceChips.length,
+            headerHeight: Math.round(document.querySelector('.app-header')?.getBoundingClientRect().height || 0),
+            headerSyncToggle: !!document.querySelector('.app-header .sync-popover-toggle'),
             headerSourcesHeight: Math.round(sourcesRect?.height || 0),
             headerSourcesOneLine: sourceChipTops.length > 0 && new Set(sourceChipTops).size === 1,
             headerSourceChipFlexGrow: sourceChips[0] ? getComputedStyle(sourceChips[0]).flexGrow : null,
@@ -9037,7 +9149,7 @@ try {
     [phoneRepoAnalyticsLayout.found === true && phoneRepoAnalyticsLayout.gridColumns >= 4 && phoneRepoAnalyticsLayout.primaryCount === 4 && phoneRepoAnalyticsLayout.secondaryCount === 6 && phoneRepoAnalyticsLayout.primarySameRow === true && phoneRepoAnalyticsLayout.primaryCentered === true && phoneRepoAnalyticsLayout.secondaryCompact === true && phoneRepoAnalyticsLayout.secondaryReadable === true && phoneRepoAnalyticsLayout.secondaryTight === true && phoneRepoAnalyticsLayout.secondaryGrouped === true && phoneRepoAnalyticsLayout.trendReadable === true && phoneRepoAnalyticsLayout.actorsCompact === true && phoneRepoAnalyticsLayout.qualityInHeader === true && phoneRepoAnalyticsLayout.qualityCellHidden === true && phoneRepoAnalyticsLayout.rowHeight <= 290, `portrait: repo analytics uses compact mobile cards (${JSON.stringify(phoneRepoAnalyticsLayout)})`],
     [phoneFilterPages.every((r) => r.filterButtonVisible === true && r.filterGroupsCollapsed === true), `portrait: phone facet filters start collapsed behind a button (${phoneFilterPages.map((r) => `${r.page}:button=${r.filterButtonVisible},collapsed=${r.filterGroupsCollapsed}`).join("; ")})`],
     [phoneFilterPages.length > 0 && phoneFilterPages.every((r) => r.fileLoadHidden === true), `portrait: phone hides the rarely-used local file loader (${phoneFilterPages.map((r) => `${r.page}:hidden=${r.fileLoadHidden}`).join("; ")})`],
-    [phoneHeaderPages.every((r) => r.headerSourcesCount >= 3 && r.headerSourcesOneLine === true && r.headerSourcesHeight <= 32 && r.headerSourceChipFlexGrow === "0"), `portrait: phone source health strip stays compact and content-sized (${phoneHeaderPages.map((r) => `${r.page}:count=${r.headerSourcesCount},oneLine=${r.headerSourcesOneLine},height=${r.headerSourcesHeight},grow=${r.headerSourceChipFlexGrow}`).join("; ")})`],
+    [phoneHeaderPages.length > 0 && phoneHeaderPages.every((r) => r.headerSourcesCount === 0 && r.headerSyncToggle === true && r.headerHeight > 0 && r.headerHeight <= 40), `portrait: phone header is one row with a sync status button and no inline source chips (${phoneHeaderPages.map((r) => `${r.page}:chips=${r.headerSourcesCount},toggle=${r.headerSyncToggle},height=${r.headerHeight}`).join("; ")})`],
     [phoneContentPages.every((r) => r.primarySurfaceTop > 0 && r.primarySurfaceTop <= 360), `portrait: phone primary content starts in the first screen (${phoneContentPages.map((r) => `${r.page}:top=${r.primarySurfaceTop}`).join("; ")})`],
     [phoneRangePages.every((r) => r.rangeControlsVisible === true), "portrait: phone keeps date range controls visible"],
     [phoneRangeLayout.found === true && phoneRangeLayout.sameWrapWidth === true && phoneRangeLayout.fullWidthRows === true, `portrait: phone date range inputs use equal full-width rows (${JSON.stringify(phoneRangeLayout)})`],
@@ -9207,6 +9319,16 @@ try {
     [!has(focusHtml, "Second-hop smoke relation"), "graph: the default one-hop focus does not draw second-hop history"],
     [has(focusHtml, "rf-node-focused"), "graph: the selected focus node has distinct canvas styling"],
     [focusLocator.marker === "TARGET" && focusLocator.button === "Locate target card" && focusLocator.outlined === true && focusLocator.minimapTargets === 1 && focusLocator.themes?.length === 2 && focusLocator.themes.every((theme) => theme.matches), `graph: focused target uses its own theme-matched marker, outline, minimap cue, and locator (${JSON.stringify(focusLocator)})`],
+    [minimapMeasurements.length === 8 && minimapMeasurements.every((m) => m.minimap && m.pane && !m.overlapsControls && !m.overlapsLocate && m.insidePane && m.allNodesInside), `graph: minimap stays inside the pane, clear of the zoom controls and Locate button, and shows the whole graph at every width (${JSON.stringify(minimapMeasurements)})`],
+    [(() => {
+      const at = (w) => minimapMeasurements.find((m) => m.width === w)?.minimap;
+      const compactSizes = minimapMeasurements.filter((m) => m.width < 500 || m.height < 761).every((m) => m.minimap?.w === 112 && m.minimap?.h === 84);
+      const base = at(1280);
+      const large = [at(2560), at(3840)];
+      return compactSizes && base?.w === 200 && base?.h === 150 && large.every((mm) => !!mm && mm.w > 200 && mm.w <= 360 && mm.h <= 270 && Math.abs(mm.w * 3 - mm.h * 4) <= 4);
+    })(), `graph: desktop minimap scales with the pane (200x150 at 1280, larger but at most 360x270 at 2560/3840, 4:3) and phones keep 112x84 (${JSON.stringify(minimapMeasurements.map((m) => [m.width, m.height, m.pane?.w, m.minimap?.w, m.minimap?.h]))})`],
+    [phoneGraphMeasurements.length === 2 && phoneGraphMeasurements.every((m) => m.share != null && m.share >= 0.6 && m.headerRows <= 40 && m.focusCaptions === 0 && m.summaryRows === 1 && m.inlineGraphControls === 0 && m.headerChips === 0 && /^depth 1 · \d+ nodes · \d+ links · (limited by|complete)/.test(m.statsHeadline) && /^all · depth 1 · Force$/.test(m.filtersSummary) && m.sheet?.depth === 5 && m.sheet?.layout === 2 && m.popover?.open === true && m.popover.chips > 0 && m.popover.insideViewport && m.popoverClosed === true && /^(Synced|Partial|Sync error|Syncing|Not synced)$/.test(m.syncToggle)), `graph: on short phone screens the focus-mode graph pane fills at least 60% of the viewport (${JSON.stringify(phoneGraphMeasurements)})`],
+    [minimapMeasurements.filter((m) => m.width < 500 || m.height < 761).every((m) => m.areaRatio != null && m.areaRatio <= 0.12), `graph: phone minimap covers at most 12% of the graph pane (${JSON.stringify(minimapMeasurements.map((m) => [m.width, m.height, m.areaRatio]))})`],
     [focusLocated.found === true && Math.abs(focusLocated.zoom - 1) < 0.05 && Math.abs(focusLocated.dx) < 40 && Math.abs(focusLocated.dy) < 40, `graph: Locate target restores readable zoom and centers the focused card (${JSON.stringify(focusLocated)})`],
     [absentFocusLocator.focused === true && absentFocusLocator.graphNodes > 0 && absentFocusLocator.locator === 0 && absentFocusLocator.markers === 0 && absentFocusLocator.minimapTargets === 0, `graph: a missing focus falls back to a usable graph without an inert locator or target marker (${JSON.stringify(absentFocusLocator)})`],
     [/^\d+$/.test(graphFocusSearch) && focusSearchState.query === graphFocusSearch && focusSearchState.disabled === true && focusSearchState.labelled === true && focusRouteQuery === graphFocusSearch, `graph: focus preserves but suspends a non-empty locating search (${JSON.stringify({ graphFocusSearch, focusRouteQuery, focusSearchState })})`],

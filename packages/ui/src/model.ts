@@ -3415,11 +3415,12 @@ export function isSyncRunActive(run: SyncRunStatus | null | undefined): boolean 
   return !!run && run.status === "running";
 }
 
-// A finished run produced fresh data the UI should reload only when it actually
-// wrote a contract: not a dry-run, it emitted, and the sync did not fail. A
-// dry-run or failed run must never reload the data view as if it were fresh.
+// Reload a finished non-dry run that actually published a contract. A sibling
+// or final emit failure can leave an earlier valid checkpoint to reload, even
+// when the aggregate run failed. Running, skipped and unpublished runs do not
+// trigger a reload.
 export function syncProducedFreshData(run: SyncRunStatus | null | undefined): boolean {
-  return !!run && run.status !== "running" && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial");
+  return !!run && !run.dry_run && run.emitted && (run.status === "ok" || run.status === "partial" || run.status === "error");
 }
 
 // Live per-source state for a header source chip while a run is in flight:
@@ -4114,4 +4115,27 @@ export function sourcesNeedingSync(prev: ConfigDocument | null, next: ConfigDocu
     if (s.projects.some((p) => !before.has(configProjectPath(p)))) out.push(s.source_id);
   }
   return out;
+}
+
+// One header status for the narrow tier, where the per-source chips and the sync
+// line move behind a popover. A run in flight wins; otherwise the worst source
+// status decides, so a single failing source is never hidden by a healthy one.
+// `runFailed` is a failed start or a last run that ended in error: the run line
+// that reports it sits in the popover, so the button must carry it too.
+export function headerSyncState(statuses: readonly string[], running: boolean, runFailed = false): { label: string; tone: string } {
+  if (running) return { label: "Syncing", tone: "syncing" };
+  if (runFailed || statuses.includes("error")) return { label: "Sync error", tone: "error" };
+  if (statuses.includes("partial")) return { label: "Partial", tone: "partial" };
+  if (statuses.length > 0 && statuses.every((status) => status === "ok")) return { label: "Synced", tone: "ok" };
+  return { label: "Not synced", tone: "unknown" };
+}
+
+// The Graph stats disclosure headline on narrow viewports. In focus mode it
+// carries the neighborhood summary ("depth 1 · 5 nodes · 5 links · limited by
+// depth") that otherwise takes a row of its own above the stats row.
+export function graphStatsHeadline({ items, edges, depth, limit }: { items: number; edges: number; depth: string | null; limit: string | null }): string {
+  const parts = [...(depth ? [depth.includes("/") || /^\d+$/.test(depth) ? `depth ${depth}` : depth] : []), `${items} nodes`];
+  if (edges > 0) parts.push(`${edges} links`);
+  if (depth) parts.push(limit ? `limited by ${limit}` : "complete");
+  return parts.join(" · ");
 }

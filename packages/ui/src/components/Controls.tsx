@@ -1,7 +1,7 @@
 import { EntityLink, RepoReference } from "./ExternalLink.tsx";
 import { Fragment } from "react";
 import { ControlDisclosure, MobileControlSheet } from "./ControlDisclosure.tsx";
-import { type ChangeEvent } from "react";
+import { type ChangeEvent, type RefCallback } from "react";
 
 // A single facet group the Controls bar renders. `mode` decides which values
 // show: "facet" lists every value (the usual multi-select chips, hidden when
@@ -31,6 +31,12 @@ interface Props {
   onClearFilters?: () => void;
   onLoadFile: (file: File) => void;
   onMobilePanel?: (panel: "search" | "filters" | "range" | null) => void;
+  // The Graph page folds its depth / layout controls into the narrow filters
+  // sheet: the page portals them into `sheetSlotRef`'s element and reports a
+  // short summary that the collapsed disclosure appends ("filters all · depth 1
+  // · Force"), so the extra chrome rows disappear from the page.
+  extraSummary?: string;
+  sheetSlotRef?: RefCallback<HTMLDivElement>;
 }
 
 function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (value: string) => void }) {
@@ -68,7 +74,7 @@ function ToggleGroup({ group, onToggle }: { group: ControlGroup; onToggle: (valu
   );
 }
 
-export function Controls({ search, searchSuspended = false, groups, mobilePanel = null, onSearch, onToggle, onClearFilters, onLoadFile, onMobilePanel }: Props) {
+export function Controls({ search, searchSuspended = false, groups, mobilePanel = null, onSearch, onToggle, onClearFilters, onLoadFile, onMobilePanel, extraSummary = "", sheetSlotRef }: Props) {
   const filtersOpen = mobilePanel === "filters";
   const searchOpen = mobilePanel === "search";
   const activeFilterCount = groups.reduce((count, group) => count + group.active.size, 0);
@@ -76,7 +82,7 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
   // Collapsed-state summary for the narrow disclosure: "all" when nothing narrows
   // the view, else the active facet count. Mirrors the range / commits filter
   // disclosures so every page's filter chrome reads the same on a phone.
-  const filtersSummary = activeFilterCount === 0 ? "all" : `${activeFilterCount} active`;
+  const filtersSummary = `${activeFilterCount === 0 ? "all" : `${activeFilterCount} active`}${extraSummary ? ` · ${extraSummary}` : ""}`;
   const searchSummary = searchSuspended ? "not applied in focus" : search.trim() === "" ? "search" : "search active";
   const setMobilePanel = (panel: "search" | "filters" | "range" | null) => {
     onMobilePanel?.(panel);
@@ -149,6 +155,7 @@ export function Controls({ search, searchSuspended = false, groups, mobilePanel 
                 {groups.map((group) => (
                   <ToggleGroup key={group.dim} group={group} onToggle={(value) => onToggle(group.dim, value)} />
                 ))}
+                {sheetSlotRef ? <div ref={sheetSlotRef} className="mobile-filter-extra" /> : null}
               </div>
             )}
         </MobileControlSheet>

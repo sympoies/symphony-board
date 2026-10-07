@@ -297,6 +297,10 @@ export function App() {
   // of truth, so reloading/share links and Board ↔ Graph tab hops agree.
   const [filters, setFilters] = useState<Filters>(() => applyRouteSearch(emptyFilters(), parseHashRoute(initialStartupHash)));
   const [mobileControlPanel, setMobileControlPanel] = useState<MobileControlPanel>(null);
+  // Graph depth / layout fold into the narrow filters sheet: the sheet's slot
+  // element and the summary the collapsed disclosure appends.
+  const [graphControlsSlot, setGraphControlsSlot] = useState<HTMLElement | null>(null);
+  const [graphControlsSummary, setGraphControlsSummary] = useState("");
   const [hash, setHash] = useState<string>(initialStartupHash);
   // Persistent display preferences (the Settings page), loaded once from
   // localStorage and saved back on every change:
@@ -2065,6 +2069,8 @@ export function App() {
               onClearFilters={clearFilters}
               onLoadFile={loadFile}
               onMobilePanel={setMobileControlPanel}
+              extraSummary={page === "graph" ? graphControlsSummary : undefined}
+              sheetSlotRef={page === "graph" ? setGraphControlsSlot : undefined}
             />
           )}
           <TimeRangeControls
@@ -2298,6 +2304,8 @@ export function App() {
             theme={resolvedTheme}
             mobileView={graphViewValue}
             onMobileView={setGraphView}
+            controlsSlot={graphControlsSlot}
+            onControlsSummary={setGraphControlsSummary}
           />
         </Suspense>
       ) : (

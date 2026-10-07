@@ -9,7 +9,7 @@
 
 import { rmSync, renameSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import type { ContractEnvelope, RepoDTO } from "@symphony-board/contract";
+import type { ContractEnvelope, RepoDTO, SyncRunDTO } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
 import { collectsCommitFiles, configuredRepoRefs } from "../config.ts";
 import type { CommitFilesRow, Store } from "../db/store.ts";
@@ -56,10 +56,10 @@ export async function buildContractEnvelope(
   store: Store,
   cfg: AppConfig,
   generatedAt: string,
-  opts: { itemWindow?: "default" | "full" } = {},
+  opts: { itemWindow?: "default" | "full"; syncRun?: SyncRunDTO } = {},
 ): Promise<ContractEnvelope> {
   const { sourceColors, repoColors } = displayColors(cfg);
-  return buildContract({
+  const envelope = buildContract({
     sources: await store.listSources(),
     items: await store.listLiveItems(),
     labels: await store.listLabels(),
@@ -78,6 +78,8 @@ export async function buildContractEnvelope(
     itemWindow: opts.itemWindow,
     configuredRepos: configuredRepoRefs(cfg),
   });
+  if (opts.syncRun) envelope.sync_run = opts.syncRun;
+  return envelope;
 }
 
 // A contract that failed producer validation must never ship (the producer
@@ -107,8 +109,9 @@ export async function emitContractToFile(
   outPath: string,
   generatedAt: string,
   validate = true,
+  opts: { syncRun?: SyncRunDTO } = {},
 ): Promise<EmitCounts> {
-  const envelope = await buildContractEnvelope(store, cfg, generatedAt);
+  const envelope = await buildContractEnvelope(store, cfg, generatedAt, opts);
   if (validate) {
     const errors = validateContract(envelope);
     if (errors.length > 0) throw new ContractValidationError(errors);

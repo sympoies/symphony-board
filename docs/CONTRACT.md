@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.9.1`.
+Current emitted version: `4.10.0`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.10.0` | additive | optional `sync_run` checkpoint coverage for per-source publication | Sync Checkpoints |
 | `4.9.1` | clarification | `target_ref` / `title` filled on comment rows; any in-range row's target is a range support row | Activities |
 | `4.9.0` | additive | optional top-level `commit_file_stats` | Commit File Stats |
 | `4.8.2` | clarification | `details.change_request` on commit activity rows; in-range commits pull their change request into a range response | Activities |
@@ -269,6 +270,7 @@ Top-level fields:
 - `timezone`: optional IANA timezone the producer buckets calendar days in
   (from config; `"UTC"` when unset), added in `3.1.0`.
 - `sources`: source health and source display metadata.
+- `sync_run`: optional current-run source coverage, added in `4.10.0` (see Sync Checkpoints).
 - `items`: windowed normalized work items in contract v2.
 - `edges`: typed relationships whose endpoints are resolved by the v2 item
   window whenever the endpoint belongs to a tracked item.
@@ -1533,6 +1535,49 @@ approvers, and the `reviews` / `approvals` repo metrics are documented as
 activity-event counts (see Activities and Repo Metrics). The shape is unchanged
 — `review` is existing open `kind` vocabulary and `reviews` / `approvals` are
 existing integer fields — so v2 consumers need no change.
+
+## Sync Checkpoints
+
+Version `4.10.0` adds optional `sync_run` to contracts emitted by the sync
+runner. Each source leg publishes after its committed work; the last leg uses
+the final run emit. A failed leg does not block committed data from another
+source. A dry-run, refused writer lease, or all-failed run emits nothing.
+Standalone `emit` and read-only range projections omit `sync_run`: absence
+means current-run completeness is unknown, not that a full sync completed.
+
+```json
+{
+  "mode": "full",
+  "source_scope": null,
+  "status": "running",
+  "sources": [
+    { "source_id": "github:github.com", "status": "ok" },
+    { "source_id": "gitlab:gitlab.example", "status": "pending" }
+  ]
+}
+```
+
+`mode` is `full` or `incremental`. `source_scope` is null for an all-source
+run, or the selected source id for a scoped run. The rows cover every source
+selected for that run, including sources not yet present in the store.
+Per-source `status` is `pending` until its leg commits, `ok` when complete,
+`partial` when some fetch work is incomplete, `error` when the leg fails, or
+`skipped` when disabled or without credentials. Unfinished legs retain their
+previous stored data when available; pending never proves freshness.
+
+The top-level run `status` is `running` at intermediate checkpoints, then the
+worst completed outcome (`error` > `partial` > `ok`; skipped is neutral) at the
+final checkpoint. A consumer requiring a completed full all-source sync must
+require `mode: full`, `source_scope: null`, run `status: ok`, and every expected
+source row present with `status: ok`. A gate for one source may accept that
+source's `ok` full-leg checkpoint while siblings remain pending or fail.
+Skipped sources do not prove coverage even when the run status is `ok`.
+
+`sources[].last_status` and `last_success_at` remain historical stored health,
+unchanged in meaning: they may describe an earlier run while `sync_run` says
+pending. `generated_at` and file freshness indicate successful publication,
+not full all-source completion. The container health signal uses the emitted
+file's modification time, so each successful checkpoint refreshes it.
 
 ## Version Rules
 
