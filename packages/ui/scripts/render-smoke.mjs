@@ -1469,6 +1469,22 @@ try {
             const row = menu.closest('.live-rank-item');
             const tip = menu.closest('.rank-name-tip');
             const previousNameTip = row?.dataset.nameTip;
+            const fixtureTip = ${JSON.stringify(screen === "Commits")} && !!tip && summary.getAttribute('aria-label') === 'Choose provider destination for main';
+            const fixtureName = fixtureTip ? row?.querySelector('.live-rank-footer .live-rank-name') : null;
+            const previousNameStyle = fixtureName?.getAttribute('style');
+            const previousTipStyle = fixtureTip ? tip.getAttribute('style') : null;
+            if (fixtureTip) {
+              // This required case owns its clipping precondition: a short name
+              // must not depend on fonts, layout or a visibility transition.
+              if (fixtureName) {
+                fixtureName.style.width = '8px';
+                fixtureName.style.maxWidth = '8px';
+                fixtureName.style.whiteSpace = 'nowrap';
+              }
+              tip.style.width = '64px';
+              tip.style.maxWidth = '64px';
+              tip.style.transition = 'none';
+            }
             if (tip && row) {
               // Focus the visible footer disclosure first. The row's measurement
               // can suppress its tip, so explicitly expose the full-name surface
@@ -1477,10 +1493,19 @@ try {
               row.dataset.nameTip = 'show';
             } else row?.querySelector('button')?.focus();
             await frame();
+            if (fixtureTip && row) row.dataset.nameTip = 'show';
             const restoreTip = () => {
               if (!tip || !row) return;
               if (previousNameTip === undefined) delete row.dataset.nameTip;
               else row.dataset.nameTip = previousNameTip;
+              if (fixtureName) {
+                if (previousNameStyle === null) fixtureName.removeAttribute('style');
+                else fixtureName.setAttribute('style', previousNameStyle);
+              }
+              if (fixtureTip) {
+                if (previousTipStyle === null) tip.removeAttribute('style');
+                else tip.setAttribute('style', previousTipStyle);
+              }
             };
             if (!summary.getBoundingClientRect().width || getComputedStyle(summary).visibility === 'hidden') { restoreTip(); continue; }
             summary.scrollIntoView({ block: 'center', inline: 'nearest' });
@@ -1501,7 +1526,9 @@ try {
             const rect = panel.getBoundingClientRect();
             const linkRect = link?.getBoundingClientRect();
             const target = linkRect ? document.elementFromPoint(linkRect.left + linkRect.width / 2, linkRect.top + linkRect.height / 2) : null;
-            observed.push({ label: summary.getAttribute('aria-label'), nameTip: !!tip, left: rect.left, right: rect.right, width: rect.width,
+            observed.push({ label: summary.getAttribute('aria-label'), nameTip: !!tip,
+              fixtureLabelClipped: fixtureTip ? !!fixtureName && fixtureName.scrollWidth > fixtureName.clientWidth + 1 : undefined,
+              left: rect.left, right: rect.right, width: rect.width,
               viewport: document.documentElement.clientWidth, overflow: panel.scrollWidth - panel.clientWidth,
               linkTop: linkRect?.top, linkBottom: linkRect?.bottom, hitTarget: target?.className,
               reachable: !!link && (target === link || link.contains(target)) });
@@ -1516,7 +1543,7 @@ try {
       })).result.value || {};
       const rows = result.observed || [];
       const mainPresent = screen !== 'Commits' || rows.some(row => row.label === 'Choose provider destination for main');
-      const tipMainPresent = screen !== 'Commits' || rows.some(row => row.nameTip && row.label === 'Choose provider destination for main');
+      const tipMainPresent = screen !== 'Commits' || rows.some(row => row.nameTip && row.fixtureLabelClipped && row.label === 'Choose provider destination for main');
       destinationMenuChecks.push([mainPresent && tipMainPresent && rows.every(row => row.left >= 7.5 && row.right <= row.viewport - 7.5 && row.overflow <= 1 && row.reachable),
         `${screen}: qualified destination menus fit the viewport gutter and expose reachable labels at ${width}px (${JSON.stringify(result)})`]);
     }
