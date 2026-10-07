@@ -3215,6 +3215,32 @@ try {
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
   await captureOutboundLinks('Commits', ['.commit-meta-repo a.card-repo', '.commit-ref-chip a']);
   await captureTitleLinkHitTarget("commits row", ".commits-page .commit-message-link[href]", ".commit-row-body");
+  const commitsLinkDecoration = [];
+  for (const width of [412, 1280]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(100);
+    commitsLinkDecoration.push((await send("Runtime.evaluate", {
+      expression: `(() => {
+        const selectors = {
+          title: '.commits-page a.commit-message-link',
+          repo: '.commits-page .commit-meta-repo a',
+          author: '.commits-page .commit-meta-who a',
+          pullRequest: '.commits-page a.commit-cr-chip',
+          branch: '.commits-page .commit-ref-chip a',
+          sha: '.commits-page .commit-row-actions a:has(.commit-sha)',
+        };
+        return Object.fromEntries(Object.entries(selectors).map(([name, selector]) => {
+          const links = Array.from(document.querySelectorAll(selector));
+          return [name, {
+            count: links.length,
+            lines: links.map((link) => getComputedStyle(link).textDecorationLine),
+          }];
+        }));
+      })()`,
+      returnByValue: true,
+    })).result.value || {});
+  }
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   // The repo + branch filters collapse by default at narrow widths; expand them
   // so the toolbar layout / chrome / combobox checks below can see the controls.
   await send("Runtime.evaluate", {
@@ -8692,6 +8718,12 @@ try {
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
 
   const checks = [
+    ...commitsLinkDecoration.map((result, index) => {
+      const width = [412, 1280][index];
+      const covered = ["title", "repo", "author", "pullRequest", "branch", "sha"];
+      const pass = covered.every((name) => result[name]?.count > 0 && result[name].lines.every((line) => line === "none"));
+      return [pass, `commits: links have no text underline at ${width}x900 (${JSON.stringify(result)})`];
+    }),
     ...destinationMenuChecks,
     ...outboundChecks,
     ...debugFillChecks,
