@@ -1465,26 +1465,49 @@ try {
           const observed = [];
           for (const menu of menus) {
             const summary = menu.querySelector(':scope > summary');
-            if (!summary || !summary.getBoundingClientRect().width) continue;
-            // Full-name tooltip menus become visible through the same row focus
-            // action available to a keyboard user.
-            menu.closest('.live-rank-item')?.querySelector('button')?.focus();
+            if (!summary) continue;
+            const row = menu.closest('.live-rank-item');
+            const tip = menu.closest('.rank-name-tip');
+            const previousNameTip = row?.dataset.nameTip;
+            if (tip && row) {
+              // Focus the visible footer disclosure first. The row's measurement
+              // can suppress its tip, so explicitly expose the full-name surface
+              // whose overflow escape this regression protects.
+              row.querySelector('.live-rank-footer > .rank-entity-menu > summary')?.focus();
+              row.dataset.nameTip = 'show';
+            } else row?.querySelector('button')?.focus();
             await frame();
-            if (getComputedStyle(summary).visibility === 'hidden') continue;
+            const restoreTip = () => {
+              if (!tip || !row) return;
+              if (previousNameTip === undefined) delete row.dataset.nameTip;
+              else row.dataset.nameTip = previousNameTip;
+            };
+            if (!summary.getBoundingClientRect().width || getComputedStyle(summary).visibility === 'hidden') { restoreTip(); continue; }
             summary.scrollIntoView({ block: 'center', inline: 'nearest' });
             summary.focus();
+            if (tip && row) row.dataset.nameTip = 'show';
             menu.open = true;
             await frame(); await frame();
             const panel = menu.querySelector('.rank-entity-destinations');
-            const rect = panel.getBoundingClientRect();
             const link = panel.querySelector('a');
+            const beforeScroll = link?.getBoundingClientRect();
+            // The phone rail can sit at the document's bottom before opening.
+            // Scroll the document to the expanded link, without scrolling the
+            // tip's clipping box (which would hide an overflow-rule regression).
+            if (tip && beforeScroll && beforeScroll.bottom > innerHeight - 8) {
+              scrollBy(0, beforeScroll.bottom - innerHeight + 8);
+              await frame(); await frame();
+            }
+            const rect = panel.getBoundingClientRect();
             const linkRect = link?.getBoundingClientRect();
             const target = linkRect ? document.elementFromPoint(linkRect.left + linkRect.width / 2, linkRect.top + linkRect.height / 2) : null;
-            observed.push({ label: summary.getAttribute('aria-label'), left: rect.left, right: rect.right, width: rect.width,
+            observed.push({ label: summary.getAttribute('aria-label'), nameTip: !!tip, left: rect.left, right: rect.right, width: rect.width,
               viewport: document.documentElement.clientWidth, overflow: panel.scrollWidth - panel.clientWidth,
+              linkTop: linkRect?.top, linkBottom: linkRect?.bottom, hitTarget: target?.className,
               reachable: !!link && (target === link || link.contains(target)) });
             menu.open = false;
             summary.blur();
+            restoreTip();
             await frame();
           }
           for (const [el, x, y] of scrolls) { el.scrollLeft = x; el.scrollTop = y; }
@@ -1493,7 +1516,8 @@ try {
       })).result.value || {};
       const rows = result.observed || [];
       const mainPresent = screen !== 'Commits' || rows.some(row => row.label === 'Choose provider destination for main');
-      destinationMenuChecks.push([mainPresent && rows.every(row => row.left >= 7.5 && row.right <= row.viewport - 7.5 && row.overflow <= 1 && row.reachable),
+      const tipMainPresent = screen !== 'Commits' || rows.some(row => row.nameTip && row.label === 'Choose provider destination for main');
+      destinationMenuChecks.push([mainPresent && tipMainPresent && rows.every(row => row.left >= 7.5 && row.right <= row.viewport - 7.5 && row.overflow <= 1 && row.reachable),
         `${screen}: qualified destination menus fit the viewport gutter and expose reachable labels at ${width}px (${JSON.stringify(result)})`]);
     }
     await send("Emulation.setDeviceMetricsOverride", { width: original.width, height: original.height, deviceScaleFactor: 1, mobile: false });
