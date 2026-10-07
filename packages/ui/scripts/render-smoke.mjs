@@ -7584,6 +7584,7 @@ try {
     const after = (await send("Runtime.evaluate", { expression: rankHoverRead(title, before.index), returnByValue: true })).result.value || {};
     const moved = (a, b) => (!a && !b ? 0 : !a || !b ? 99 : Math.max(Math.abs(a.left - b.left), Math.abs(a.top - b.top), Math.abs(a.width - b.width)));
     rankHover[name] = {
+      index: before.index,
       label: before.label,
       hovered: after.hovered,
       tipVisible: after.tipVisible,
@@ -7595,7 +7596,37 @@ try {
       tipOverNext: !!after.tip && !!before.next && after.tipVisible && after.tip.bottom > before.next.top + 1,
     };
   }
+  // A long branch name near the viewport bottom must keep its full CSS tip
+  // inside a small viewport. The Commits rail remains mounted at phone width;
+  // use its real focus handler and a branch-shaped long label for the fixture.
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await send("Emulation.setDeviceMetricsOverride", { width: 412, height: 900, deviceScaleFactor: 1, mobile: false });
+  await waitHtml("document.querySelector('.commits-rail .live-rank-item .live-rank-name')");
+  const smokeBranchLabel = "feature/very-long-branch-name-for-viewport-tooltip-regression";
+  const bottomNameTip = (await send("Runtime.evaluate", {
+    expression: `(() => { const block = [...document.querySelectorAll('.commits-rail .rail-block')].find((candidate) => (candidate.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches'); const row = [...(block?.querySelectorAll('.live-rank-item') || [])].find((candidate) => candidate.querySelector('.live-rank-name')); const name = row?.querySelector('.live-rank-name'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); if (!row || !name || !tip || !button) return { found: false }; row.id = 'smoke-bottom-name-tip'; row.dataset.nameTip = 'none'; name.textContent = ${JSON.stringify(smokeBranchLabel)}; tip.textContent = ${JSON.stringify(smokeBranchLabel)}; name.style.maxWidth = '100px'; row.style.position = 'fixed'; row.style.left = '12px'; row.style.top = '858px'; row.style.width = '280px'; row.style.height = '28px'; row.style.display = 'flex'; row.style.alignItems = 'center'; tip.style.top = ''; tip.style.bottom = ''; return { found: true, truncated: name.scrollWidth > name.clientWidth + 1, text: tip.textContent }; })()`,
+    returnByValue: true,
+  })).result.value || {};
+  bottomNameTip.beforeFix = (await send("Runtime.evaluate", {
+    expression: `(() => { const row = document.querySelector('#smoke-bottom-name-tip'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); const r = tip?.getBoundingClientRect(); const beforeFix = r ? { top: r.top, bottom: r.bottom } : null; button?.focus(); return beforeFix; })()`,
+    returnByValue: true,
+  })).result.value;
+  await sleep(120);
+  bottomNameTip.tipFirstEntry = (await send("Runtime.evaluate", {
+    expression: `(() => { const row = document.querySelector('#smoke-bottom-name-tip'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); const r = tip?.getBoundingClientRect(); return r ? { top: r.top, bottom: r.bottom, visible: getComputedStyle(tip).visibility === 'visible', armed: row.dataset.nameTip, focused: document.activeElement === button } : null; })()`,
+    returnByValue: true,
+  })).result.value;
+  await send("Runtime.evaluate", { expression: "document.querySelector('#smoke-bottom-name-tip .live-rank-item-action')?.blur()" });
+  await send("Runtime.evaluate", { expression: "document.querySelector('#smoke-bottom-name-tip .live-rank-item-action')?.focus()" });
+  await sleep(120);
+  bottomNameTip.tipSecondEntry = (await send("Runtime.evaluate", {
+    expression: `(() => { const row = document.querySelector('#smoke-bottom-name-tip'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); const r = tip?.getBoundingClientRect(); return r ? { top: r.top, bottom: r.bottom, visible: getComputedStyle(tip).visibility === 'visible', armed: row.dataset.nameTip, focused: document.activeElement === button } : null; })()`,
+    returnByValue: true,
+  })).result.value;
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+  await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
+  await send("Emulation.setDeviceMetricsOverride", { width: 2048, height: 1152, deviceScaleFactor: 1, mobile: false });
+  await sleep(250);
   // A list cut at its row limit offers the rest. The fixture's lists all fit,
   // so none may offer anything.
   const rankMore = (await send("Runtime.evaluate", {
@@ -9651,6 +9682,7 @@ try {
         rankHover.clippedRow.label.includes(rankHover.clippedRow.tipText.replace(/ · .*$/, "").slice(0, 20)),
       `activity: in the 2048px stack tier a ranked row's hover moves no cell and its tip stays inside the row: a filter row says what a click does, a fitting name shows no tip, a clipped one shows the whole name (${JSON.stringify(rankHover)})`,
     ],
+    [bottomNameTip.found && bottomNameTip.truncated === true && bottomNameTip.text === smokeBranchLabel && bottomNameTip.beforeFix?.bottom > 892 && [bottomNameTip.tipFirstEntry, bottomNameTip.tipSecondEntry].every((tip) => tip?.focused === true && tip?.visible === true && tip.top >= 8 && tip.bottom <= 892), `rank name tip: a truncated branch label that crosses the 412x900 bottom gutter before placement fits after first focus and repeat focus (${JSON.stringify(bottomNameTip)})`],
     [
       rankMore.length >= 5 && rankMore.every((b) => b.more === false && b.rows <= 8),
       `activity: no stack-tier list offers more rows when every row is already shown (${JSON.stringify(rankMore)})`,
