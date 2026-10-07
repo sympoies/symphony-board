@@ -4782,6 +4782,40 @@ try {
   await sleep(300);
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
   await captureOutboundLinks('Live', ['.live-card .live-rank-name[href]', '.live-event-repo a']);
+  const liveFilterViewport = (await send("Runtime.evaluate", {
+    expression: "({ width: innerWidth, height: innerHeight, x: scrollX, y: scrollY })", returnByValue: true,
+  })).result.value;
+  for (const width of [360, 412, 1440]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(160);
+    const menus = (await send("Runtime.evaluate", {
+      expression: `(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+        const observed = [];
+        for (const label of ['Repo', 'People']) {
+          const button = [...document.querySelectorAll('.live-selects .ms-button')].find(el => el.getAttribute('aria-label')?.startsWith(label + ':'));
+          button?.scrollIntoView({ block: 'center', inline: 'nearest' });
+          button?.click();
+          await frame(); await frame();
+          const panel = button?.parentElement?.querySelector('.ms-menu');
+          const rect = panel?.getBoundingClientRect();
+          const link = panel?.querySelector('.ms-option-outbound a');
+          const linkRect = link?.getBoundingClientRect();
+          const target = linkRect ? document.elementFromPoint(linkRect.left + linkRect.width / 2, linkRect.top + linkRect.height / 2) : null;
+          observed.push({ label, left: rect?.left, right: rect?.right, viewport: document.documentElement.clientWidth,
+            overflow: panel ? panel.scrollWidth - panel.clientWidth : null, reachable: !!link && (target === link || link.contains(target)) });
+          button?.click();
+          await frame();
+        }
+        return observed;
+      })()`, awaitPromise: true, returnByValue: true,
+    })).result.value || [];
+    destinationMenuChecks.push([menus.length === 2 && menus.every(menu => menu.left >= 7.5 && menu.right <= menu.viewport - 7.5 && menu.overflow <= 1 && menu.reachable),
+      `Live: Repo/People menus fit viewport gutters and expose reachable outbound arrows at ${width}px (${JSON.stringify(menus)})`]);
+  }
+  await send("Emulation.setDeviceMetricsOverride", { width: liveFilterViewport.width, height: liveFilterViewport.height, deviceScaleFactor: 1, mobile: false });
+  await sleep(160);
+  await send("Runtime.evaluate", { expression: `scrollTo(${liveFilterViewport.x}, ${liveFilterViewport.y})` });
   await sleep(120); // let the auto-select effect populate the detail pane
   await captureTitleLinkHitTarget("live detail", ".live-page .live-detail-title-link", ".live-detail-title");
   await captureSelectionSurface('Live', '.live-event-selected');

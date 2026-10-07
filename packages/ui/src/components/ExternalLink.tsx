@@ -1,5 +1,6 @@
 import { linkSource, profileIndex, type EntityDestination } from "../entity-links.ts";
-import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { useViewportMenu } from "./useViewportMenu.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { externalWebUrl, providerEntityUrl, type ProviderEntity, type ProviderLinkSource } from "../../../../shared/provider-links.ts";
 
@@ -62,33 +63,7 @@ export function RankEntityLabel({ label, entities, children, className = "live-r
   const sources = useContext(Sources);
   const profiles = useContext(Profiles);
   const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (!open || !menu) return;
-    const fit = () => {
-      // Measure from the label's natural anchor each time so resizing and
-      // scrolling do not accumulate corrections from a previous position.
-      const viewport = document.documentElement.clientWidth;
-      menu.style.setProperty("--rank-menu-max-width", `${Math.max(0, viewport - 16)}px`);
-      menu.style.setProperty("--rank-menu-shift", "0px");
-      // Live's checkbox disclosures flow inside their scrollable option list.
-      if (getComputedStyle(menu).position === "static") return;
-      const rect = menu.getBoundingClientRect();
-      const left = Math.max(8, Math.min(rect.left, viewport - 8 - rect.width));
-      menu.style.setProperty("--rank-menu-shift", `${left - rect.left}px`);
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(menu);
-    window.addEventListener("resize", fit);
-    window.addEventListener("scroll", fit, true);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", fit);
-      window.removeEventListener("scroll", fit, true);
-    };
-  }, [open, entities]);
+  const menuRef = useViewportMenu(open, entities);
   const links = new Map<string, string>();
   for (const candidate of entities) {
     const entity = candidate.entity;

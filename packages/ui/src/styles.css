@@ -5437,7 +5437,7 @@ span.live-avatar { cursor: default; }
   /* On phones, place popovers against the full filter bar, not the inboard
      trigger. This keeps wide repo names inside the viewport. */
   .live-selects .ms { position: static; }
-  .live-selects .ms-menu { left: 0; right: 0; top: calc(100% + 4px); max-width: none; width: auto; }
+  .live-selects .ms-menu { left: 0; right: 0; top: calc(100% + 4px); max-width: var(--viewport-menu-max-width, calc(100vw - 16px)); width: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5467,7 +5467,8 @@ span.live-avatar { cursor: default; }
 .ms-caret { font-size: 10px; opacity: 0.8; }
 .ms-menu {
   position: absolute; z-index: 50; top: calc(100% + 4px); left: 0;
-  min-width: 200px; max-width: 340px; max-height: 320px; overflow-y: auto;
+  min-width: min(200px, var(--viewport-menu-max-width, calc(100vw - 16px))); max-width: min(340px, var(--viewport-menu-max-width, calc(100vw - 16px))); max-height: 320px; overflow-y: auto;
+  transform: translateX(var(--viewport-menu-shift, 0px));
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   box-shadow: var(--shadow-popover); padding: 6px;
 }
@@ -6640,7 +6641,7 @@ a.pane-row-cr:hover { text-decoration: none; }
 .live-rank-item:has(> .rank-filter-hit:hover) .live-rank-bar { background: var(--link); }
 .rank-entity-menu { position: relative; min-width: 0; }
 .rank-entity-menu > summary { cursor: pointer; text-decoration: underline; }
-.rank-entity-destinations { position: absolute; inset-inline-start: 0; top: 100%; z-index: 20; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; width: max-content; max-width: min(320px, calc(100vw - 16px), var(--rank-menu-max-width, 320px)); transform: translateX(var(--rank-menu-shift, 0px)); }
+.rank-entity-destinations { position: absolute; inset-inline-start: 0; top: 100%; z-index: 20; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; width: max-content; max-width: min(320px, calc(100vw - 16px), var(--viewport-menu-max-width, 320px)); transform: translateX(var(--viewport-menu-shift, 0px)); }
 .rank-entity-destinations .external-link { display: block; white-space: normal; overflow-wrap: anywhere; padding: 4px; }
 /* The name tip clips its summary, but an opened destination menu must escape. */
 .rank-name-tip:has(.rank-entity-menu[open]) { overflow: visible; }
