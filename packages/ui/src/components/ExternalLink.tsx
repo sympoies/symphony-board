@@ -1,5 +1,6 @@
 import { linkSource, profileIndex, type EntityDestination } from "../entity-links.ts";
-import { createContext, useContext, useMemo, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { useViewportMenu } from "./useViewportMenu.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
 import { externalWebUrl, providerEntityUrl, type ProviderEntity, type ProviderLinkSource } from "../../../../shared/provider-links.ts";
 
@@ -61,6 +62,8 @@ export function NavigationLink({ href, ...props }: LinkProps) {
 export function RankEntityLabel({ label, entities, children, className = "live-rank-name" }: { label: string; entities: EntityDestination[]; children?: ReactNode; className?: string }) {
   const sources = useContext(Sources);
   const profiles = useContext(Profiles);
+  const [open, setOpen] = useState(false);
+  const menuRef = useViewportMenu(open, entities);
   const links = new Map<string, string>();
   for (const candidate of entities) {
     const entity = candidate.entity;
@@ -72,9 +75,9 @@ export function RankEntityLabel({ label, entities, children, className = "live-r
   const body = children ?? label;
   if (destinations.length === 0) return <span className={className}>{body}</span>;
   if (destinations.length === 1) return <ExternalLink className={className} href={destinations[0]![0]} aria-label={`Open ${label} on provider`}>{body}</ExternalLink>;
-  return <details className="rank-entity-menu" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}>
+  return <details className="rank-entity-menu" onToggle={event => setOpen(event.currentTarget.open)} onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}>
     <summary className={className} aria-label={`Choose provider destination for ${label}`}>{body}{children === "↗" ? null : " ↗"}</summary>
-    <div className="rank-entity-destinations">{destinations.map(([href, name]) => <ExternalLink key={href} href={href}>{name}</ExternalLink>)}</div>
+    <div ref={menuRef} className="rank-entity-destinations">{destinations.map(([href, name]) => <ExternalLink key={href} href={href}>{name}</ExternalLink>)}</div>
   </details>;
 }
 

@@ -5,6 +5,7 @@
 // pointer-dismissable.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { multiSelectDisabled } from "./multiSelectState.ts";
+import { useViewportMenu } from "./useViewportMenu.ts";
 
 export function MultiSelect({
   label,
@@ -21,6 +22,7 @@ export function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useViewportMenu(open, options);
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +75,7 @@ export function MultiSelect({
         </span>
       </button>
       {open ? (
-        <div className="ms-menu" role="listbox" aria-multiselectable="true">
+        <div ref={menuRef} className="ms-menu" role="listbox" aria-multiselectable="true">
           {count ? (
             <button type="button" className="ms-clear" onClick={() => onChange(new Set())}>
               Clear {label.toLowerCase()}

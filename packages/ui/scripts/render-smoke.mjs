@@ -1448,6 +1448,82 @@ try {
   const textOf = async (selector) =>
     (await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`, returnByValue: true })).result.value || "";
   const outboundChecks = [];
+  const destinationMenuChecks = [];
+  const captureDestinationMenus = async (screen) => {
+    const original = (await send("Runtime.evaluate", {
+      expression: "({ width: innerWidth, height: innerHeight, x: scrollX, y: scrollY })", returnByValue: true,
+    })).result.value;
+    for (const width of [360, 412, 1440]) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await sleep(160);
+      const result = (await send("Runtime.evaluate", {
+        expression: `(async () => {
+          const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+          const scrolls = [...document.querySelectorAll('*')].filter(el => el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)
+            .map(el => [el, el.scrollLeft, el.scrollTop]);
+          const menus = [...document.querySelectorAll('.rank-entity-menu')];
+          const observed = [];
+          for (const menu of menus) {
+            const summary = menu.querySelector(':scope > summary');
+            if (!summary) continue;
+            const row = menu.closest('.live-rank-item');
+            const tip = menu.closest('.rank-name-tip');
+            const previousNameTip = row?.dataset.nameTip;
+            if (tip && row) {
+              // Focus the visible footer disclosure first. The row's measurement
+              // can suppress its tip, so explicitly expose the full-name surface
+              // whose overflow escape this regression protects.
+              row.querySelector('.live-rank-footer > .rank-entity-menu > summary')?.focus();
+              row.dataset.nameTip = 'show';
+            } else row?.querySelector('button')?.focus();
+            await frame();
+            const restoreTip = () => {
+              if (!tip || !row) return;
+              if (previousNameTip === undefined) delete row.dataset.nameTip;
+              else row.dataset.nameTip = previousNameTip;
+            };
+            if (!summary.getBoundingClientRect().width || getComputedStyle(summary).visibility === 'hidden') { restoreTip(); continue; }
+            summary.scrollIntoView({ block: 'center', inline: 'nearest' });
+            summary.focus();
+            if (tip && row) row.dataset.nameTip = 'show';
+            menu.open = true;
+            await frame(); await frame();
+            const panel = menu.querySelector('.rank-entity-destinations');
+            const link = panel.querySelector('a');
+            const beforeScroll = link?.getBoundingClientRect();
+            // The phone rail can sit at the document's bottom before opening.
+            // Scroll the document to the expanded link, without scrolling the
+            // tip's clipping box (which would hide an overflow-rule regression).
+            if (tip && beforeScroll && beforeScroll.bottom > innerHeight - 8) {
+              scrollBy(0, beforeScroll.bottom - innerHeight + 8);
+              await frame(); await frame();
+            }
+            const rect = panel.getBoundingClientRect();
+            const linkRect = link?.getBoundingClientRect();
+            const target = linkRect ? document.elementFromPoint(linkRect.left + linkRect.width / 2, linkRect.top + linkRect.height / 2) : null;
+            observed.push({ label: summary.getAttribute('aria-label'), nameTip: !!tip, left: rect.left, right: rect.right, width: rect.width,
+              viewport: document.documentElement.clientWidth, overflow: panel.scrollWidth - panel.clientWidth,
+              linkTop: linkRect?.top, linkBottom: linkRect?.bottom, hitTarget: target?.className,
+              reachable: !!link && (target === link || link.contains(target)) });
+            menu.open = false;
+            summary.blur();
+            restoreTip();
+            await frame();
+          }
+          for (const [el, x, y] of scrolls) { el.scrollLeft = x; el.scrollTop = y; }
+          return { observed };
+        })()`, awaitPromise: true, returnByValue: true,
+      })).result.value || {};
+      const rows = result.observed || [];
+      const mainPresent = screen !== 'Commits' || rows.some(row => row.label === 'Choose provider destination for main');
+      const tipMainPresent = screen !== 'Commits' || rows.some(row => row.nameTip && row.label === 'Choose provider destination for main');
+      destinationMenuChecks.push([mainPresent && tipMainPresent && rows.every(row => row.left >= 7.5 && row.right <= row.viewport - 7.5 && row.overflow <= 1 && row.reachable),
+        `${screen}: qualified destination menus fit the viewport gutter and expose reachable labels at ${width}px (${JSON.stringify(result)})`]);
+    }
+    await send("Emulation.setDeviceMetricsOverride", { width: original.width, height: original.height, deviceScaleFactor: 1, mobile: false });
+    await sleep(160);
+    await send("Runtime.evaluate", { expression: `scrollTo(${original.x}, ${original.y})` });
+  };
   const captureOutboundLinks = async (screen, selectors) => {
     const result = (await send("Runtime.evaluate", {
       expression: `(() => {
@@ -1478,6 +1554,7 @@ try {
     })).result.value || {};
     outboundChecks.push([result.count > 0 && result.missing?.length === 0 && result.bad?.length === 0 && result.independent === true && result.shortcutPropagated === true,
       `${screen}: shared outbound links have safe destinations, new-tab attributes, accessible targets and independent selection (${JSON.stringify(result)})`]);
+    await captureDestinationMenus(screen);
   };
   const titleLinkHitTargets = [];
   const captureTitleLinkHitTarget = async (surface, linkSelector, containerSelector) => {
@@ -4729,6 +4806,40 @@ try {
   await sleep(300);
   const liveHtml = await waitHtml("document.querySelector('.live-page .live-feed')");
   await captureOutboundLinks('Live', ['.live-card .live-rank-name[href]', '.live-event-repo a']);
+  const liveFilterViewport = (await send("Runtime.evaluate", {
+    expression: "({ width: innerWidth, height: innerHeight, x: scrollX, y: scrollY })", returnByValue: true,
+  })).result.value;
+  for (const width of [360, 412, 1440]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(160);
+    const menus = (await send("Runtime.evaluate", {
+      expression: `(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+        const observed = [];
+        for (const label of ['Repo', 'People']) {
+          const button = [...document.querySelectorAll('.live-selects .ms-button')].find(el => el.getAttribute('aria-label')?.startsWith(label + ':'));
+          button?.scrollIntoView({ block: 'center', inline: 'nearest' });
+          button?.click();
+          await frame(); await frame();
+          const panel = button?.parentElement?.querySelector('.ms-menu');
+          const rect = panel?.getBoundingClientRect();
+          const link = panel?.querySelector('.ms-option-outbound a');
+          const linkRect = link?.getBoundingClientRect();
+          const target = linkRect ? document.elementFromPoint(linkRect.left + linkRect.width / 2, linkRect.top + linkRect.height / 2) : null;
+          observed.push({ label, left: rect?.left, right: rect?.right, viewport: document.documentElement.clientWidth,
+            overflow: panel ? panel.scrollWidth - panel.clientWidth : null, reachable: !!link && (target === link || link.contains(target)) });
+          button?.click();
+          await frame();
+        }
+        return observed;
+      })()`, awaitPromise: true, returnByValue: true,
+    })).result.value || [];
+    destinationMenuChecks.push([menus.length === 2 && menus.every(menu => menu.left >= 7.5 && menu.right <= menu.viewport - 7.5 && menu.overflow <= 1 && menu.reachable),
+      `Live: Repo/People menus fit viewport gutters and expose reachable outbound arrows at ${width}px (${JSON.stringify(menus)})`]);
+  }
+  await send("Emulation.setDeviceMetricsOverride", { width: liveFilterViewport.width, height: liveFilterViewport.height, deviceScaleFactor: 1, mobile: false });
+  await sleep(160);
+  await send("Runtime.evaluate", { expression: `scrollTo(${liveFilterViewport.x}, ${liveFilterViewport.y})` });
   await sleep(120); // let the auto-select effect populate the detail pane
   await captureTitleLinkHitTarget("live detail", ".live-page .live-detail-title-link", ".live-detail-title");
   await captureSelectionSurface('Live', '.live-event-selected');
@@ -8523,6 +8634,7 @@ try {
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
 
   const checks = [
+    ...destinationMenuChecks,
     ...outboundChecks,
     ...debugFillChecks,
     debugStickyCheck,
