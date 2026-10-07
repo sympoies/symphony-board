@@ -46,9 +46,8 @@ function armNameTip(row: HTMLElement, label: string, selectable: boolean) {
   if (!footer) return;
   const tip = footer.querySelector<HTMLElement>(".rank-name-tip");
   if (tip) {
-    // Always measure the default below-footer placement. A previous entry may
-    // have flipped the tip above; measuring that stale position before reset
-    // would leave it below the gutter on the next entry.
+    // Clear the previous focus's override before measuring again, so a row that
+    // moved since its last focus gets positioned for its current place.
     tip.style.top = "";
     tip.style.bottom = "";
     const viewportBottom = document.documentElement.clientHeight - 8;
