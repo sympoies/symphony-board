@@ -7110,7 +7110,8 @@ try {
   // to fixed rows that a grown chart cannot fill, or about 2560, where the
   // columns stop growing charts at all and fill with list rows instead.
   const commitsFillTiers = [];
-  for (const vp of [{ name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1360, height: 1080 }, { name: "stack", width: 1512, height: 945 }, { name: "stack", width: 2300, height: 1440 }, { name: "panes", width: 2560, height: 1440 }]) {
+  const commitsAuthorNameWidths = [];
+  for (const vp of [{ name: "narrow", width: 933, height: 704 }, { name: "two-column", width: 1279, height: 891 }, { name: "three-column", width: 1280, height: 1080 }, { name: "three-column", width: 1360, height: 1080 }, { name: "stack", width: 1512, height: 945 }, { name: "stack", width: 2300, height: 1440 }, { name: "panes", width: 2560, height: 1440 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
     await sleep(400);
@@ -7157,7 +7158,82 @@ try {
       })()`,
       returnByValue: true,
     })).result.value || {};
-    commitsFillTiers.push({ tier: vp.name, width: vp.width, ...r });
+    if (vp.width >= 1279) commitsFillTiers.push({ tier: vp.name, width: vp.width, ...r });
+    if (vp.width === 1280 || vp.width === 933 || vp.width === 1512) {
+      const nameLayout = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const block = [...document.querySelectorAll('.commits-rail .rail-block')]
+            .find((el) => (el.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top authors');
+          const row = block?.querySelector('.live-rank-item');
+          const name = row?.querySelector('.activity-rank-actor-name');
+          const bar = row?.querySelector('.live-rank-bar-cell');
+          if (!row || !name || !bar) return { found: false };
+          const accessibleNode = row.querySelector('[aria-label]');
+          const originalLabel = (name.textContent || '').trim();
+          const fullName = 'WWWWWWWWWWWWWWWWWWWWWWWW';
+          const accessibleOriginal = accessibleNode?.getAttribute('aria-label') || '';
+          const accessibleBase = accessibleOriginal.split(' · ')[0] || originalLabel;
+          const accessibleName = accessibleOriginal.replace(accessibleBase, fullName);
+          if (accessibleNode) accessibleNode.setAttribute('aria-label', accessibleName);
+          const tip = row.querySelector('.rank-name-tip');
+          if (tip) tip.textContent = fullName;
+          // The narrow and three-column tiers normally show only the avatar;
+          // retain the synthetic full name in their accessible name and tip.
+          // The stack tier displays the name and exercises clipping directly.
+          name.textContent = fullName;
+          const nameBox = name.getBoundingClientRect();
+          const barBox = bar.getBoundingClientRect();
+          const style = getComputedStyle(name);
+          const result = {
+            found: true,
+            width: ${vp.width},
+            label: fullName,
+            originalLabel,
+            accessibleName,
+            tipText: tip?.textContent || '',
+            visible: name.getClientRects().length > 0 && nameBox.width > 0,
+            nameWidth: Math.round(nameBox.width),
+            nameScrollWidth: name.scrollWidth,
+            railOverflowX: (() => { const rail = row.closest('.commits-rail'); return !!rail && rail.scrollWidth > rail.clientWidth + 1; })(),
+            card: { x: block.getBoundingClientRect().x, y: block.getBoundingClientRect().y, width: block.getBoundingClientRect().width, height: block.getBoundingClientRect().height },
+            ellipsis: style.textOverflow === 'ellipsis' && style.overflow === 'hidden' && style.whiteSpace === 'nowrap',
+            overlap: nameBox.right > barBox.left + 1 && nameBox.left < barBox.right - 1 && nameBox.bottom > barBox.top + 1 && nameBox.top < barBox.bottom - 1,
+          };
+          return result;
+        })()`,
+        returnByValue: true,
+      })).result.value || {};
+      commitsAuthorNameWidths.push(nameLayout);
+    }
+    if (vp.width === 1512 && process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
+      const card = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const block = [...document.querySelectorAll('.commits-rail .rail-block')]
+            .find((el) => (el.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top authors');
+          const name = block?.querySelector('.activity-rank-actor-name');
+          if (!block || !name) return null;
+          const row = name.closest('.live-rank-item');
+          const fullName = 'WWWWWWWWWWWWWWWWWWWWWWWW';
+          const accessibleNode = row?.querySelector('[aria-label]');
+          const accessibleName = accessibleNode?.getAttribute('aria-label') || '';
+          const accessibleBase = accessibleName.split(' · ')[0] || (name.textContent || '').trim();
+          if (accessibleNode) accessibleNode.setAttribute('aria-label', accessibleName.replace(accessibleBase, fullName));
+          name.textContent = fullName;
+          const tip = row?.querySelector('.rank-name-tip');
+          if (tip) tip.textContent = fullName;
+          tip?.style.setProperty('display', 'none');
+          const box = block.getBoundingClientRect();
+          return { x: box.x, y: box.y, width: box.width, height: box.height };
+        })()`,
+        returnByValue: true,
+      })).result.value;
+      if (card) {
+        const shot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { ...card, scale: 1 } });
+        const { mkdirSync, writeFileSync } = await import("node:fs");
+        mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
+        writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, "top-authors-laptop.png"), Buffer.from(shot.data, "base64"));
+      }
+    }
   }
   // The laptop tier at a 14" MacBook Pro's default scaling: the wide tier's
   // panes, one stack per column, each scrolling inside itself.
@@ -8716,6 +8792,9 @@ try {
     `debug fill: Sync runs renders gql telemetry columns (${JSON.stringify(debugSync)})`,
   ];
   const badTitleLinkHitTargets = titleLinkHitTargets.filter((target) => !target.ok);
+  const threeColumnAuthorName = commitsAuthorNameWidths.find((row) => row.width === 1280) || {};
+  const laptopAuthorName = commitsAuthorNameWidths.find((row) => row.width === 1512) || {};
+  const narrowAuthorName = commitsAuthorNameWidths.find((row) => row.width === 933) || {};
 
   const checks = [
     ...commitsLinkDecoration.map((result, index) => {
@@ -8804,6 +8883,14 @@ try {
         (commitsStack.spill || []).length === 0 &&
         commitsStack.pageOverflowX <= 0,
       `commits: on a 14" laptop the supporting columns stack the wide tier's panes and scroll inside themselves (${JSON.stringify(commitsStack)})`,
+    ],
+    [
+      commitsAuthorNameWidths.length === 3 &&
+        commitsAuthorNameWidths.every((row) => row.found && row.accessibleName.includes(row.label) && row.tipText.includes(row.label) && !row.overlap && !row.railOverflowX) &&
+        laptopAuthorName.visible && laptopAuthorName.ellipsis &&
+        laptopAuthorName.nameWidth <= 90 && laptopAuthorName.nameScrollWidth > laptopAuthorName.nameWidth &&
+        !threeColumnAuthorName.visible && !narrowAuthorName.visible,
+      `commits: long Top authors names clip in the visible laptop tier and stay accessible without overflow at 1280px and narrow width (${JSON.stringify(commitsAuthorNameWidths)})`,
     ],
     [
       commitsDetailFill.found === true && commitsDetailFill.tail <= 24,

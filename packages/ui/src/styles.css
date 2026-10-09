@@ -5235,7 +5235,15 @@ span.commit-cr-chip { color: var(--muted); border-color: var(--chip-border); }
   place-items: center;
   min-width: 0;
 }
-.activity-rank-actor-name { display: none; }
+.activity-rank-actor-name {
+  display: none;
+  min-width: 0;
+  /* Leave room for the avatar and gap inside the author's label track. */
+  max-width: max(0px, calc(var(--rank-label-w, 11rem) - 30px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The cursor follows what the element actually IS, rather than being pinned per
    placement. A rank avatar used to be unlinked everywhere, so it was given an
    arrow; now it links to the provider profile when the contract carries one, and
