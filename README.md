@@ -18,6 +18,7 @@ store, not the consumer API.
 - Live demo: <https://sympoies.github.io/symphony-board/> - landing page plus a
   read-only board on a bundled sample contract
 - Runbook: [docs/running.md](docs/running.md)
+- Documentation map: [docs/README.md](docs/README.md)
 - Design rationale: [docs/DESIGN.md](docs/DESIGN.md)
 - Contract rules: [docs/CONTRACT.md](docs/CONTRACT.md)
 - Maintenance principles: [DEVELOPMENT.md](DEVELOPMENT.md)
