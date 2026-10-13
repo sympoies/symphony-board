@@ -6,6 +6,10 @@ useful way to try it; [DEVELOPMENT.md](../DEVELOPMENT.md) owns maintenance
 principles, while [development-reference.md](development-reference.md) owns
 contributor validation details.
 
+Control API routes, stack cadence and diagnostic fields are documented in the
+[runtime reference](runtime-control-reference.md); architecture boundaries stay
+in [DESIGN.md](DESIGN.md).
+
 ## Configure Sources
 
 ```sh
@@ -218,7 +222,7 @@ The default SQLite stack runs with `INTERVAL=120` seconds and `FULL_EVERY=30`.
 The Postgres stack runs with `INTERVAL=${SYNC_INTERVAL:-300}` and
 `FULL_EVERY=30`. That gives a full sweep on the first loop and then every
 `FULL_EVERY` iterations, with incremental runs in between. Set `FULL_EVERY=1`
-to always full-sweep. See [DESIGN.md](DESIGN.md) for the stack cadence summary.
+to always full-sweep. See the [runtime reference](runtime-control-reference.md#docker-operation) for the stack cadence summary.
 
 The standalone macOS app intentionally uses a slower personal-token cadence:
 incremental sync every 600 seconds and a full sweep about once per day. Adjust
