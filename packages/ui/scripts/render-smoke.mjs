@@ -7573,7 +7573,8 @@ try {
   // overview's panes in the middle column and the who / where / what tables in
   // the rail. Measured at the wide tier and at a 14" laptop.
   const activityPanes = [];
-  for (const vp of [{ name: "wide", width: 2560, height: 1440 }, { name: "stack", width: 1512, height: 945 }]) {
+  const activityRankNameFits = [];
+  for (const vp of [{ name: "wide", width: 2560, height: 1440 }, { name: "stack", width: 1512, height: 945 }, { name: "stack", width: 1800, height: 1169 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
     await sleep(400);
@@ -7618,7 +7619,61 @@ try {
       })()`,
       returnByValue: true,
     })).result.value || {};
-    activityPanes.push({ viewport: vp.name, width: vp.width, ...r });
+    activityPanes.push({ viewport: vp.name, width: vp.width, height: vp.height, ...r });
+    if (vp.width === 1512 || vp.width === 1800) {
+      await send("Runtime.evaluate", { expression: "document.activeElement?.blur()" });
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1490, y: 10 });
+      await sleep(100);
+      const rankNameFit = (await send("Runtime.evaluate", {
+        expression: `(() => {
+          const blocks = [...document.querySelectorAll('.activity-panes-rail .rail-block')];
+          const block = (title) => blocks.find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === title);
+          const cases = [
+            ['Who', '.activity-rank-actor-name', 'long_login_name_820'],
+            ['Where', '.live-rank-name', 'organization/repository-with-a-long-name'],
+            ['Branches', '.live-rank-name', 'feature/branch-name-that-keeps-going'],
+          ];
+          const rows = cases.map(([title, selector, label]) => {
+            const row = block(title)?.querySelector('.live-rank-item');
+            const name = row?.querySelector(selector);
+            const extra = row?.querySelector('.live-rank-extra');
+            const bar = row?.querySelector('.live-rank-bar-cell');
+            if (!row || !name || !extra || !bar) return { title, missing: true };
+            const before = { height: row.getBoundingClientRect().height, extraLeft: extra.getBoundingClientRect().left };
+            const productionTitle = name.getAttribute('title');
+            const productionAccessibleLabel = row.getAttribute('aria-label') || row.querySelector('[aria-label]')?.getAttribute('aria-label') || '';
+            name.textContent = label;
+            row.dataset.nameTip = "none";
+            const rowRect = row.getBoundingClientRect();
+            const nameRect = name.getBoundingClientRect();
+            const extraRect = extra.getBoundingClientRect();
+            const barRect = bar.getBoundingClientRect();
+            return {
+              title, label, titleText: productionTitle,
+              accessibleLabel: productionAccessibleLabel,
+              titleMatchesAccessibleLabel: Boolean(productionTitle && productionAccessibleLabel.startsWith(productionTitle + ' · ')),
+              clipped: name.scrollWidth > name.clientWidth + 1,
+              rowHeight: rowRect.height, beforeRowHeight: before.height,
+              nameInsideRow: nameRect.left >= rowRect.left - 1 && nameRect.right <= rowRect.right + 1,
+              nameBeforeBar: nameRect.right <= barRect.left + 1,
+              extraStable: Math.abs(extraRect.left - before.extraLeft) < 1,
+              extraInsideRow: extraRect.right <= rowRect.right + 1,
+              rowOverflow: row.scrollWidth <= row.clientWidth + 1,
+            };
+          });
+          return { rows, railOverflow: Math.max(0, document.querySelector('.activity-panes-rail').scrollWidth - document.querySelector('.activity-panes-rail').clientWidth) };
+        })()`,
+        returnByValue: true,
+      })).result.value || null;
+      activityRankNameFits.push({ viewport: vp.name, width: vp.width, height: vp.height, ...rankNameFit });
+      if (process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
+        const shot = await send("Page.captureScreenshot", { format: "png" });
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
+        writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, `activity-rank-names-${vp.width}x${vp.height}.png`), Buffer.from(shot.data, "base64"));
+      }
+      console.log("activity rank name fit:", JSON.stringify(activityRankNameFits.at(-1)));
+    }
   }
   // Rank-row hover in the stack tier (#775), at 2048px: a 13" to 27" desktop
   // window, the width the maintainer reviewed at. A row's name tip repeated a
@@ -9758,7 +9813,7 @@ try {
       `activity: Enter on a focused row pins it, and Enter on a row's link leaves the selection alone (${JSON.stringify({ keyboard: activityKeyboard, pinned: activityKeyboardPinned.selectedTitle, pane: activityKeyboardPinned.title, afterLink: activityKeyboardLink.selectedTitle })})`,
     ],
     [
-      activityPanes.length === 2 &&
+      activityPanes.length === 3 &&
         activityPanes.every((p) =>
           p.layout === p.viewport &&
           p.overviewPanes === p.viewport &&
@@ -9773,9 +9828,11 @@ try {
           p.overviewHeight >= 200 && p.detailInside === true,
         ) &&
         activityPanes.find((p) => p.viewport === "wide")?.railColumns === 2 &&
-        activityPanes.find((p) => p.viewport === "stack")?.railColumns === 1,
+        activityPanes.find((p) => p.viewport === "stack")?.railColumns === 1 &&
+        activityPanes.some((p) => p.width === 1800 && p.height === 1169 && p.viewport === "stack"),
       `activity: the pane tiers draw the overview's panes and the who / where / what tables, two-up when wide and stacked on a laptop, with nothing wider than its pane (${JSON.stringify(activityPanes)})`,
     ],
+    [activityRankNameFits.length === 2 && activityRankNameFits.every((fit) => fit.rows?.length === 3 && fit.rows.every((row) => !row.missing && row.clipped && row.titleText && row.titleMatchesAccessibleLabel && row.rowHeight === 26 && row.beforeRowHeight === 26 && row.nameInsideRow && row.nameBeforeBar && row.extraStable && row.extraInsideRow && row.rowOverflow) && fit.railOverflow === 0) && activityRankNameFits.some((fit) => fit.width === 1512 && fit.height === 945) && activityRankNameFits.some((fit) => fit.width === 1800 && fit.height === 1169), `activity: long people, repository and branch names clip inside their fixed 26px rows at 1512x945 and 1800x1169 without moving facts or overflowing the rail (${JSON.stringify(activityRankNameFits)})`],
     [
       activityPanesActs.actorPressed === "true" &&
         activityPanesActs.after !== activityPanesActs.before &&

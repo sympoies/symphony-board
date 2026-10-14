@@ -1671,6 +1671,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-rail .live-rank-chart-labels .live-rank-footer {
     order: -1;
     width: auto;
+    min-width: 0;
     height: auto;
     place-items: center start;
     grid-auto-flow: column;
@@ -1687,6 +1688,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-rail .activity-rank-actor-name {
     display: block;
     min-width: 0;
+    max-width: max(0px, calc(var(--rank-label-w, 11rem) - 30px));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1694,11 +1696,25 @@ a.rf-node-title:hover { color: var(--accent); }
     font-size: 12px;
   }
   .commits-rail .live-rank-name {
-    max-width: none;
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     text-align: left;
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
+  }
+  .commits-rail .live-rank-footer > .rank-entity-menu {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .commits-rail .live-rank-footer > .rank-entity-menu > .live-rank-name {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   /* In a row the tip sits over its OWN row, from the name's left edge (set by
      RankChart when the row is hovered), so it reads as the name continued. A
@@ -2212,6 +2228,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-rail[data-panes="stack"] .live-rank-footer {
     order: -1;
     width: auto;
+    min-width: 0;
     height: auto;
     place-items: center start;
     grid-auto-flow: column;
@@ -2228,6 +2245,7 @@ a.rf-node-title:hover { color: var(--accent); }
   .commits-rail[data-panes="stack"] .activity-rank-actor-name {
     display: block;
     min-width: 0;
+    max-width: max(0px, calc(var(--rank-label-w, 11rem) - 30px));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2235,11 +2253,25 @@ a.rf-node-title:hover { color: var(--accent); }
     font-size: 12px;
   }
   .commits-rail[data-panes="stack"] .live-rank-name {
-    max-width: none;
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     text-align: left;
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-footer > .rank-entity-menu {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .commits-rail[data-panes="stack"] .live-rank-footer > .rank-entity-menu > .live-rank-name {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   /* In a row the tip sits over its OWN row, from the name's left edge (set by
      RankChart when the row is hovered), so it reads as the name continued. A

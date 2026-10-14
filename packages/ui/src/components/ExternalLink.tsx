@@ -59,7 +59,7 @@ export function NavigationLink({ href, ...props }: LinkProps) {
 // A single destination links the name directly. An aggregate shared by several
 // repos/accounts offers their qualified destinations in a keyboard-openable
 // disclosure; it never silently chooses one provider or repository.
-export function RankEntityLabel({ label, entities, children, className = "live-rank-name" }: { label: string; entities: EntityDestination[]; children?: ReactNode; className?: string }) {
+export function RankEntityLabel({ label, entities, children, className = "live-rank-name", title }: { label: string; entities: EntityDestination[]; children?: ReactNode; className?: string; title?: string }) {
   const sources = useContext(Sources);
   const profiles = useContext(Profiles);
   const [open, setOpen] = useState(false);
@@ -73,10 +73,10 @@ export function RankEntityLabel({ label, entities, children, className = "live-r
   }
   const destinations = [...links.entries()];
   const body = children ?? label;
-  if (destinations.length === 0) return <span className={className}>{body}</span>;
-  if (destinations.length === 1) return <ExternalLink className={className} href={destinations[0]![0]} aria-label={`Open ${label} on provider`}>{body}</ExternalLink>;
+  if (destinations.length === 0) return <span className={className} title={title}>{body}</span>;
+  if (destinations.length === 1) return <ExternalLink className={className} href={destinations[0]![0]} title={title} aria-label={`Open ${label} on provider`}>{body}</ExternalLink>;
   return <details className="rank-entity-menu" onToggle={event => setOpen(event.currentTarget.open)} onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}>
-    <summary className={className} aria-label={`Choose provider destination for ${label}`}>{body}{children === "↗" ? null : " ↗"}</summary>
+    <summary className={className} title={title} aria-label={`Choose provider destination for ${label}`}>{body}{children === "↗" ? null : " ↗"}</summary>
     <div ref={menuRef} className="rank-entity-destinations">{destinations.map(([href, name]) => <ExternalLink key={href} href={href}>{name}</ExternalLink>)}</div>
   </details>;
 }
