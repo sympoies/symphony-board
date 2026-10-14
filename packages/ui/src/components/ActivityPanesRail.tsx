@@ -135,7 +135,7 @@ export function ActivityPanesRail({
               footer: (
                 <RankEntityLabel className="rank-actor-link" label={rank.label} entities={actorDestinations(activities, rank.label, actorIndex)}><span className="activity-rank-actor">
                   <ActorAvatar login={rank.label} avatarUrl={avatarOf?.get(rank.label)} titled={false} />
-                  <span className="activity-rank-actor-name">{rank.label}</span>
+                  <span className="activity-rank-actor-name" title={rank.label}>{rank.label}</span>
                 </span></RankEntityLabel>
               ),
             };
@@ -184,7 +184,7 @@ export function ActivityPanesRail({
               onSelect: onFacet ? () => onFacet("repos", path) : undefined,
               nameTip: <EntityLink sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: path }}>{rank.label}</EntityLink>,
               footer: (
-                <EntityLink className="live-rank-name" sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: path }}>{shortRepoLabel(rank.label)}</EntityLink>
+                <EntityLink className="live-rank-name" title={rank.label} sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: path }}>{shortRepoLabel(rank.label)}</EntityLink>
               ),
             };
           })}
@@ -214,7 +214,7 @@ export function ActivityPanesRail({
               detail: facts ? `${facts.isDefault ? "default branch, " : ""}in ${facts.repos} ${pluralize(facts.repos, "repo")}` : undefined,
               nameTip: <RankEntityLabel label={rank.label} entities={branchDestinations(activities, rank.label)} />,
               footer: (
-                <RankEntityLabel label={rank.label} entities={branchDestinations(activities, rank.label)}>
+                <RankEntityLabel label={rank.label} title={rank.label} entities={branchDestinations(activities, rank.label)}>
                   {rank.label}
                   {facts?.isDefault ? <small className="rank-default-tag">default</small> : null}
                 </RankEntityLabel>

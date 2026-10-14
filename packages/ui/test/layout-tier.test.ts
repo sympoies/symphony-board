@@ -85,6 +85,26 @@ test("styles.css mirrors the tier breakpoints", () => {
   assert.ok(styles.includes(`@media ${DETAIL_OVERLAY_QUERY} {`), "the master-detail overlay stays width-only");
 });
 
+test("activity rank names stay in their label cell at narrow rail widths", () => {
+  const names = ["long_login_name_820", "organization/repository-with-a-long-name", "feature/branch-name-that-keeps-going"];
+  assert.ok(names.every((name) => name.length >= 17), "fixtures exercise long people, repos, and branches");
+
+  // The laptop stack has a roughly 370px rail with the count and facts still
+  // visible. Each name must shrink inside its existing label track so those
+  // neighboring columns and the fixed 26px row remain undisturbed.
+  const stack = mediaBlock(COMMITS_STACK_QUERY);
+  assert.match(stack, /\.commits-rail\[data-panes="stack"\] \.activity-rank-actor-name\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*max\(0px,\s*calc\(var\(--rank-label-w[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(stack, /\.commits-rail\[data-panes="stack"\] \.live-rank-name\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(stack, /\.commits-rail\[data-panes="stack"\] \.live-rank-footer > \.rank-entity-menu\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
+  assert.match(stack, /\.commits-rail\[data-panes="stack"\] \.live-rank-footer > \.rank-entity-menu > \.live-rank-name\s*\{[^}]*max-width:\s*100%[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+  assert.match(stack, /grid-auto-rows:\s*26px/);
+
+  const activity = readFileSync(new URL("../src/components/ActivityPanesRail.tsx", import.meta.url), "utf8");
+  assert.match(activity, /className="activity-rank-actor-name" title=\{rank\.label\}/);
+  assert.match(activity, /className="live-rank-name"[^>]*title=\{rank\.label\}/);
+  assert.match(activity, /<RankEntityLabel[^>]*title=\{rank\.label\}/);
+});
+
 // A tier may reveal a disclosure ONLY if it also reveals what that disclosure
 // opens. The Commits filters broke this: their button was revealed here while the
 // phone sheet it opens — and the inline toolbar it replaces — stayed narrow-only,
