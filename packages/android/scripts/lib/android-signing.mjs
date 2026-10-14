@@ -89,9 +89,11 @@ export function injectReleaseSigning({ genAndroidDir, signing, baseDir }) {
   if (withConfigs === original) {
     throw new Error("android-signing: could not anchor signingConfigs before `buildTypes {` in build.gradle.kts (generated layout changed?)");
   }
+  // Anchor on the release build type itself: newer Tauri templates use an
+  // optimization block instead of the old isMinifyEnabled property.
   const withRelease = withConfigs.replace(
-    /getByName\("release"\) \{\n            isMinifyEnabled = true/,
-    'getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n            isMinifyEnabled = true',
+    /getByName\("release"\) \{\n/,
+    'getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n',
   );
   if (withRelease === withConfigs) {
     throw new Error("android-signing: could not attach signingConfig to the release buildType in build.gradle.kts (generated layout changed?)");

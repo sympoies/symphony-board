@@ -99,14 +99,42 @@ test("injectReleaseSigning patches gradle + writes keystore.properties, idempote
   }
 });
 
+test("injectReleaseSigning signs the current Tauri optimization release block", () => {
+  const gen = mkdtempSync(join(tmpdir(), "sb-gen-"));
+  try {
+    mkdirSync(join(gen, "app"), { recursive: true });
+    const gradlePath = join(gen, "app", "build.gradle.kts");
+    // Tauri CLI 2.12.1 replaces the old isMinifyEnabled release line.
+    const current = FIXTURE_GRADLE.replace(
+      "            isMinifyEnabled = true",
+      "            optimization {\n               enable = true\n            }",
+    );
+    writeFileSync(gradlePath, current);
+    assert.equal(injectReleaseSigning({
+      genAndroidDir: gen,
+      signing: { storeFile: "/abs/release.jks", storePassword: "ps", keyAlias: "al", keyPassword: "pk" },
+      baseDir: gen,
+    }), true);
+    const patched = readFileSync(gradlePath, "utf8");
+    assert.match(patched, /getByName\("release"\) \{\n            signingConfig = signingConfigs\.getByName\("release"\)\n            optimization \{/);
+    assert.equal(injectReleaseSigning({
+      genAndroidDir: gen,
+      signing: { storeFile: "/abs/release.jks", storePassword: "ps", keyAlias: "al", keyPassword: "pk" },
+      baseDir: gen,
+    }), false);
+  } finally {
+    rmSync(gen, { recursive: true, force: true });
+  }
+});
+
 test("injectReleaseSigning throws (does not silently no-op) when an anchor is missing", () => {
   const gen = mkdtempSync(join(tmpdir(), "sb-gen-"));
   try {
     mkdirSync(join(gen, "app"), { recursive: true });
-    // A release block without `isMinifyEnabled = true` — the second anchor is gone.
+    // A generated project without the release build type — the second anchor is gone.
     writeFileSync(
       join(gen, "app", "build.gradle.kts"),
-      'import java.util.Properties\n\nandroid {\n    buildTypes {\n        getByName("release") {\n            proguardFiles()\n        }\n    }\n}\n',
+      'import java.util.Properties\n\nandroid {\n    buildTypes {\n        getByName("debug") {\n            isMinifyEnabled = false\n        }\n    }\n}\n',
     );
     assert.throws(
       () =>
