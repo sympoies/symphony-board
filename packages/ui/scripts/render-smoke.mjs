@@ -7640,15 +7640,18 @@ try {
             const bar = row?.querySelector('.live-rank-bar-cell');
             if (!row || !name || !extra || !bar) return { title, missing: true };
             const before = { height: row.getBoundingClientRect().height, extraLeft: extra.getBoundingClientRect().left };
+            const productionTitle = name.getAttribute('title');
+            const productionAccessibleLabel = row.getAttribute('aria-label') || row.querySelector('[aria-label]')?.getAttribute('aria-label') || '';
             name.textContent = label;
-            name.title = label;
             row.dataset.nameTip = "none";
             const rowRect = row.getBoundingClientRect();
             const nameRect = name.getBoundingClientRect();
             const extraRect = extra.getBoundingClientRect();
             const barRect = bar.getBoundingClientRect();
             return {
-              title, label, titleText: name.title,
+              title, label, titleText: productionTitle,
+              accessibleLabel: productionAccessibleLabel,
+              titleMatchesAccessibleLabel: Boolean(productionTitle && productionAccessibleLabel.startsWith(productionTitle)),
               clipped: name.scrollWidth > name.clientWidth + 1,
               rowHeight: rowRect.height, beforeRowHeight: before.height,
               nameInsideRow: nameRect.left >= rowRect.left - 1 && nameRect.right <= rowRect.right + 1,
@@ -9829,7 +9832,7 @@ try {
         activityPanes.some((p) => p.width === 1800 && p.height === 1169 && p.viewport === "stack"),
       `activity: the pane tiers draw the overview's panes and the who / where / what tables, two-up when wide and stacked on a laptop, with nothing wider than its pane (${JSON.stringify(activityPanes)})`,
     ],
-    [activityRankNameFits.length === 2 && activityRankNameFits.every((fit) => fit.rows?.length === 3 && fit.rows.every((row) => !row.missing && row.clipped && row.titleText === row.label && row.rowHeight === 26 && row.beforeRowHeight === 26 && row.nameInsideRow && row.nameBeforeBar && row.extraStable && row.extraInsideRow && row.rowOverflow) && fit.railOverflow === 0) && activityRankNameFits.some((fit) => fit.width === 1512 && fit.height === 945) && activityRankNameFits.some((fit) => fit.width === 1800 && fit.height === 1169), `activity: long people, repository and branch names clip inside their fixed 26px rows at 1512x945 and 1800x1169 without moving facts or overflowing the rail (${JSON.stringify(activityRankNameFits)})`],
+    [activityRankNameFits.length === 2 && activityRankNameFits.every((fit) => fit.rows?.length === 3 && fit.rows.every((row) => !row.missing && row.clipped && row.titleText && row.titleMatchesAccessibleLabel && row.rowHeight === 26 && row.beforeRowHeight === 26 && row.nameInsideRow && row.nameBeforeBar && row.extraStable && row.extraInsideRow && row.rowOverflow) && fit.railOverflow === 0) && activityRankNameFits.some((fit) => fit.width === 1512 && fit.height === 945) && activityRankNameFits.some((fit) => fit.width === 1800 && fit.height === 1169), `activity: long people, repository and branch names clip inside their fixed 26px rows at 1512x945 and 1800x1169 without moving facts or overflowing the rail (${JSON.stringify(activityRankNameFits)})`],
     [
       activityPanesActs.actorPressed === "true" &&
         activityPanesActs.after !== activityPanesActs.before &&
