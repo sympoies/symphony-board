@@ -7760,6 +7760,92 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 412, height: 900, deviceScaleFactor: 1, mobile: false });
   await waitHtml("document.querySelector('.commits-rail .live-rank-item .live-rank-name')");
   const smokeBranchLabel = "feature/very-long-branch-name-for-viewport-tooltip-regression";
+  const phoneRankName = (await send("Runtime.evaluate", {
+    expression: `(async () => {
+      const block = [...document.querySelectorAll('.commits-rail .rail-block')].find((candidate) => (candidate.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches');
+      const row = [...(block?.querySelectorAll('.live-rank-item') || [])].find((candidate) => candidate.querySelector('.live-rank-name'));
+      const name = row?.querySelector('.live-rank-name');
+      const tip = row?.querySelector('.rank-name-tip');
+      const button = row?.querySelector('.live-rank-item-action');
+      const bar = row?.querySelector('.live-rank-bar-cell');
+      const count = row?.querySelector('.live-rank-tooltip');
+      if (!row || !name || !tip || !button || !bar || !count) return { found: false };
+      const originalName = name.textContent;
+      const originalTip = tip.innerHTML;
+      const originalArmed = row.dataset.nameTip;
+      const footer = name.closest('.live-rank-footer');
+      const entityMenu = name.closest('.rank-entity-menu');
+      const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+      const layout = () => ({ row: box(row), footer: box(footer), entityMenu: box(entityMenu), bar: box(bar), count: box(count) });
+      row.dataset.nameTip = 'none';
+      name.focus({ preventScroll: true });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const before = layout();
+      name.blur();
+      name.textContent = ${JSON.stringify(smokeBranchLabel)};
+      tip.textContent = ${JSON.stringify(smokeBranchLabel)};
+      row.dataset.nameTip = 'none';
+      name.focus({ preventScroll: true });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const after = layout();
+      const style = getComputedStyle(name);
+      const tipStyle = getComputedStyle(tip);
+      const footerStyle = getComputedStyle(footer);
+      const rowStyle = getComputedStyle(row);
+      const visible = getComputedStyle(tip).visibility === 'visible';
+      const stable = ['row', 'bar', 'count'].every((key) =>
+        ['left', 'top', 'right', 'bottom', 'width', 'height'].every((edge) => Math.abs(before[key][edge] - after[key][edge]) < 1)
+      );
+      const nameRect = box(name);
+      const rowRect = box(row);
+      const result = {
+        found: true,
+        label: name.textContent,
+        tipText: tip.textContent,
+        tipVisibleOnFocus: visible,
+        armed: row.dataset.nameTip,
+        clipped: name.scrollWidth > name.clientWidth + 1,
+        clientWidth: name.clientWidth,
+        scrollWidth: name.scrollWidth,
+        whiteSpace: style.whiteSpace,
+        textOverflow: style.textOverflow,
+        overflow: style.overflow,
+        tipWhiteSpace: tipStyle.whiteSpace,
+        tipTextOverflow: tipStyle.textOverflow,
+        tipOverflow: tipStyle.overflow,
+        tipFullyReadable: tip.scrollWidth <= tip.clientWidth + 1 && tip.scrollHeight <= tip.clientHeight + 1,
+        tipClientWidth: tip.clientWidth,
+        tipScrollWidth: tip.scrollWidth,
+        activeElementMatchesName: document.activeElement === name,
+        rowFocusWithin: row.matches(':focus-within'),
+        tipOpacity: getComputedStyle(tip).opacity,
+        tipVisibility: getComputedStyle(tip).visibility,
+        viewportWidth: document.documentElement.clientWidth,
+        phoneMediaMatches: window.matchMedia('(max-width: 760px)').matches,
+        footerPosition: footerStyle.position,
+        footerWidth: footerStyle.width,
+        footerLeft: footerStyle.left,
+        footerRight: footerStyle.right,
+        footerGridColumns: footerStyle.gridTemplateColumns,
+        rowGridColumns: rowStyle.gridTemplateColumns,
+        nameInsideRow: nameRect.left >= rowRect.left - 1 && nameRect.right <= rowRect.right + 1,
+        rowHeight: after.row.height,
+        rowHeightBefore: before.row.height,
+        columnsAndRowStable: stable,
+        layoutBefore: before,
+        layoutAfter: after,
+      };
+      name.blur();
+      name.textContent = originalName;
+      tip.innerHTML = originalTip;
+      if (originalArmed === undefined) delete row.dataset.nameTip;
+      else row.dataset.nameTip = originalArmed;
+      return result;
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
+  console.log("phone rank name fit:", JSON.stringify(phoneRankName));
   const bottomNameTip = (await send("Runtime.evaluate", {
     expression: "(() => { const block = [...document.querySelectorAll('.commits-rail .rail-block')].find((candidate) => (candidate.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches'); const row = [...(block?.querySelectorAll('.live-rank-item') || [])].find((candidate) => candidate.querySelector('.live-rank-name')); const name = row?.querySelector('.live-rank-name'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); if (!row || !name || !tip || !button) return { found: false }; row.id = 'smoke-bottom-name-tip'; row.dataset.nameTip = 'none'; name.textContent = 'feature/very-long-branch-name-for-viewport-tooltip-regression'; tip.textContent = 'feature/very-long-branch-name-for-viewport-tooltip-regression'; name.style.maxWidth = '100px'; row.style.position = 'fixed'; row.style.left = '12px'; row.style.top = '858px'; row.style.width = '280px'; row.style.height = '28px'; row.style.display = 'flex'; row.style.alignItems = 'center'; tip.style.top = ''; tip.style.bottom = ''; return { found: true, truncated: name.scrollWidth > name.clientWidth + 1, text: tip.textContent }; })()",
     returnByValue: true,
@@ -7780,6 +7866,23 @@ try {
     expression: `(() => { const row = document.querySelector('#smoke-bottom-name-tip'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); const r = tip?.getBoundingClientRect(); return r ? { top: r.top, bottom: r.bottom, visible: getComputedStyle(tip).visibility === 'visible', armed: row.dataset.nameTip, focused: document.activeElement === button } : null; })()`,
     returnByValue: true,
   })).result.value;
+  if (process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
+    await send("Runtime.evaluate", {
+      expression: `(() => {
+        const row = document.querySelector('#smoke-bottom-name-tip');
+        if (!row) return false;
+        for (const child of document.body.children) child.style.visibility = 'hidden';
+        row.style.visibility = 'visible';
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    const shot = await send("Page.captureScreenshot", { format: "png" });
+    const { writeFileSync, mkdirSync } = await import("node:fs");
+    mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
+    writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, "rank-name-tooltip-412x900.png"), Buffer.from(shot.data, "base64"));
+    await send("Runtime.evaluate", { expression: "for (const child of document.body.children) child.style.visibility = ''; document.querySelector('#smoke-bottom-name-tip').style.visibility = '';" });
+  }
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await send("Emulation.setDeviceMetricsOverride", { width: 2048, height: 1152, deviceScaleFactor: 1, mobile: false });
@@ -9858,6 +9961,7 @@ try {
         rankHover.clippedRow.label.includes(rankHover.clippedRow.tipText.replace(/ · .*$/, "").slice(0, 20)),
       `activity: in the 2048px stack tier a ranked row's hover moves no cell and its tip stays inside the row: a filter row says what a click does, a fitting name shows no tip, a clipped one shows the whole name (${JSON.stringify(rankHover)})`,
     ],
+    [phoneRankName.found && phoneRankName.label === smokeBranchLabel && phoneRankName.clipped === true && phoneRankName.whiteSpace === "nowrap" && phoneRankName.textOverflow === "ellipsis" && phoneRankName.overflow === "hidden" && phoneRankName.armed === "show" && phoneRankName.tipVisibleOnFocus === true && phoneRankName.tipText === smokeBranchLabel && phoneRankName.tipWhiteSpace === "normal" && phoneRankName.tipTextOverflow === "clip" && phoneRankName.tipOverflow !== "hidden" && phoneRankName.tipFullyReadable === true && phoneRankName.nameInsideRow === true && phoneRankName.rowHeight === phoneRankName.rowHeightBefore && phoneRankName.columnsAndRowStable === true, `commits: a long rank name ellipsizes with its full tooltip at 412x900 without shifting the row or its other cells (${JSON.stringify(phoneRankName)})`],
     [bottomNameTip.found && bottomNameTip.truncated === true && bottomNameTip.text === smokeBranchLabel && bottomNameTip.beforeFix?.bottom > 892 && [bottomNameTip.tipFirstEntry, bottomNameTip.tipSecondEntry].every((tip) => tip?.focused === true && tip?.visible === true && tip.top >= 8 && tip.bottom <= 892), `rank name tip: a truncated branch label that crosses the 412x900 bottom gutter before placement fits after first focus and repeat focus (${JSON.stringify(bottomNameTip)})`],
     [
       rankMore.length >= 5 && rankMore.every((b) => b.more === false && b.rows <= 8),

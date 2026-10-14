@@ -6612,6 +6612,55 @@ a.pane-row-cr:hover { text-decoration: none; }
   opacity: 1;
   visibility: visible;
 }
+/* Phone rank labels sit under narrow vertical bars. A long token can wrap in
+   that footer while still reporting no horizontal overflow, so RankChart never
+   arms its full-name tip. Keep the label on one ellipsized line; the absolutely
+   positioned tip wraps without changing the chart row or its sibling cells. */
+@media (max-width: 760px) {
+  .commits-rail .live-rank-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .commits-rail .live-rank-footer {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    min-width: 0;
+    width: auto;
+    height: var(--rank-footer-h);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .commits-rail .live-rank-name {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .commits-rail .live-rank-footer > .rank-entity-menu {
+    display: block;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+  .commits-rail .live-rank-footer > .rank-entity-menu > .live-rank-name {
+    display: block;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .commits-rail .rank-name-tip {
+    max-width: min(220px, calc(100vw - 24px));
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .rank-name-tip { transition: none; }
 }
