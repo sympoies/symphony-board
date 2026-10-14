@@ -47,7 +47,10 @@ const profile = await mkdtemp("/tmp/sb-h-");
 const chromeBin = process.env.CHROME_BIN ?? (platform() === "darwin"
   ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
 const chrome = spawn(chromeBin, ["--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
-  `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"], { stdio: ["ignore", "ignore", "inherit"] });
+  `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"], {
+  // Linux Chrome also puts its singleton socket beneath TMPDIR, outside user-data-dir.
+  env: { ...process.env, TMPDIR: profile, TMP: profile, TEMP: profile }, stdio: ["ignore", "ignore", "inherit"],
+});
 let launchError;
 // Subscribe before startup: a signal exit has exitCode=null, and its event cannot be awaited later.
 const exited = new Promise(resolve => {

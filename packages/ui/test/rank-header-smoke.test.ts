@@ -19,9 +19,10 @@ test("rank header smoke uses a short profile with long TMPDIR and cleans up a si
     await writeFile(join(root, "dist/contract.json"), await readFile(join(ui, "public/contract.json")));
     const browser = join(root, "chrome");
     const argsFile = join(root, "chrome-args");
-    await writeFile(browser, '#!/bin/sh\nprintf "%s\\n" "$@" > "$CHROME_ARGS_FILE"\nkill -TERM "$$"\n', { mode: 0o755 });
+    const tempFile = join(root, "chrome-temp");
+    await writeFile(browser, '#!/bin/sh\nprintf "%s\\n" "$@" > "$CHROME_ARGS_FILE"\nprintf "%s\\n" "$TMPDIR" "$TMP" "$TEMP" > "$CHROME_TEMP_FILE"\nkill -TERM "$$"\n', { mode: 0o755 });
     const child = spawn(process.execPath, [join(root, "scripts/rank-header-smoke.mjs")], {
-      env: { ...process.env, CHROME_BIN: browser, CHROME_ARGS_FILE: argsFile, TMPDIR: longTemp, SYMPHONY_BOARD_HEADER_OUT: "" },
+      env: { ...process.env, CHROME_BIN: browser, CHROME_ARGS_FILE: argsFile, CHROME_TEMP_FILE: tempFile, TMPDIR: longTemp, TMP: longTemp, TEMP: longTemp, SYMPHONY_BOARD_HEADER_OUT: "" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -38,6 +39,8 @@ test("rank header smoke uses a short profile with long TMPDIR and cleans up a si
     const args = (await readFile(argsFile, "utf8")).trim().split("\n");
     const profile = args.find(arg => arg.startsWith("--user-data-dir="))!.slice("--user-data-dir=".length);
     assert.ok(profile.length < 80, "a long TMPDIR must not produce a long Chrome socket path");
+    assert.deepEqual((await readFile(tempFile, "utf8")).trim().split("\n"), [profile, profile, profile],
+      "Chrome TMPDIR/TMP/TEMP must all use the short, owned profile root");
     await assert.rejects(access(profile), { code: "ENOENT" }, "failed startup must remove the temporary profile");
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
