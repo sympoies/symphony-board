@@ -7651,7 +7651,7 @@ try {
             return {
               title, label, titleText: productionTitle,
               accessibleLabel: productionAccessibleLabel,
-              titleMatchesAccessibleLabel: Boolean(productionTitle && productionAccessibleLabel.startsWith(productionTitle)),
+              titleMatchesAccessibleLabel: Boolean(productionTitle && productionAccessibleLabel.startsWith(productionTitle + ' · ')),
               clipped: name.scrollWidth > name.clientWidth + 1,
               rowHeight: rowRect.height, beforeRowHeight: before.height,
               nameInsideRow: nameRect.left >= rowRect.left - 1 && nameRect.right <= rowRect.right + 1,
