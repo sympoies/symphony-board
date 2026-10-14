@@ -341,7 +341,12 @@ and bounds browser startup and DevTools/navigation waits. UI tests cover failed
 browser startup with a long `TMPDIR`, including signal exit and profile cleanup.
 The focused smoke also launches real Chrome with long parent `TMPDIR`, `TMP`
 and `TEMP` roots, so socket-path handling is exercised in the normal smoke gate.
-It then runs
+It then runs the grouped WHO layout regression (`smoke:grouped-who`):
+a synthetic linked identity disclosure and
+neighboring rank rows must keep their labels and numbers inside separate row
+bounds, with ellipsis and full-name titles, at stack and wide pane widths.
+Set `SYMPHONY_BOARD_LAYOUT_OUT` to an output directory to retain geometry and
+1512×945 / 1800×1169 screenshots. It then runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
 Chrome. It asserts the Board, Graph, Activity feed, Items, Commits log, Reviews,
 Metrics, Live, Settings, deep-link search, focus path, and configured display colors render
