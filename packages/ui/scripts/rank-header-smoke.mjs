@@ -149,13 +149,14 @@ try {
     }
   }
   assert.deepEqual(errors, [], 'rank fixture must render without runtime exceptions');
-  console.log(`rank-header-smoke PASS: ${observations.length} page/width/gutter layouts`);
-
 } finally {
   if (out) await writeFile(join(out, "geometry.json"), JSON.stringify(observations, null, 2));
   ws?.close();
   chrome.kill();
   await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));
   server.close();
-  await rm(profile, { recursive: true, force: true });
+  // Chrome helpers can finish writing briefly after the main process exits.
+  // Retry transient removal races within a bound; terminal errors still fail.
+  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
+console.log(`rank-header-smoke PASS: ${observations.length} page/width/gutter layouts; temporary profile removed`);
