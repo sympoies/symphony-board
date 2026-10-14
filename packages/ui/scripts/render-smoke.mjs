@@ -7573,8 +7573,8 @@ try {
   // overview's panes in the middle column and the who / where / what tables in
   // the rail. Measured at the wide tier and at a 14" laptop.
   const activityPanes = [];
-  let activityRankNameFit = null;
-  for (const vp of [{ name: "wide", width: 2560, height: 1440 }, { name: "stack", width: 1512, height: 945 }]) {
+  const activityRankNameFits = [];
+  for (const vp of [{ name: "wide", width: 2560, height: 1440 }, { name: "stack", width: 1512, height: 945 }, { name: "stack", width: 1800, height: 1169 }]) {
     await send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false });
     await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
     await sleep(400);
@@ -7619,12 +7619,12 @@ try {
       })()`,
       returnByValue: true,
     })).result.value || {};
-    activityPanes.push({ viewport: vp.name, width: vp.width, ...r });
-    if (vp.name === "stack") {
+    activityPanes.push({ viewport: vp.name, width: vp.width, height: vp.height, ...r });
+    if (vp.width === 1512 || vp.width === 1800) {
       await send("Runtime.evaluate", { expression: "document.activeElement?.blur()" });
       await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1490, y: 10 });
       await sleep(100);
-      activityRankNameFit = (await send("Runtime.evaluate", {
+      const rankNameFit = (await send("Runtime.evaluate", {
         expression: `(() => {
           const blocks = [...document.querySelectorAll('.activity-panes-rail .rail-block')];
           const block = (title) => blocks.find((b) => (b.querySelector('.rail-block-title')?.textContent || '').trim() === title);
@@ -7662,13 +7662,14 @@ try {
         })()`,
         returnByValue: true,
       })).result.value || null;
+      activityRankNameFits.push({ viewport: vp.name, width: vp.width, height: vp.height, ...rankNameFit });
       if (process.env.SYMPHONY_BOARD_SMOKE_SHOTS) {
         const shot = await send("Page.captureScreenshot", { format: "png" });
         const { writeFileSync, mkdirSync } = await import("node:fs");
         mkdirSync(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, { recursive: true });
-        writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, "activity-rank-names-1512x945.png"), Buffer.from(shot.data, "base64"));
+        writeFileSync(join(process.env.SYMPHONY_BOARD_SMOKE_SHOTS, `activity-rank-names-${vp.width}x${vp.height}.png`), Buffer.from(shot.data, "base64"));
       }
-      console.log("activity rank name fit:", JSON.stringify(activityRankNameFit));
+      console.log("activity rank name fit:", JSON.stringify(activityRankNameFits.at(-1)));
     }
   }
   // Rank-row hover in the stack tier (#775), at 2048px: a 13" to 27" desktop
@@ -9809,7 +9810,7 @@ try {
       `activity: Enter on a focused row pins it, and Enter on a row's link leaves the selection alone (${JSON.stringify({ keyboard: activityKeyboard, pinned: activityKeyboardPinned.selectedTitle, pane: activityKeyboardPinned.title, afterLink: activityKeyboardLink.selectedTitle })})`,
     ],
     [
-      activityPanes.length === 2 &&
+      activityPanes.length === 3 &&
         activityPanes.every((p) =>
           p.layout === p.viewport &&
           p.overviewPanes === p.viewport &&
@@ -9824,10 +9825,11 @@ try {
           p.overviewHeight >= 200 && p.detailInside === true,
         ) &&
         activityPanes.find((p) => p.viewport === "wide")?.railColumns === 2 &&
-        activityPanes.find((p) => p.viewport === "stack")?.railColumns === 1,
+        activityPanes.find((p) => p.viewport === "stack")?.railColumns === 1 &&
+        activityPanes.some((p) => p.width === 1800 && p.height === 1169 && p.viewport === "stack"),
       `activity: the pane tiers draw the overview's panes and the who / where / what tables, two-up when wide and stacked on a laptop, with nothing wider than its pane (${JSON.stringify(activityPanes)})`,
     ],
-    [activityRankNameFit?.rows?.length === 3 && activityRankNameFit.rows.every((row) => !row.missing && row.clipped && row.titleText === row.label && row.rowHeight === 26 && row.beforeRowHeight === 26 && row.nameInsideRow && row.nameBeforeBar && row.extraStable && row.extraInsideRow && row.rowOverflow) && activityRankNameFit.railOverflow === 0, `activity: long people, repository and branch names clip inside their fixed 26px rows at the 1512px laptop width without moving facts or overflowing the rail (${JSON.stringify(activityRankNameFit)})`],
+    [activityRankNameFits.length === 2 && activityRankNameFits.every((fit) => fit.rows?.length === 3 && fit.rows.every((row) => !row.missing && row.clipped && row.titleText === row.label && row.rowHeight === 26 && row.beforeRowHeight === 26 && row.nameInsideRow && row.nameBeforeBar && row.extraStable && row.extraInsideRow && row.rowOverflow) && fit.railOverflow === 0) && activityRankNameFits.some((fit) => fit.width === 1512 && fit.height === 945) && activityRankNameFits.some((fit) => fit.width === 1800 && fit.height === 1169), `activity: long people, repository and branch names clip inside their fixed 26px rows at 1512x945 and 1800x1169 without moving facts or overflowing the rail (${JSON.stringify(activityRankNameFits)})`],
     [
       activityPanesActs.actorPressed === "true" &&
         activityPanesActs.after !== activityPanesActs.before &&

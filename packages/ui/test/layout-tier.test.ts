@@ -85,9 +85,10 @@ test("styles.css mirrors the tier breakpoints", () => {
   assert.ok(styles.includes(`@media ${DETAIL_OVERLAY_QUERY} {`), "the master-detail overlay stays width-only");
 });
 
-test("activity rank names stay in their label cell at narrow rail widths", () => {
+test("activity rank names stay in their label cell across laptop and acceptance rail widths", () => {
   const names = ["long_login_name_820", "organization/repository-with-a-long-name", "feature/branch-name-that-keeps-going"];
   assert.ok(names.every((name) => name.length >= 17), "fixtures exercise long people, repos, and branches");
+  assert.ok(1800 >= COMMITS_STACK_MIN_WIDTH_PX && 1800 < COMMITS_PANES_MIN_WIDTH_PX, "the maintainer acceptance viewport uses the stacked rank rail tier");
 
   // The laptop stack has a roughly 370px rail with the count and facts still
   // visible. Each name must shrink inside its existing label track so those
