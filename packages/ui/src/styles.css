@@ -6732,6 +6732,20 @@ a.pane-row-cr:hover { text-decoration: none; }
 .live-rank-item:has(> .rank-filter-hit:hover) .live-rank-bar { background: var(--link); }
 .rank-entity-menu { position: relative; min-width: 0; }
 .rank-entity-menu > summary { cursor: pointer; }
+/* A linked actor's block-level avatar/name must share the disclosure's line.
+   Native list-item markers otherwise take a line above that block, making the
+   footer taller than its rank row and pushing names AND facts into the next row. */
+.commits-rail[data-panes] .live-rank-footer > .rank-entity-menu > summary.rank-actor-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+.commits-rail[data-panes] .live-rank-footer > .rank-entity-menu > summary.rank-actor-link::-webkit-details-marker { display: none; }
+.commits-rail[data-panes] .live-rank-footer > .rank-entity-menu > summary.rank-actor-link::before { content: "▶"; flex: none; font-size: 9px; }
+.commits-rail[data-panes] .live-rank-footer > .rank-entity-menu[open] > summary.rank-actor-link::before { content: "▼"; }
 .rank-entity-destinations { position: absolute; inset-inline-start: 0; top: 100%; z-index: 20; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; width: max-content; max-width: min(320px, calc(100vw - 16px), var(--viewport-menu-max-width, 320px)); transform: translateX(var(--viewport-menu-shift, 0px)); }
 .rank-entity-destinations .external-link { display: block; white-space: normal; overflow-wrap: anywhere; padding: 4px; }
 /* The name tip clips its summary, but an opened destination menu must escape. */

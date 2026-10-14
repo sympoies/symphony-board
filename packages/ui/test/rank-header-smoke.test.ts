@@ -8,21 +8,22 @@ import test from "node:test";
 
 const ui = dirname(dirname(fileURLToPath(import.meta.url)));
 
-test("rank header smoke uses a short profile with long TMPDIR and cleans up a signal exit", async () => {
+for (const script of ["rank-header-smoke.mjs", "grouped-who-smoke.mjs"]) {
+test(`${script} uses short temporary roots and cleans up a signal exit`, async () => {
   const root = await mkdtemp(join(tmpdir(), "header-harness-"));
   try {
     await mkdir(join(root, "scripts"));
     await mkdir(join(root, "dist"));
     const longTemp = join(root, "x".repeat(80), "y".repeat(80));
     await mkdir(longTemp, { recursive: true });
-    await writeFile(join(root, "scripts/rank-header-smoke.mjs"), await readFile(join(ui, "scripts/rank-header-smoke.mjs")));
+    await writeFile(join(root, "scripts", script), await readFile(join(ui, "scripts", script)));
     await writeFile(join(root, "dist/contract.json"), await readFile(join(ui, "public/contract.json")));
     const browser = join(root, "chrome");
     const argsFile = join(root, "chrome-args");
     const tempFile = join(root, "chrome-temp");
     await writeFile(browser, '#!/bin/sh\nprintf "%s\\n" "$@" > "$CHROME_ARGS_FILE"\nprintf "%s\\n" "$TMPDIR" "$TMP" "$TEMP" > "$CHROME_TEMP_FILE"\nkill -TERM "$$"\n', { mode: 0o755 });
-    const child = spawn(process.execPath, [join(root, "scripts/rank-header-smoke.mjs")], {
-      env: { ...process.env, CHROME_BIN: browser, CHROME_ARGS_FILE: argsFile, CHROME_TEMP_FILE: tempFile, TMPDIR: longTemp, TMP: longTemp, TEMP: longTemp, SYMPHONY_BOARD_HEADER_OUT: "" },
+    const child = spawn(process.execPath, [join(root, "scripts", script)], {
+      env: { ...process.env, CHROME_BIN: browser, CHROME_ARGS_FILE: argsFile, CHROME_TEMP_FILE: tempFile, TMPDIR: longTemp, TMP: longTemp, TEMP: longTemp, SYMPHONY_BOARD_HEADER_OUT: "", SYMPHONY_BOARD_LAYOUT_OUT: "" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -46,3 +47,4 @@ test("rank header smoke uses a short profile with long TMPDIR and cleans up a si
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+}
