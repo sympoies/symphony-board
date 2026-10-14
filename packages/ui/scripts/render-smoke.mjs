@@ -7766,10 +7766,11 @@ try {
       const row = [...(block?.querySelectorAll('.live-rank-item') || [])].find((candidate) => candidate.querySelector('.live-rank-name'));
       const name = row?.querySelector('.live-rank-name');
       const tip = row?.querySelector('.rank-name-tip');
+      const tipLabel = tip?.querySelector('.live-rank-name');
       const button = row?.querySelector('.live-rank-item-action');
       const bar = row?.querySelector('.live-rank-bar-cell');
       const count = row?.querySelector('.live-rank-tooltip');
-      if (!row || !name || !tip || !button || !bar || !count) return { found: false };
+      if (!row || !name || !tip || !tipLabel || !button || !bar || !count) return { found: false };
       const originalName = name.textContent;
       const originalTip = tip.innerHTML;
       const originalArmed = row.dataset.nameTip;
@@ -7783,13 +7784,17 @@ try {
       const before = layout();
       name.blur();
       name.textContent = ${JSON.stringify(smokeBranchLabel)};
-      tip.textContent = ${JSON.stringify(smokeBranchLabel)};
+      // Keep the real link/menu supplied by RankEntityLabel. Replacing the
+      // tooltip's textContent would remove the production child whose label
+      // must remain readable inside the full-name tip.
+      tipLabel.textContent = ${JSON.stringify(smokeBranchLabel)};
       row.dataset.nameTip = 'none';
       name.focus({ preventScroll: true });
       await new Promise((resolve) => setTimeout(resolve, 120));
       const after = layout();
       const style = getComputedStyle(name);
       const tipStyle = getComputedStyle(tip);
+      const tipLabelStyle = getComputedStyle(tipLabel);
       const footerStyle = getComputedStyle(footer);
       const rowStyle = getComputedStyle(row);
       const visible = getComputedStyle(tip).visibility === 'visible';
@@ -7802,6 +7807,9 @@ try {
         found: true,
         label: name.textContent,
         tipText: tip.textContent,
+        tipLabelText: tipLabel.textContent,
+        tipLabelTagName: tipLabel.tagName,
+        tipLabelPreserved: tip.contains(tipLabel),
         tipVisibleOnFocus: visible,
         armed: row.dataset.nameTip,
         clipped: name.scrollWidth > name.clientWidth + 1,
@@ -7814,6 +7822,12 @@ try {
         tipTextOverflow: tipStyle.textOverflow,
         tipOverflow: tipStyle.overflow,
         tipFullyReadable: tip.scrollWidth <= tip.clientWidth + 1 && tip.scrollHeight <= tip.clientHeight + 1,
+        tipLabelWhiteSpace: tipLabelStyle.whiteSpace,
+        tipLabelTextOverflow: tipLabelStyle.textOverflow,
+        tipLabelOverflow: tipLabelStyle.overflow,
+        tipLabelFullyReadable: tipLabel.scrollWidth <= tipLabel.clientWidth + 1 && tipLabel.scrollHeight <= tipLabel.clientHeight + 1,
+        tipLabelClientWidth: tipLabel.clientWidth,
+        tipLabelScrollWidth: tipLabel.scrollWidth,
         tipClientWidth: tip.clientWidth,
         tipScrollWidth: tip.scrollWidth,
         activeElementMatchesName: document.activeElement === name,
@@ -7847,7 +7861,7 @@ try {
   })).result.value || {};
   console.log("phone rank name fit:", JSON.stringify(phoneRankName));
   const bottomNameTip = (await send("Runtime.evaluate", {
-    expression: "(() => { const block = [...document.querySelectorAll('.commits-rail .rail-block')].find((candidate) => (candidate.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches'); const row = [...(block?.querySelectorAll('.live-rank-item') || [])].find((candidate) => candidate.querySelector('.live-rank-name')); const name = row?.querySelector('.live-rank-name'); const tip = row?.querySelector('.rank-name-tip'); const button = row?.querySelector('.live-rank-item-action'); if (!row || !name || !tip || !button) return { found: false }; row.id = 'smoke-bottom-name-tip'; row.dataset.nameTip = 'none'; name.textContent = 'feature/very-long-branch-name-for-viewport-tooltip-regression'; tip.textContent = 'feature/very-long-branch-name-for-viewport-tooltip-regression'; name.style.maxWidth = '100px'; row.style.position = 'fixed'; row.style.left = '12px'; row.style.top = '858px'; row.style.width = '280px'; row.style.height = '28px'; row.style.display = 'flex'; row.style.alignItems = 'center'; tip.style.top = ''; tip.style.bottom = ''; return { found: true, truncated: name.scrollWidth > name.clientWidth + 1, text: tip.textContent }; })()",
+    expression: "(() => { const block = [...document.querySelectorAll('.commits-rail .rail-block')].find((candidate) => (candidate.querySelector('.rail-block-title')?.textContent || '').trim() === 'Top branches'); const row = [...(block?.querySelectorAll('.live-rank-item') || [])].find((candidate) => candidate.querySelector('.live-rank-name')); const name = row?.querySelector('.live-rank-name'); const tip = row?.querySelector('.rank-name-tip'); const tipLabel = tip?.querySelector('.live-rank-name'); const button = row?.querySelector('.live-rank-item-action'); if (!row || !name || !tip || !tipLabel || !button) return { found: false }; row.id = 'smoke-bottom-name-tip'; row.dataset.nameTip = 'none'; name.textContent = 'feature/very-long-branch-name-for-viewport-tooltip-regression'; tipLabel.textContent = 'feature/very-long-branch-name-for-viewport-tooltip-regression'; name.style.maxWidth = '100px'; row.style.position = 'fixed'; row.style.left = '12px'; row.style.top = '858px'; row.style.width = '280px'; row.style.height = '28px'; row.style.display = 'flex'; row.style.alignItems = 'center'; tip.style.top = ''; tip.style.bottom = ''; return { found: true, truncated: name.scrollWidth > name.clientWidth + 1, text: tipLabel.textContent, tipLabelPreserved: tip.contains(tipLabel) }; })()",
     returnByValue: true,
   })).result.value || {};
   bottomNameTip.beforeFix = (await send("Runtime.evaluate", {
@@ -9961,7 +9975,7 @@ try {
         rankHover.clippedRow.label.includes(rankHover.clippedRow.tipText.replace(/ · .*$/, "").slice(0, 20)),
       `activity: in the 2048px stack tier a ranked row's hover moves no cell and its tip stays inside the row: a filter row says what a click does, a fitting name shows no tip, a clipped one shows the whole name (${JSON.stringify(rankHover)})`,
     ],
-    [phoneRankName.found && phoneRankName.label === smokeBranchLabel && phoneRankName.clipped === true && phoneRankName.whiteSpace === "nowrap" && phoneRankName.textOverflow === "ellipsis" && phoneRankName.overflow === "hidden" && phoneRankName.armed === "show" && phoneRankName.tipVisibleOnFocus === true && phoneRankName.tipText === smokeBranchLabel && phoneRankName.tipWhiteSpace === "normal" && phoneRankName.tipTextOverflow === "clip" && phoneRankName.tipOverflow !== "hidden" && phoneRankName.tipFullyReadable === true && phoneRankName.nameInsideRow === true && phoneRankName.rowHeight === phoneRankName.rowHeightBefore && phoneRankName.columnsAndRowStable === true, `commits: a long rank name ellipsizes with its full tooltip at 412x900 without shifting the row or its other cells (${JSON.stringify(phoneRankName)})`],
+    [phoneRankName.found && phoneRankName.label === smokeBranchLabel && phoneRankName.clipped === true && phoneRankName.whiteSpace === "nowrap" && phoneRankName.textOverflow === "ellipsis" && phoneRankName.overflow === "hidden" && phoneRankName.armed === "show" && phoneRankName.tipVisibleOnFocus === true && phoneRankName.tipText.includes(smokeBranchLabel) && phoneRankName.tipLabelText === smokeBranchLabel && phoneRankName.tipLabelPreserved === true && phoneRankName.tipWhiteSpace === "normal" && phoneRankName.tipTextOverflow === "clip" && phoneRankName.tipOverflow !== "hidden" && phoneRankName.tipFullyReadable === true && phoneRankName.tipLabelWhiteSpace === "normal" && phoneRankName.tipLabelTextOverflow === "clip" && phoneRankName.tipLabelOverflow !== "hidden" && phoneRankName.tipLabelFullyReadable === true && phoneRankName.nameInsideRow === true && phoneRankName.rowHeight === phoneRankName.rowHeightBefore && phoneRankName.columnsAndRowStable === true, `commits: a long rank name ellipsizes with its full production tooltip label readable at 412x900 without shifting the row or its other cells (${JSON.stringify(phoneRankName)})`],
     [bottomNameTip.found && bottomNameTip.truncated === true && bottomNameTip.text === smokeBranchLabel && bottomNameTip.beforeFix?.bottom > 892 && [bottomNameTip.tipFirstEntry, bottomNameTip.tipSecondEntry].every((tip) => tip?.focused === true && tip?.visible === true && tip.top >= 8 && tip.bottom <= 892), `rank name tip: a truncated branch label that crosses the 412x900 bottom gutter before placement fits after first focus and repeat focus (${JSON.stringify(bottomNameTip)})`],
     [
       rankMore.length >= 5 && rankMore.every((b) => b.more === false && b.rows <= 8),
