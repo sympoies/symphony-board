@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { readFile, writeFile, mkdtemp, mkdir, rm } from "node:fs/promises";
-import { tmpdir, platform } from "node:os";
+import { platform } from "node:os";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,24 +47,42 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(404).end(); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-const profile = await mkdtemp(join(tmpdir(), "board-layout-"));
+const profile = await mkdtemp("/tmp/sb-w-");
 const chromeBin = process.env.CHROME_BIN ?? (platform() === "darwin"
   ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
-const chrome = spawn(chromeBin, ["--headless=new", "--disable-gpu", "--disable-dev-shm-usage",
-  `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"], { stdio: "ignore" });
+const chrome = spawn(chromeBin, ["--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
+  `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"], {
+  env: { ...process.env, TMPDIR: profile, TMP: profile, TEMP: profile }, stdio: ["ignore", "ignore", "inherit"],
+});
+let launchError;
+const exited = new Promise(resolve => {
+  chrome.once("error", error => { launchError = error; resolve(); });
+  chrome.once("exit", resolve);
+});
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const bounded = (promise, label, ms = 10000) => {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  })]).finally(() => clearTimeout(timer));
+};
 let ws;
 const observations = [];
 try {
+  console.log("grouped-who-smoke: starting Chrome (10s startup deadline)");
   let port;
   for (let i = 0; i < 100 && !port; i++) {
+    if (launchError) throw new Error(`Chrome failed to launch (${launchError.code})`);
+    if (chrome.exitCode !== null || chrome.signalCode !== null) {
+      throw new Error(`Chrome exited before startup (${chrome.signalCode ?? chrome.exitCode})`);
+    }
     try { port = Number((await readFile(join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0]); }
     catch { await sleep(100); }
   }
-  assert.ok(port, "headless Chrome must start");
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  assert.ok(port, "Chrome startup timed out after 10000ms: no DevTools port");
+  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(10000) })).json();
   ws = new WebSocket(targets.find(t => t.type === "page").webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+  await bounded(new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }), "Chrome DevTools connection");
   let seq = 0;
   const pending = new Map();
   const errors = [];
@@ -73,15 +91,18 @@ try {
     if (message.id) {
       const request = pending.get(message.id);
       pending.delete(message.id);
+      if (!request) return;
       if (message.error) request.reject(new Error(JSON.stringify(message.error)));
       else request.resolve(message.result);
     } else if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.text);
   };
-  const send = (method, params = {}) => new Promise((resolve, reject) => {
+  const send = (method, params = {}) => {
     const id = ++seq;
-    pending.set(id, { resolve, reject });
-    ws.send(JSON.stringify({ id, method, params }));
-  });
+    return bounded(new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      ws.send(JSON.stringify({ id, method, params }));
+    }), `Chrome ${method}`).finally(() => pending.delete(id));
+  };
   const evaluate = async expression => {
     const result = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
     assert.equal(result.exceptionDetails, undefined, "layout probe must evaluate");
@@ -95,11 +116,12 @@ try {
   for (const [width, height] of [[1512, 945], [1800, 1169], [1440, 960], [1400, 900], [2200, 1100], [2479, 1100], [2480, 1100], [3008, 1200]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     let ready = false;
-    for (let i = 0; i < 100 && !ready; i++) {
+    const readyDeadline = Date.now() + 10000;
+    while (!ready && Date.now() < readyDeadline) {
       ready = await evaluate("document.querySelectorAll('.activity-panes-rail .rank-cols-people .live-rank-item').length === 3");
       if (!ready) await sleep(100);
     }
-    assert.ok(ready, "the synthetic linked identities must render three WHO rows");
+    assert.ok(ready, "Activity navigation timed out after 10000ms: linked identities must render three WHO rows");
     await sleep(150);
     for (const open of [false, true, false]) {
       await evaluate(`document.querySelector('.activity-panes-rail .rank-cols-people .live-rank-footer > details').open = ${open}`);
@@ -119,6 +141,7 @@ try {
         return { rows, links, open: menu.open, summary: box(menu.querySelector('summary')) };
       })()`);
       observations.push({ width, height, ...geometry });
+      console.log(`grouped-who-smoke: ${width}px ${open ? "open" : "closed"} layout ${observations.length}/24`);
       // Capture before asserting so RED retains the same-size broken layout.
       if (out && [1512, 1800].includes(width)) {
         const png = await send("Page.captureScreenshot", { format: "png" });
@@ -157,12 +180,17 @@ try {
       `${width}px: WHO must remain absent below the row pane floor`);
   }
   assert.deepEqual(errors, [], "Activity must render without runtime exceptions");
-  console.log(`grouped-who-smoke PASS: ${observations.length} width/disclosure layouts`);
 } finally {
   if (out) await writeFile(join(out, "geometry.json"), JSON.stringify(observations, null, 2));
   ws?.close();
   chrome.kill();
-  await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));
-  server.close();
-  await rm(profile, { recursive: true, force: true });
+  const forceKill = setTimeout(() => chrome.kill("SIGKILL"), 2000);
+  try {
+    await bounded(exited, "Chrome shutdown", 5000);
+  } finally {
+    clearTimeout(forceKill);
+    server.close();
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 }
+console.log(`grouped-who-smoke PASS: ${observations.length} width/disclosure layouts; temporary profile removed`);
