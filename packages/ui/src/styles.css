@@ -6660,6 +6660,17 @@ a.pane-row-cr:hover { text-decoration: none; }
     text-overflow: clip;
     white-space: normal;
   }
+  /* The production tip contains the same rank-name element as the footer.
+     Override its phone ellipsis rules inside the tip so the full value wraps
+     there while the footer stays clipped to one line. */
+  .commits-rail .rank-name-tip .live-rank-name {
+    display: block;
+    max-width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .rank-name-tip { transition: none; }
