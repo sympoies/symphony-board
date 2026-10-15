@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { ActorLink, EntityLink, RankEntityLabel } from "./ExternalLink.tsx";
 import { ExternalLink } from "./ExternalLink.tsx";
 import { DetailNav } from "./DetailNav.tsx";
@@ -526,8 +527,10 @@ export function LivePage({
   const cats = useMemo(() => categoryCounts(visibleEvents, LIVE_CATEGORY_ORDER), [visibleEvents]);
   const repoCount = useMemo(() => distinctCount(events, eventRepo), [events]);
   const peopleCount = useMemo(() => distinctCount(events, actorKey), [events]);
-  const actorRanks = useMemo(() => actorActivityRanks(events, LIVE_RANK_LIMIT), [events]);
-  const repoRanks = useMemo(() => repoActivityRanks(events, LIVE_RANK_LIMIT), [events]);
+  const allActors = useMemo(() => actorActivityRanks(events, events.length), [events]);
+  const { rows: actorRanks, more: actorMore } = useRankedRows(allActors, LIVE_RANK_LIMIT);
+  const allRepos = useMemo(() => repoActivityRanks(events, events.length), [events]);
+  const { rows: repoRanks, more: repoMore } = useRankedRows(allRepos, LIVE_RANK_LIMIT);
   const repoOptions = useMemo(() => distinctValues(visibleEvents, eventRepo), [visibleEvents]);
   const peopleOptions = useMemo(() => distinctValues(visibleEvents, actorKey), [visibleEvents]);
   const latest = events[0];
@@ -914,6 +917,7 @@ export function LivePage({
               footer: <LiveAvatar actor={rank.actor} sourceId={rank.key.split("|")[0]} titled={false} />,
             }))}
           />
+          {actorMore}
         </div>
         <div className="live-card live-card-ranked">
           <div className="live-card-label">Active now</div>
@@ -940,6 +944,7 @@ export function LivePage({
               footer: <EntityLink className="live-rank-name" sourceId={rank.key.split("|")[0]} entity={{ kind: "repo", projectPath: rank.label }} aria-label={`Open ${rank.label} repository on provider`}>{shortRepo(rank.label)}</EntityLink>,
             }))}
           />
+          {repoMore}
         </div>
       </div>
 

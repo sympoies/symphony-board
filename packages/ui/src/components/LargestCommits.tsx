@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { ActorLink, EntityLink, ExternalLink, SelectableEntityRow } from "./ExternalLink.tsx";
 import type { ActivityDTO } from "@symphony-board/contract";
 import { useMemo, type CSSProperties } from "react";
@@ -33,7 +34,7 @@ export function LargestCommits({
   // Sorted once per row set. The slice is what renders; the full length is the
   // "of N" in the head, which is how many commits carried counts at all.
   const ranked = useMemo(() => largestCommits(commits, 0), [commits]);
-  const top = ranked.slice(0, COMMITS_PANES_RANK_LIMIT);
+  const { rows: top, more } = useRankedRows(ranked, COMMITS_PANES_RANK_LIMIT);
   const scale = top[0]?.lines ?? 0;
 
   return (
@@ -82,6 +83,7 @@ export function LargestCommits({
           })}
         </ol>
       )}
+      {more}
     </div>
   );
 }

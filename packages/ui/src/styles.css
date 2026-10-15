@@ -5824,6 +5824,14 @@ span.live-avatar { cursor: default; }
    marker as a lane's "Closed (N)" fold, at the list's own left edge. */
 .rank-more { align-self: start; margin-top: 4px; padding: 3px 6px; border: none; border-radius: 4px; background: none; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
 .rank-more:hover, .rank-more:focus-visible { color: var(--text); background: var(--hover-soft); }
+/* Expanded bar charts keep their minimum column widths inside a scroller.
+   Table rankings retain their existing pane scrolling at wider tiers. */
+.live-rank-chart:has(+ .rank-more[aria-expanded="true"]) { overflow: auto; }
+/* Actor lists with a disclosure must leave room for both names and control,
+   including the compact Metrics cards. */
+.repo-actors:has(> .rank-more) { max-height: none; overflow: visible; }
+.repo-actors > .rank-more { flex-basis: 100%; text-align: left; }
+
 .rail-rank-chart { height: 104px; }
 
 /* Per-day / per-hour strips. Bars share the rank chart's --rank-h contract so the
