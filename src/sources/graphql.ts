@@ -13,6 +13,7 @@ import {
   githubGraphqlRateBudget,
   githubRateBudgetFromHeaders,
   githubRateLimitInfo,
+  githubTransientRetryDelaysMs,
   isGithubPrimaryRateLimit,
   markAuthTokenCooledDown,
   nextAvailableToken,
@@ -26,6 +27,7 @@ import {
   type AuthTokenInput,
   type GitHubRateLimitInfo,
 } from "./http.ts";
+import { log } from "../log.ts";
 
 export type GqlClient = <T = any>(query: string, variables?: Record<string, unknown>) => Promise<T>;
 
@@ -42,6 +44,24 @@ export interface GqlErrorEntry {
 // the error keeps the provider's structured entries and whatever `data` came
 // with them, so a caller that expects some fields to be unresolvable (a lookup
 // of targets that may not exist) can tell that apart from a real failure.
+// A GitHub response whose body is not JSON (an HTML error page or a truncated
+// body behind a 200). It is GitHub's symptom of a query that timed out
+// server-side, so it is transient like a gateway status.
+export class GqlNonJsonResponseError extends ProviderHttpError {
+  constructor(message: string, status: number) {
+    super(message, status, null);
+    this.name = "GqlNonJsonResponseError";
+  }
+}
+
+// True for the GitHub failures a smaller page can avoid: a gateway status or a
+// non-JSON body, both left after the bounded retries. Transport errors and rate
+// limits are not caused by the page size.
+export function isGithubHeavyQueryFailure(err: unknown): boolean {
+  if (err instanceof GqlNonJsonResponseError) return true;
+  return err instanceof ProviderHttpError && !(err instanceof GqlResponseError) && [502, 503, 504].includes(err.status);
+}
+
 export class GqlResponseError extends ProviderHttpError {
   readonly errors: readonly GqlErrorEntry[];
   readonly data: unknown;
@@ -112,30 +132,48 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
       recordAuthAttemptStart(tokens, idx, selection);
       let attemptRecorded = false;
       try {
-        const res = await fetchWithTransientResponseRetry(
-          url,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token.value}`,
-              "Content-Type": "application/json",
-              "User-Agent": "symphony-board",
-            },
-            body: JSON.stringify({ query, variables }),
-          },
-          timeoutMs,
-          provider,
-          "GraphQL request",
-          onRequest,
-        );
-        const text = await res.text();
+        let res: Response;
+        let text: string;
         let json: any;
-        try {
-          json = JSON.parse(text);
-        } catch {
-          recordAuthAttemptDone(tokens, idx, selection, provider === "github" ? githubRateBudgetFromHeaders(res.headers) : null);
-          attemptRecorded = true;
-          throw new Error(`GraphQL HTTP ${res.status}: non-JSON response from ${url}`);
+        // A GitHub 2xx whose body is not JSON is retried on the same backoff as a
+        // gateway status. A non-JSON gateway status already used that budget in
+        // fetchWithTransientResponseRetry; other providers keep failing fast.
+        for (let bodyRetry = 0; ; bodyRetry++) {
+          res = await fetchWithTransientResponseRetry(
+            url,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token.value}`,
+                "Content-Type": "application/json",
+                "User-Agent": "symphony-board",
+              },
+              body: JSON.stringify({ query, variables }),
+            },
+            timeoutMs,
+            provider,
+            "GraphQL request",
+            onRequest,
+          );
+          text = await res.text();
+          try {
+            json = JSON.parse(text);
+            break;
+          } catch {
+            const delays = provider === "github" && res.ok ? githubTransientRetryDelaysMs() : [];
+            const delayMs = delays[bodyRetry];
+            if (delayMs === undefined) {
+              recordAuthAttemptDone(tokens, idx, selection, provider === "github" ? githubRateBudgetFromHeaders(res.headers) : null);
+              attemptRecorded = true;
+              const message = `GraphQL HTTP ${res.status}: non-JSON response from ${url}`;
+              throw provider === "github" ? new GqlNonJsonResponseError(message, res.status) : new Error(message);
+            }
+            log.warn(
+              `[source] GraphQL request HTTP ${res.status} non-JSON body; retrying in ${delayMs}ms ` +
+              `(${bodyRetry + 2}/${delays.length + 1})`,
+            );
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          }
         }
         const graphqlBudget = provider === "github" ? githubGraphqlRateBudget(json?.data) : null;
         if (provider === "github" && onRateLimitCost) {

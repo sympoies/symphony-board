@@ -12,7 +12,20 @@ import { log } from "../log.ts";
 export const DEFAULT_FETCH_TIMEOUT_MS = Math.max(1000, Number(process.env.SYNC_FETCH_TIMEOUT_MS) || 30000);
 
 const GITHUB_TRANSIENT_RESPONSE_STATUSES = new Set([502, 503, 504]);
-const GITHUB_TRANSIENT_RETRY_DELAYS_MS = [250, 500] as const;
+// Backoff between retries of a transient GitHub response. GitHub's gateway
+// errors and truncated bodies come from a query that timed out server-side, so
+// an immediate retry usually fails the same way; wait seconds, not milliseconds.
+// SYNC_TRANSIENT_RETRY_DELAYS_MS (comma-separated ms) overrides it, e.g. in tests.
+export const DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
+
+export function githubTransientRetryDelaysMs(): readonly number[] {
+  const raw = process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS;
+  if (!raw) return DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS;
+  const parsed = raw.split(",").map((part) => Number(part.trim()));
+  return parsed.length > 0 && parsed.every((ms) => Number.isInteger(ms) && ms >= 0)
+    ? parsed
+    : DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS;
+}
 
 export interface AuthToken {
   env: string;
@@ -564,9 +577,10 @@ export async function fetchWithTransientResponseRetry(
 ): Promise<Response> {
   // Read requests share one bounded budget for gateway responses and Node's
   // network-level fetch rejection. Timeouts and other errors still fail fast.
+  const delays = githubTransientRetryDelaysMs();
   for (let retry = 0; ; retry++) {
     onRequest?.();
-    const delayMs = GITHUB_TRANSIENT_RETRY_DELAYS_MS[retry];
+    const delayMs = delays[retry];
     let response: Response;
     try {
       response = await fetchWithTimeout(input, init, timeoutMs);
@@ -576,7 +590,7 @@ export async function fetchWithTransientResponseRetry(
       }
       log.warn(
         `[source] ${requestLabel} transport failure; retrying in ${delayMs}ms ` +
-        `(${retry + 2}/${GITHUB_TRANSIENT_RETRY_DELAYS_MS.length + 1})`,
+        `(${retry + 2}/${delays.length + 1})`,
       );
       await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       continue;
@@ -597,7 +611,7 @@ export async function fetchWithTransientResponseRetry(
     }
     log.warn(
       `[source] ${requestLabel} HTTP ${response.status}; retrying in ${delayMs}ms ` +
-      `(${retry + 2}/${GITHUB_TRANSIENT_RETRY_DELAYS_MS.length + 1})`,
+      `(${retry + 2}/${delays.length + 1})`,
     );
     await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   }

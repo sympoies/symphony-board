@@ -294,11 +294,18 @@ The loop daemon runs mostly incremental syncs for cost, with periodic full
 sweeps so disappearance handling still occurs.
 
 GitHub read requests use one bounded retry budget for network-level fetch
-rejections and HTTP 502/503/504 responses: two retries after 250 and 500 ms,
-with at most three attempts per request. This applies to full and incremental
-sweeps and repeats the failed request rather than restarting project pagination.
-Exhaustion still makes coverage partial; successful sibling records remain
-available. Request timeouts and other provider/application errors retain their
+rejections and HTTP 502/503/504 responses: two retries after 2 and 6 s
+(`SYNC_TRANSIENT_RETRY_DELAYS_MS` overrides the delays), with at most three
+attempts per request. GitHub GraphQL also gives a 2xx whose body is not JSON
+(an error page or a truncated body) the same bounded retry: that and a gateway
+status are GitHub's symptoms of a query that timed out server-side, which an
+immediate retry usually repeats. This applies to full and incremental sweeps and
+repeats the failed request rather than restarting project pagination. In a full
+sweep, an issue or pull-request page that still fails with one of those
+heavy-query symptoms is retried once from the same cursor at half the page size,
+and the rest of that repository continues at the smaller size. Exhaustion still
+makes coverage partial; successful sibling records remain available. Request
+timeouts, rate limits and other provider/application errors retain their
 existing behavior, as do GitLab requests.
 
 GitHub pull-request discovery deliberately uses different query shapes for the

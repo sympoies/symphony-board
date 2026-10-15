@@ -25,7 +25,7 @@ import { COMMIT_FILES_ENTITY, commitFilesBundle, fetchCommitFileRecords, githubC
 import { deriveActorKey } from "../model/actor.ts";
 import { parseTrackerRows, trackerEdges, trackerRefKey } from "../model/tracker.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
-import { GqlResponseError, type GqlClient } from "./graphql.ts";
+import { GqlResponseError, isGithubHeavyQueryFailure, type GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
 import { log } from "../log.ts";
@@ -92,10 +92,10 @@ const COMMON = `__typename id number title body url createdAt updatedAt closedAt
   comments { totalCount } reactions { totalCount }
   ${MENTIONS}`;
 
-const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
+const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String, $first:Int!) {
   rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
-    issues(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
+    issues(first:$first, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { ${COMMON} stateReason
         closedByPullRequestsReferences(first:20, includeClosedPrs:true){ nodes { ${REF_NODE} } }
@@ -104,10 +104,10 @@ const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
   }
 }`;
 
-const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
+const PR_Q = `query($owner:String!, $name:String!, $cursor:String, $first:Int!) {
   rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
-    pullRequests(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
+    pullRequests(first:$first, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { ${COMMON} totalCommentsCount mergedAt isDraft reviewDecision mergeable
         commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
@@ -347,8 +347,22 @@ export class GitHubSource implements Source {
             continue;
           }
           let cursor: string | null = null;
+          let pageSize = PAGE_SIZE;
           for (let page = 0; page < MAX_PAGES; page++) {
-            const data: any = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor });
+            let data: any;
+            try {
+              data = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor, first: pageSize });
+            } catch (err) {
+              // A page that keeps timing out server-side is retried once at half
+              // size from the same cursor; the rest of this repo stays at that size.
+              if (pageSize !== PAGE_SIZE || !isGithubHeavyQueryFailure(err)) throw err;
+              pageSize = Math.floor(PAGE_SIZE / 2);
+              log.warn(
+                `[${this.descriptor.sourceId}] project ${project}: ${kind} page failed (${(err as Error).message}); ` +
+                `retrying at page size ${pageSize}`,
+              );
+              data = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor, first: pageSize });
+            }
             const conn = data?.repository?.[kind === "issue" ? "issues" : "pullRequests"];
             if (!conn) break;
             let stop = false;
