@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { EntityLink } from "./ExternalLink.tsx";
 import { NavigationLink } from "./ExternalLink.tsx";
 import type { ActivityDTO } from "@symphony-board/contract";
@@ -46,7 +47,8 @@ export const ChangeRequests = memo(function ChangeRequests({
   resolve: ResolveChangeRequest;
 }) {
   const groups = useMemo(() => changeRequestGroups(commits), [commits]);
-  const rows = useMemo(() => groups.slice(0, COMMITS_PANES_RANK_LIMIT).map((group) => ({ group, ...resolve(group) })), [groups, resolve]);
+  const { rows: visible, more } = useRankedRows(groups, COMMITS_PANES_RANK_LIMIT);
+  const rows = useMemo(() => visible.map((group) => ({ group, ...resolve(group) })), [visible, resolve]);
   // Counted over every group, not only the rows drawn.
   const merged = useMemo(() => groups.reduce((n, group) => (resolve(group).view.state === "merged" ? n + 1 : n), 0), [groups, resolve]);
 
@@ -94,6 +96,7 @@ export const ChangeRequests = memo(function ChangeRequests({
           })}
         </ol>
       )}
+      {more}
     </div>
   );
 });

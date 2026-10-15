@@ -489,7 +489,7 @@ test("the Commits wide-panes tier is published once and mirrored in the styleshe
   // than the whole column.
   const rail = readFileSync(new URL("../src/components/CommitsRail.tsx", import.meta.url), "utf8");
   assert.ok(COMMITS_PANES_AUTHOR_LIMIT < COMMITS_PANES_RANK_LIMIT && COMMITS_PANES_AUTHOR_LIMIT <= COMMITS_PANES_KIND_LIMIT);
-  assert.match(rail, /rankActors\(authorSource, authorLimit, actorIndex\)/, "the authors pane must use its own bounded limit");
+  // ranking-controls-smoke checks the rendered author limit and its expansion.
   assert.match(
     rail,
     /className=\{`rail-rank-chart\$\{hasPanes \? " rank-cols-authors" : ""\}`\}/,

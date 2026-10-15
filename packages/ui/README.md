@@ -150,7 +150,10 @@ the range on the same item. Below 1212px the detail is a reader over the page
 overview becomes panes (summary tiles, rhythm, events per day stacked by kind,
 action, repo or actor, a day-by-hour grid, review verdicts, busiest items) and a
 third column ranks people, repositories, branches, kinds and actions as tables
-with share, active days and per-day sparklines.
+with share, active days and per-day sparklines. Every truncated ranking offers
+`Show all N` and `Show fewer`, shared with Commits, Live, and Metrics. Expansion
+shows every available row and stays local to the mounted panel; it is not saved
+across page visits.
 
 Rows link to `activities[].url` when the producer supplied a reliable provider
 destination. Unlinked rows are intentional; the UI does not reconstruct provider
@@ -346,7 +349,12 @@ a synthetic linked identity disclosure and
 neighboring rank rows must keep their labels and numbers inside separate row
 bounds, with ellipsis and full-name titles, at stack and wide pane widths.
 Set `SYMPHONY_BOARD_LAYOUT_OUT` to an output directory to retain geometry and
-1512×945 / 1800×1169 screenshots. It then runs
+1512×945 / 1800×1169 screenshots. Next, `ranking-controls-smoke.mjs` checks
+that every truncated ranking renders the shared control, expands beyond fifty
+rows, and collapses to its layout limit. It covers Commits and Activity at
+phone, sidebar, stack, and wide widths, plus file/directory rankings, Live, and
+Metrics actor lists. `SYMPHONY_BOARD_LAYOUT_OUT` retains its desktop and phone
+Commits captures. It then runs
 `packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
 Chrome. It asserts the Board, Graph, Activity feed, Items, Commits log, Reviews,
 Metrics, Live, Settings, deep-link search, focus path, and configured display colors render

@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { EntityLink, RankEntityLabel } from "./ExternalLink.tsx";
 import { actorDestinations, branchDestinations } from "../entity-links.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
@@ -60,14 +61,14 @@ import { ActorAvatar } from "./ActorAvatar.tsx";
 // (COMMITS_PANES_MIN_WIDTH_PX) the rail is also a two-up grid. A row has room
 // for the facts that make the number mean something -- an author's share, line
 // counts, how many repositories and how many of the range's days; a repo's
-// people and its last commit. Top repos and Top branches hold up to fifty rows
-// and scroll inside their pane instead of stopping at eight; Top authors does
-// not scroll, so it stops at ten. The last pane says where the work landed:
+// people and its last commit. Top repos and Top branches initially hold fifty rows
+// and scroll inside their pane instead of stopping at eight; Top authors initially
+// shows ten. The last pane says where the work landed:
 // files, directories, or scopes.
 //
 // The laptop tier (`panes === "stack"`, COMMITS_STACK_MIN_WIDTH_PX) draws the
-// same rows and panes in one stack that scrolls as a whole, so every list in
-// it stops at a sidebar's eight rows and none scrolls on its own.
+// same rows and panes in one stack that scrolls as a whole, so every list initially shows a sidebar's eight rows.
+// Every truncated list can expand in place with the shared control.
 
 // The limit is a tier, not a constant: see layout-tier.ts. A sidebar rail
 // lays these charts out as rows, where an extra item costs 26px of height the
@@ -158,18 +159,22 @@ export function CommitsRail({
   const kindLimit = panes === "wide" ? COMMITS_PANES_KIND_LIMIT : rankLimit;
   const authorLimit = panes === "wide" ? COMMITS_PANES_AUTHOR_LIMIT : rankLimit;
 
-  const repoRanks = useMemo(() => rankRepos(repoSource, rankLimit), [repoSource, rankLimit]);
-  const authorRanks = useMemo(() => rankActors(authorSource, authorLimit, actorIndex), [authorSource, authorLimit, actorIndex]);
-  const branchRanks = useMemo(() => rankBranches(branchSource, rankLimit), [branchSource, rankLimit]);
+  const allRepos = useMemo(() => rankRepos(repoSource, 0), [repoSource]);
+  const { rows: repoRanks, more: repoMore } = useRankedRows(allRepos, rankLimit);
+  const allAuthors = useMemo(() => rankActors(authorSource, 0, actorIndex), [authorSource, actorIndex]);
+  const { rows: authorRanks, more: authorMore } = useRankedRows(allAuthors, authorLimit);
+  const allBranches = useMemo(() => rankBranches(branchSource, 0), [branchSource]);
+  const { rows: branchRanks, more: branchMore } = useRankedRows(allBranches, rankLimit);
   // Commit types describe what is ON SCREEN rather than what could be selected —
   // it drives no filter, so unlike the three ranked facets it reads from the
   // visible rows.
-  const typeRanks = useMemo(() => rankCommitTypes(commits, kindLimit), [commits, kindLimit]);
+  const allTypes = useMemo(() => rankCommitTypes(commits, 0), [commits]);
+  const { rows: typeRanks, more: typeMore } = useRankedRows(allTypes, kindLimit);
   // Scopes are the pane tiers' second read-only vocabulary, and like the types
   // they describe the rows on screen. Ranked once: the head states how many
   // there are in all, and the pane shows the first of them.
   const allScopes = useMemo(() => (hasPanes ? rankCommitScopes(commits, 0) : []), [hasPanes, commits]);
-  const scopeRanks = allScopes.slice(0, kindLimit);
+  const { rows: scopeRanks, more: scopeMore } = useRankedRows(allScopes, kindLimit);
   const scopeTotal = allScopes.length;
   // The facts beside each row. Each is counted over the same facet source as
   // the row it sits in, so a row's count and its facts describe the same
@@ -180,10 +185,10 @@ export function CommitsRail({
   );
   const repoFacts = useMemo(() => (hasPanes ? repoDetails(repoSource, actorIndex) : null), [hasPanes, repoSource, actorIndex]);
   const branchFacts = useMemo(() => (hasPanes ? branchDetails(branchSource) : null), [hasPanes, branchSource]);
-  const repoTotal = useMemo(() => rankRepos(repoSource, 0).length, [repoSource]);
-  const authorTotal = useMemo(() => rankActors(authorSource, 0, actorIndex).length, [authorSource, actorIndex]);
-  const branchTotal = useMemo(() => rankBranches(branchSource, 0).length, [branchSource]);
-  const typeTotal = useMemo(() => rankCommitTypes(commits, 0).length, [commits]);
+  const repoTotal = allRepos.length;
+  const authorTotal = allAuthors.length;
+  const branchTotal = allBranches.length;
+  const typeTotal = allTypes.length;
   const selectedRepoKey = selectedRepo && selectedSource ? `${selectedSource}|${selectedRepo}` : null;
   // Where the range's work landed: the files it changed, the directories, or
   // the scopes its subjects named. One pane, because the three answer the same
@@ -192,9 +197,10 @@ export function CommitsRail({
   const [where, setWhere] = useState<"files" | "dirs" | "scopes">("files");
   const whereShown = fileAggregate ? where : "scopes";
   const hot = useMemo(
-    () => (hasPanes && whereShown !== "scopes" ? hotPaths(fileAggregate, fileRepoKeys, whereShown, kindLimit) : null),
-    [hasPanes, whereShown, fileAggregate, fileRepoKeys, kindLimit],
+    () => (hasPanes && whereShown !== "scopes" ? hotPaths(fileAggregate, fileRepoKeys, whereShown, 0) : null),
+    [hasPanes, whereShown, fileAggregate, fileRepoKeys],
   );
+  const { rows: hotRows, more: hotMore } = useRankedRows(hot?.rows ?? [], kindLimit);
   // The share of the range's commits that landed on a default branch, out of
   // the rows that name one (contract 4.8.1). A producer that does not say
   // leaves `known` at zero, and the head falls back to the busiest branch --
@@ -290,6 +296,7 @@ export function CommitsRail({
           };
         })}
       />
+      {authorMore}
     </div>
   );
 
@@ -338,6 +345,7 @@ export function CommitsRail({
           };
         })}
       />
+      {repoMore}
     </div>
   );
 
@@ -367,6 +375,7 @@ export function CommitsRail({
           ),
         }))}
       />
+      {typeMore}
     </div>
   );
 
@@ -410,6 +419,7 @@ export function CommitsRail({
           };
         })}
       />
+      {branchMore}
     </div>
   );
 
@@ -476,6 +486,7 @@ export function CommitsRail({
               ),
             }))}
           />
+          {scopeMore}
         </>
       ) : (
         <>
@@ -494,7 +505,7 @@ export function CommitsRail({
             empty={hot.scanned === 0 ? "file data is still being collected for this range" : "no changed files in range"}
             countLabel={commitCountLabel}
             scale="max"
-            items={hot.rows.map((row) => {
+            items={hotRows.map((row) => {
               const on = row.key === selectedPathKey;
               // The repository is part of the name only when more than one is
               // on screen: `src/app.ts` is a different file in each.
@@ -527,6 +538,7 @@ export function CommitsRail({
               };
             })}
           />
+          {hotMore}
         </>
       )}
     </div>
