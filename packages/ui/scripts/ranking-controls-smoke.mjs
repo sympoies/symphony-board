@@ -1,6 +1,5 @@
-// Render the real Activity page with linked provider identities. Unlike a CSS
-// source assertion, this catches a disclosure that paints outside its rank row.
-// Optional captures/geometry go to SYMPHONY_BOARD_LAYOUT_OUT (outside the repo).
+// Exercise ranking disclosures on real pages with synthetic over-limit data.
+// Optional captures go to SYMPHONY_BOARD_LAYOUT_OUT (outside the repo).
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -137,10 +136,23 @@ try {
       ws.send(JSON.stringify({ id, method, params }));
     }), `Chrome ${method}`).finally(() => pending.delete(id));
   };
-  const evaluate = async expression => {
-    const result = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
-    assert.equal(result.exceptionDetails, undefined, "layout probe must evaluate");
-    return result.result.value;
+  // Pass probe values as protocol arguments, never as JavaScript source.
+  const evaluate = async (fn, ...args) => {
+    const scope = await send("Runtime.evaluate", { expression: "globalThis" });
+    const objectId = scope.result.objectId;
+    try {
+      const result = await send("Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: fn.toString(),
+        arguments: args.map(value => ({ value })),
+        returnByValue: true,
+        awaitPromise: true,
+      });
+      assert.equal(result.exceptionDetails, undefined, "layout probe must evaluate");
+      return result.result.value;
+    } finally {
+      await send("Runtime.releaseObject", { objectId });
+    }
   };
   await send("Runtime.enable");
   await send("Page.enable");
@@ -151,20 +163,22 @@ try {
       await send("Emulation.setDeviceMetricsOverride", { width, height: 945, deviceScaleFactor: 1, mobile: false });
       await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/#/${page}` });
       await sleep(300);
-      await evaluate(`location.hash = '#/${page}'`);
+      await evaluate(page => { location.hash = `#/${page}`; }, page);
       let ready = false;
       for (let n = 0; n < 100 && !ready; n++) {
-        ready = await evaluate(`!!document.querySelector('.${page}-page') && document.querySelectorAll('.live-rank-item').length > 0`);
+        ready = await evaluate(page => !!document.querySelector(`.${page}-page`) && document.querySelectorAll('.live-rank-item').length > 0, page);
         if (!ready) await sleep(100);
       }
-      assert.ok(ready, `${page} ${width}: fixture must render: ${await evaluate(`location.hash + " " + document.body.innerText.slice(0, 500)`)} errors=${JSON.stringify(errors)}`);
+      assert.ok(ready, `${page} ${width}: fixture must render: ${await evaluate(() => location.hash + " " + document.body.innerText.slice(0, 500))} errors=${JSON.stringify(errors)}`);
       await sleep(150);
       if (out && page === "commits" && [1512, 412].includes(width)) {
         const png = await send("Page.captureScreenshot", { format: "png" });
         await writeFile(join(out, `commits-${width}.png`), Buffer.from(png.data, "base64"));
       }
-      const results = await evaluate(`(() => {
-        const expected = ${page === "commits" ? JSON.stringify(["Top authors", "Top repos", "Top branches", "Commit types", "Commit scopes", "Largest commits", "Change requests"]) : JSON.stringify(["Who", "Where", "Branches", "What", "How", "Busiest items"])};
+      const expected = page === "commits"
+        ? ["Top authors", "Top repos", "Top branches", "Commit types", "Commit scopes", "Largest commits", "Change requests"]
+        : ["Who", "Where", "Branches", "What", "How", "Busiest items"];
+      const results = await evaluate(expected => {
         return [...document.querySelectorAll('.rail-block')].filter(block => expected.includes(block.querySelector('.rail-block-title')?.textContent))
           .map(block => {
             const title = block.querySelector('.rail-block-title').textContent;
@@ -172,7 +186,7 @@ try {
             const button = block.querySelector('button.rank-more');
             return { title, rows, button: button?.textContent, expanded: button?.getAttribute('aria-expanded') };
           });
-      })()`);
+      }, expected);
       assert.ok(results.length >= (page === "commits" ? 4 : 5), `${page} ${width}: rankings must be present`);
       for (const result of results) {
         const total = result.title === "Busiest items" ? count * 2 : result.title === "What" ? 2 : count;
@@ -181,34 +195,58 @@ try {
             failures.push(`${page} ${width} ${result.title}: ${result.rows}/${total} rows, shared control=${result.button}`);
             continue;
           }
-          await evaluate(`(() => { const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === ${JSON.stringify(result.title)}); block.querySelector('.rank-more').click(); })()`);
+          await evaluate(title => {
+            const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === title);
+            block.querySelector('.rank-more').click();
+          }, result.title);
           await sleep(50);
-          const opened = await evaluate(`(() => { const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === ${JSON.stringify(result.title)}); return { rows: block.querySelectorAll('.live-rank-item, .pane-rows > li').length, label: block.querySelector('.rank-more').textContent, expanded: block.querySelector('.rank-more').getAttribute('aria-expanded') }; })()`);
+          const opened = await evaluate(title => {
+            const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === title);
+            return { rows: block.querySelectorAll('.live-rank-item, .pane-rows > li').length, label: block.querySelector('.rank-more').textContent, expanded: block.querySelector('.rank-more').getAttribute('aria-expanded') };
+          }, result.title);
           assert.deepEqual(opened, { rows: total, label: "Show fewer", expanded: "true" }, `${page} ${width} ${result.title}: all rows accessible, including beyond fifty`);
-          assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false, `${page} ${width} ${result.title}: expanded rankings must not overflow the page`);
-          await evaluate(`(() => { const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === ${JSON.stringify(result.title)}); block.querySelector('.rank-more').click(); })()`);
+          assert.equal(await evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${page} ${width} ${result.title}: expanded rankings must not overflow the page`);
+          await evaluate(title => {
+            const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === title);
+            block.querySelector('.rank-more').click();
+          }, result.title);
           await sleep(50);
-          assert.equal(await evaluate(`(() => { const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === ${JSON.stringify(result.title)}); return block.querySelectorAll('.live-rank-item, .pane-rows > li').length; })()`), result.rows, `${result.title}: collapse restores tier limit`);
+          assert.equal(await evaluate(title => {
+            const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === title);
+            return block.querySelectorAll('.live-rank-item, .pane-rows > li').length;
+          }, result.title), result.rows, `${result.title}: collapse restores tier limit`);
         } else assert.equal(result.button, undefined, `${result.title}: untruncated rankings have no control`);
       }
-      assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false, `${page} ${width}: no horizontal page overflow`);
+      assert.equal(await evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${page} ${width}: no horizontal page overflow`);
       console.log(`ranking-controls: ${page} ${width}px checked ${results.length} rankings`);
     }
   }
   // Audit consumers outside the two rails, including lists with lower caps.
   const navigate = async (page, selector) => {
-    await evaluate(`location.hash = '#/${page}'`);
+    await evaluate(page => { location.hash = `#/${page}`; }, page);
     for (let n = 0; n < 100; n++) {
-      if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) return;
+      if (await evaluate(selector => !!document.querySelector(selector), selector)) return;
       await sleep(100);
     }
     assert.fail(`${page}: ${selector} must render`);
   };
   const checkList = async (selector, rowSelector, total, limit) => {
-    const inspect = () => evaluate(`(() => { const panel = document.querySelector(${JSON.stringify(selector)}); const button = panel.querySelector('.rank-more'); return { rows: panel.querySelectorAll(${JSON.stringify(rowSelector)}).length, label: button?.textContent, expanded: button?.getAttribute('aria-expanded') }; })()`);
-    const click = () => evaluate(`document.querySelector(${JSON.stringify(selector)}).querySelector('.rank-more').click()`);
+    const inspect = () => evaluate((selector, rowSelector) => {
+      const panel = document.querySelector(selector);
+      const button = panel.querySelector('.rank-more');
+      return { rows: panel.querySelectorAll(rowSelector).length, label: button?.textContent, expanded: button?.getAttribute('aria-expanded') };
+    }, selector, rowSelector);
+    const click = () => evaluate(selector => {
+      document.querySelector(selector).querySelector('.rank-more').click();
+    }, selector);
     assert.deepEqual(await inspect(), { rows: limit, label: `Show all ${total}`, expanded: "false" }, `${selector}: truncated ranking uses the shared control`);
-    const visibleControl = () => evaluate(`(() => { const panel = document.querySelector(${JSON.stringify(selector)}); const button = panel.querySelector('.rank-more'); const b = button.getBoundingClientRect(); const p = panel.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.bottom <= p.bottom + 1 && b.right <= p.right + 1; })()`);
+    const visibleControl = () => evaluate(selector => {
+      const panel = document.querySelector(selector);
+      const button = panel.querySelector('.rank-more');
+      const b = button.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      return b.width > 0 && b.height > 0 && b.bottom <= p.bottom + 1 && b.right <= p.right + 1;
+    }, selector);
     assert.equal(await visibleControl(), true, `${selector}: collapsed control is not clipped`);
     await click(); await sleep(50);
     assert.equal(await visibleControl(), true, `${selector}: expanded control is not clipped`);
@@ -226,7 +264,7 @@ try {
     await checkList(".repo-actors", ":scope > span:not(.rank-more)", 6, 3);
   }
   await send("Emulation.setDeviceMetricsOverride", { width: 1399, height: 945, deviceScaleFactor: 1, mobile: false });
-  await evaluate("localStorage.setItem('symphony-board:live-tab-enabled', 'true')");
+  await evaluate(() => { localStorage.setItem("symphony-board:live-tab-enabled", "true"); });
   await send("Page.reload");
   await sleep(300);
   await navigate("live", ".live-card-ranked .live-rank-item");
@@ -240,7 +278,9 @@ try {
   await sleep(300);
   await navigate("commits", ".commit-where .pane-seg-option");
   for (const option of ["files", "dirs", "scopes"]) {
-    await evaluate(`[...document.querySelectorAll('.commit-where .pane-seg-option')].find(b => b.textContent === '${option}').click()`);
+    await evaluate(option => {
+      [...document.querySelectorAll('.commit-where .pane-seg-option')].find(b => b.textContent === option).click();
+    }, option);
     await sleep(50);
     await checkList(".commit-where", ".live-rank-item", count, 8);
   }
