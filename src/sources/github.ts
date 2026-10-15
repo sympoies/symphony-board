@@ -25,7 +25,7 @@ import { COMMIT_FILES_ENTITY, commitFilesBundle, fetchCommitFileRecords, githubC
 import { deriveActorKey } from "../model/actor.ts";
 import { parseTrackerRows, trackerEdges, trackerRefKey } from "../model/tracker.ts";
 import { providerObservedProfileUrl, providerPushUrl, type ProviderLinkSource } from "../provider-links.ts";
-import { GqlResponseError, type GqlClient } from "./graphql.ts";
+import { GqlResponseError, isGithubHeavyQueryFailure, type GqlClient } from "./graphql.ts";
 import type { RestClient } from "./rest.ts";
 import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
 import { log } from "../log.ts";
@@ -33,6 +33,10 @@ import { log } from "../log.ts";
 const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40; // safety cap (~2000 items/connection)
+// The full sweep bounds coverage by records, so a page-size drop keeps its reach.
+// A sweep stopped here with pages left is partial, so keep it above the largest
+// tracked repository (one is near 2000 pull requests).
+const MAX_ITEMS = 4000;
 const MAX_REVIEW_THREAD_PAGES = 40; // safety cap (~4000 threads/PR)
 // Safety cap for paginated REST activity surfaces (per_page=100 -> 2000 records
 // per surface per project). Sized so a fresh-DB full sweep can cover a year of
@@ -92,10 +96,10 @@ const COMMON = `__typename id number title body url createdAt updatedAt closedAt
   comments { totalCount } reactions { totalCount }
   ${MENTIONS}`;
 
-const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
+const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String, $first:Int!) {
   rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
-    issues(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
+    issues(first:$first, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { ${COMMON} stateReason
         closedByPullRequestsReferences(first:20, includeClosedPrs:true){ nodes { ${REF_NODE} } }
@@ -104,10 +108,10 @@ const ISSUE_Q = `query($owner:String!, $name:String!, $cursor:String) {
   }
 }`;
 
-const PR_Q = `query($owner:String!, $name:String!, $cursor:String) {
+const PR_Q = `query($owner:String!, $name:String!, $cursor:String, $first:Int!) {
   rateLimit { cost remaining used resetAt }
   repository(owner:$owner, name:$name) {
-    pullRequests(first:${PAGE_SIZE}, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
+    pullRequests(first:$first, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { ${COMMON} totalCommentsCount mergedAt isDraft reviewDecision mergeable
         commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
@@ -347,8 +351,23 @@ export class GitHubSource implements Source {
             continue;
           }
           let cursor: string | null = null;
-          for (let page = 0; page < MAX_PAGES; page++) {
-            const data: any = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor });
+          let pageSize = PAGE_SIZE;
+          let fetched = 0;
+          for (;;) {
+            let data: any;
+            try {
+              data = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor, first: pageSize });
+            } catch (err) {
+              // A page that keeps timing out server-side is retried once at half
+              // size from the same cursor; the rest of this repo stays at that size.
+              if (pageSize !== PAGE_SIZE || !isGithubHeavyQueryFailure(err)) throw err;
+              pageSize = Math.floor(PAGE_SIZE / 2);
+              log.warn(
+                `[${this.descriptor.sourceId}] project ${project}: ${kind} page failed (${(err as Error).message}); ` +
+                `retrying at page size ${pageSize}`,
+              );
+              data = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor, first: pageSize });
+            }
             const conn = data?.repository?.[kind === "issue" ? "issues" : "pullRequests"];
             if (!conn) break;
             let stop = false;
@@ -378,7 +397,13 @@ export class GitHubSource implements Source {
                 contentHash: hash(payload),
               });
             }
+            fetched += conn.nodes.length;
             if (stop || !conn.pageInfo.hasNextPage) break;
+            // Stopping at the cap with pages left must leave the sweep partial,
+            // so the unseen older items are not tombstoned.
+            if (fetched >= MAX_ITEMS || conn.nodes.length === 0) {
+              throw new Error(`stopped after ${fetched} records with more pages left (cap ${MAX_ITEMS})`);
+            }
             cursor = conn.pageInfo.endCursor;
           }
         } catch (err) {
