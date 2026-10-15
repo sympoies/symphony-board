@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { ExternalLink } from "./ExternalLink.tsx";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { RepoMetricDTO, RepoMetricStatsDTO } from "@symphony-board/contract";
@@ -158,7 +159,7 @@ function QualityBadge({ metric }: { metric: RepoMetricDTO }) {
 }
 
 function TopActors({ metric }: { metric: RepoMetricDTO }) {
-  const actors = (metric.top_actors ?? []).slice(0, 3);
+  const { rows: actors, more } = useRankedRows(metric.top_actors ?? [], 3);
   // An idle repo (no ranked actors) still draws a muted middle-dot placeholder so
   // the Actors column reads as an intentional "no data" cell rather than a blank
   // gap — matching the 0s the metric columns show and the flat baseline the
@@ -195,6 +196,7 @@ function TopActors({ metric }: { metric: RepoMetricDTO }) {
           </span>
         );
       })}
+      {more}
     </span>
   );
 }

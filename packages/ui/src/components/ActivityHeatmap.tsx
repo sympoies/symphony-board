@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { EntityLink } from "./ExternalLink.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import type { ActivityDTO, ActivityDailyDTO } from "@symphony-board/contract";
@@ -401,7 +402,7 @@ function ActivityRangeSummary({ trend }: { trend: ActivityTrend }) {
 // Top repos by events for the selected range. Split out of the summary so it can
 // sit BELOW the trend chart (order: summary -> trend -> top repos).
 function ActivityTopRepos({ trend }: { trend: ActivityTrend }) {
-  const topRepos = trend.byRepo.slice(0, 5);
+  const { rows: topRepos, more } = useRankedRows(trend.byRepo, 5);
   if (topRepos.length === 0) return null;
   const maxRepoCount = topRepos[0]?.count ?? 0;
   return (
@@ -427,6 +428,7 @@ function ActivityTopRepos({ trend }: { trend: ActivityTrend }) {
             </li>
           ))}
         </ol>
+        {more}
       </div>
     </section>
   );

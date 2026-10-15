@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatAxisValue, labelClipped, labelShortened, nameTipText, niceAxisMax, rankBarHeight, rankMoreLabel, showsNameTip } from "../src/rank-scale.ts";
+import { formatAxisValue, labelClipped, labelShortened, nameTipText, niceAxisMax, rankBarHeight, showsNameTip } from "../src/rank-scale.ts";
 
 test("niceAxisMax rounds up to a 1 / 2 / 5 step so axis ticks stay readable", () => {
   assert.equal(niceAxisMax(1), 1);
@@ -78,10 +78,4 @@ test("nameTipText names the row and, on a filter row, what a click does", () => 
   assert.equal(nameTipText("sympoies/symphony-board", { selectable: false, selected: false }), "sympoies/symphony-board");
   assert.equal(nameTipText("commented", { selectable: true, selected: false }), "commented · click to filter");
   assert.equal(nameTipText("commented", { selectable: true, selected: true }), "commented · click to clear the filter");
-});
-
-test("rankMoreLabel offers every row, or the cap when there are more", () => {
-  assert.equal(rankMoreLabel(37, 50), "Show all 37");
-  assert.equal(rankMoreLabel(50, 50), "Show all 50");
-  assert.equal(rankMoreLabel(817, 50), "Show top 50 of 817");
 });

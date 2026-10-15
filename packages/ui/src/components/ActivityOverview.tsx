@@ -1,3 +1,4 @@
+import { useRankedRows } from "./RankMore.tsx";
 import { EntityLink, SelectableEntityRow } from "./ExternalLink.tsx";
 import type { ActivityDTO, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
 import { memo, useMemo, useState, type CSSProperties, type ReactNode, type Ref } from "react";
@@ -231,7 +232,7 @@ const BusiestItems = memo(function BusiestItems({
   onSelect: (activity: ActivityDTO) => void;
 }) {
   const all = useMemo(() => busiestItems(activities, 0), [activities]);
-  const rows = all.slice(0, COMMITS_PANES_RANK_LIMIT);
+  const { rows, more } = useRankedRows(all, COMMITS_PANES_RANK_LIMIT);
   return (
     <div className="rail-block pane-fill pane-span activity-busiest">
       <div className="rail-block-head">
@@ -255,6 +256,7 @@ const BusiestItems = memo(function BusiestItems({
           ))}
         </ol>
       )}
+      {more}
     </div>
   );
 });

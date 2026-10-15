@@ -19,7 +19,7 @@ import {
   type ActorIndex,
 } from "../rail-stats.ts";
 import { displayKind, pluralize, relativeTime, type TimeRange } from "../model.ts";
-import { rankMoreLabel } from "../rank-scale.ts";
+import { RankMore } from "./RankMore.tsx";
 import { COMMITS_PANES_AUTHOR_LIMIT, COMMITS_PANES_KIND_LIMIT, COMMITS_PANES_RANK_LIMIT, RAIL_RANK_LIMIT_ROWS, type CommitsPanes } from "../layout-tier.ts";
 import type { ActivityFacets } from "../nav.ts";
 
@@ -59,14 +59,6 @@ export function ActivityPanesRail({
   facets: ActivityFacets;
   onFacet?: (dim: "repos" | "kinds" | "actions", value: string) => void;
 }) {
-  // The wide tier's lists scroll inside their pane, so they hold everything
-  // worth scrolling to; the laptop tier's column scrolls as a whole, so each
-  // list stops at a sidebar's row count.
-  //
-  // A list cut there ends in a control that opens it in place, up to the wide
-  // tier's own limit: WHERE of a busy week is 37 repositories, and eight of them
-  // with no way to the rest read as all there was. The column already scrolls,
-  // so the opened list only moves the panes under it down.
   const wide = panes === "wide";
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const toggleOpened = (key: string) =>
@@ -75,12 +67,14 @@ export function ActivityPanesRail({
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  const stackLimit = (key: string) => (opened.has(key) ? COMMITS_PANES_RANK_LIMIT : RAIL_RANK_LIMIT_ROWS);
+  const collapsedLimit = (key: string) => !wide ? RAIL_RANK_LIMIT_ROWS
+    : key === "who" ? COMMITS_PANES_AUTHOR_LIMIT
+    : key === "what" || key === "how" ? COMMITS_PANES_KIND_LIMIT : COMMITS_PANES_RANK_LIMIT;
   const more = (key: string, total: number) =>
-    wide ? null : <RankMore total={total} open={opened.has(key)} onToggle={() => toggleOpened(key)} />;
-  const listLimit = (key: string) => (wide ? COMMITS_PANES_RANK_LIMIT : stackLimit(key));
-  const whoLimit = wide ? COMMITS_PANES_AUTHOR_LIMIT : stackLimit("who");
-  const kindLimit = (key: string) => (wide ? COMMITS_PANES_KIND_LIMIT : stackLimit(key));
+    <RankMore total={total} limit={collapsedLimit(key)} open={opened.has(key)} onToggle={() => toggleOpened(key)} />;
+  const listLimit = (key: string) => opened.has(key) ? Infinity : collapsedLimit(key);
+  const whoLimit = listLimit("who");
+  const kindLimit = listLimit;
   const total = activities.length;
 
   const people = useMemo(() => rankActors(activities, 0, actorIndex), [activities, actorIndex]);
@@ -286,16 +280,5 @@ function FacetBlock({
       />
       {more}
     </div>
-  );
-}
-
-// The control under a stack-tier list that is cut at its row limit. Nothing
-// when every row is already shown.
-function RankMore({ total, open, onToggle }: { total: number; open: boolean; onToggle: () => void }) {
-  if (total <= RAIL_RANK_LIMIT_ROWS) return null;
-  return (
-    <button type="button" className="rank-more" aria-expanded={open} onClick={onToggle}>
-      {open ? "Show fewer" : rankMoreLabel(total, COMMITS_PANES_RANK_LIMIT)}
-    </button>
   );
 }

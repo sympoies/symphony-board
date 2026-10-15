@@ -62,8 +62,3 @@ export function nameTipText(label: string, { selectable, selected }: { selectabl
   if (!selectable) return label;
   return `${label} · ${selected ? "click to clear the filter" : "click to filter"}`;
 }
-
-// The control under a list cut at its row limit, which expands it up to `cap`.
-export function rankMoreLabel(total: number, cap: number): string {
-  return total > cap ? `Show top ${cap} of ${total.toLocaleString("en-US")}` : `Show all ${total}`;
-}
