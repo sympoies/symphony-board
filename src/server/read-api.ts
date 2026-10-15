@@ -9,6 +9,7 @@ import { handleActionableRequest } from "./actionable.ts";
 import { handleGraphNeighborhoodRequest } from "./graph-neighborhood.ts";
 import { handleActivityDailyRequest } from "./activity-daily.ts";
 import { handleCapabilitiesRequest, type CapabilitiesOptions } from "./capabilities.ts";
+import { handleIngestFreshnessRequest } from "./ingest-freshness.ts";
 import { sendJson } from "./http.ts";
 
 type ReadHandler = (cfg: AppConfig, url: URL, res: ServerResponse, req: IncomingMessage) => Promise<void>;
@@ -47,8 +48,9 @@ export async function handleReadApiRequest(
     await handleCapabilitiesRequest(opts.capabilities(), res);
     return true;
   }
+  const freshness = url.pathname === "/api/ingest-freshness";
   const handler = Object.hasOwn(STORE_ROUTES, url.pathname) ? STORE_ROUTES[url.pathname] : undefined;
-  if (!handler) return false;
+  if (!handler && !freshness) return false;
   let cfg: AppConfig;
   try {
     cfg = opts.freshConfig();
@@ -56,6 +58,21 @@ export async function handleReadApiRequest(
     sendJson(res, 500, { error: "config_error", message: err instanceof Error ? err.message : String(err) });
     return true;
   }
-  await handler(cfg, url, res, req);
+  if (freshness) {
+    const caps = opts.capabilities();
+    await handleIngestFreshnessRequest(
+      {
+        liveReadBaseUrl: caps.liveReadBaseUrl,
+        allowlistProjects: caps.allowlistProjects,
+        fetchImpl: caps.fetchImpl,
+        liveProbeTimeoutMs: caps.liveProbeTimeoutMs,
+      },
+      cfg,
+      url,
+      res,
+    );
+    return true;
+  }
+  await handler!(cfg, url, res, req);
   return true;
 }

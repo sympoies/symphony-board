@@ -930,6 +930,29 @@ public/tailnet boundary does not depend on out-of-repo proxy config alone:
   and a connection cap to bound an unauthenticated POST flood, and the SSE
   broadcaster evicts a subscriber whose buffer backs up past a cap (so one slow
   reader cannot grow receiver memory without bound).
+- **Ingestion freshness:** the reads listener also serves
+  `GET /api/live-status`. It returns raw, in-memory webhook stats: the last
+  accepted and rejected delivery instants, the last rejected status and its
+  class, and counts over a rolling one-hour window. It also returns the store's
+  newest `received_at`, the receiver's `started_at`, and the `sources` its
+  webhook routes are wired to; the stats reset when the receiver restarts. A
+  non-2xx response counts as a rejected delivery only when the request carried
+  the provider's delivery id. That header is caller-controlled and checked
+  before the signature, so rejection counts are diagnostics only. The receiver cannot see the canonical store,
+  so the lag comparison lives in the read-only API: `GET /api/ingest-freshness`
+  measures how far the sync loop's newest polled GitHub activity runs ahead of
+  Live's newest ingest. That activity is restricted to the receiver's declared
+  `sources` (github.com when an older receiver declares none) and to the Live
+  allowlist. The
+  sync loop keeps polling when webhooks fail, so lag grows only while there is
+  activity Live missed, and quiet hours stay healthy. The route always returns
+  the raw values. With `?max_lag_seconds=<n>` it adds a verdict and answers
+  `503` when Live is unreachable or the lag exceeds `n`. When the lag is
+  exceeded and the window holds only rejected deliveries, it also reports
+  `only_rejected_deliveries` as the likely cause. Rejections never decide
+  health on their own, because unauthenticated requests can fabricate them. A
+  status-code-only monitor can therefore probe the route while the threshold
+  stays with the deployment.
 - **Read-side setup diagnostics:** `GET /api/capabilities` is served by the
   read-only API/app-server surface the UI already uses. In Docker it may probe
   the internal Live reads listener (`http://live:8090`) and return current
