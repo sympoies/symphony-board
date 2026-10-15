@@ -110,3 +110,70 @@ test("transport failures do not trigger the half-size retry", async () => {
   assert.equal(result.complete, false);
   assert.ok(calls.filter(isPrPage).every((c) => c.variables.first === 50));
 });
+
+// Serves `total` pull requests in pages of the requested size, keyed by an
+// offset cursor, so a test can check coverage across a page-size change.
+function prPages(total: number, c: Call): Response {
+  const offset = c.variables.cursor === null ? 0 : Number(c.variables.cursor);
+  const size = Number(c.variables.first);
+  const end = Math.min(total, offset + size);
+  const ids = Array.from({ length: end - offset }, (_, i) => `PR_${offset + i}`);
+  return page("pullRequests", ids, end < total ? String(end) : null);
+}
+
+test("a half-size retry keeps the full sweep's record coverage", async () => {
+  mockFetch((c) => {
+    if (!isPrPage(c)) return page("issues", ["ISSUE_1"]);
+    if (c.variables.first === 50 && c.variables.cursor === null) return truncated();
+    return prPages(1500, c);
+  });
+  const result = await source().fetch({ full: true, since: null });
+  assert.equal(result.records.filter((r) => r.entityKind === "change_request").length, 1500);
+  assert.equal(result.complete, true);
+});
+
+test("a full sweep that stops at its record cap with more pages left is partial", async () => {
+  mockFetch((c) => (isPrPage(c) ? prPages(2001, c) : page("issues", ["ISSUE_1"])));
+  const result = await source().fetch({ full: true, since: null });
+  assert.equal(result.complete, false, "unseen older pull requests must not be tombstoned");
+  assert.match(result.error ?? "", /change_request/);
+});
+
+test("non-JSON and gateway retries share one three-attempt budget", async () => {
+  const replies = [() => truncated(), () => new Response("bad gateway", { status: 502 }), () => new Response("bad gateway", { status: 502 }),
+    () => new Response(JSON.stringify({ data: { viewer: { login: "x" } } }))];
+  let attempts = 0;
+  mockFetch(() => replies[attempts++]!());
+  const gql = makeGqlClient("https://api.github.com/graphql", "fixture-token");
+  await assert.rejects(() => gql("query { viewer { login } }"), /GraphQL HTTP 502/);
+  assert.equal(attempts, 3);
+});
+
+test("a recovered mixed transient sequence stays within three attempts", async () => {
+  const replies = [() => new Response("bad gateway", { status: 502 }), () => truncated(),
+    () => new Response(JSON.stringify({ data: { viewer: { login: "x" } } }))];
+  let attempts = 0;
+  mockFetch(() => replies[attempts++]!());
+  const gql = makeGqlClient("https://api.github.com/graphql", "fixture-token");
+  assert.deepEqual(await gql("query { viewer { login } }"), { viewer: { login: "x" } });
+  assert.equal(attempts, 3);
+});
+
+test("a longer delay override does not add retry attempts", async () => {
+  process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS = "0,0,0,0";
+  assert.equal(githubTransientRetryDelaysMs().length, DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS.length);
+  let attempts = 0;
+  mockFetch(() => { attempts++; return new Response("unavailable", { status: 503 }); });
+  const gql = makeGqlClient("https://api.github.com/graphql", "fixture-token");
+  await assert.rejects(() => gql("query { viewer { login } }"), /GraphQL HTTP 503/);
+  assert.equal(attempts, 3);
+});
+
+for (const status of [401, 429]) {
+  test(`a non-JSON ${status} does not trigger the half-size retry`, async () => {
+    const calls = mockFetch((c) => (isPrPage(c) ? new Response("<html>denied", { status }) : page("issues", ["ISSUE_1"])));
+    const result = await source().fetch({ full: true, since: null });
+    assert.equal(result.complete, false);
+    assert.ok(calls.filter(isPrPage).every((c) => c.variables.first === 50));
+  });
+}

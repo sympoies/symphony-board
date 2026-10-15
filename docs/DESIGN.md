@@ -295,18 +295,22 @@ sweeps so disappearance handling still occurs.
 
 GitHub read requests use one bounded retry budget for network-level fetch
 rejections and HTTP 502/503/504 responses: two retries after 2 and 6 s
-(`SYNC_TRANSIENT_RETRY_DELAYS_MS` overrides the delays), with at most three
-attempts per request. GitHub GraphQL also gives a 2xx whose body is not JSON
-(an error page or a truncated body) the same bounded retry: that and a gateway
+(`SYNC_TRANSIENT_RETRY_DELAYS_MS` overrides the delays but never adds retries),
+with at most three attempts per request. GitHub GraphQL also gives a 2xx whose
+body is not JSON (an error page or a truncated body) a retry from the same
+three-attempt budget, shared with gateway statuses: that and a gateway
 status are GitHub's symptoms of a query that timed out server-side, which an
 immediate retry usually repeats. This applies to full and incremental sweeps and
 repeats the failed request rather than restarting project pagination. In a full
 sweep, an issue or pull-request page that still fails with one of those
 heavy-query symptoms is retried once from the same cursor at half the page size,
-and the rest of that repository continues at the smaller size. Exhaustion still
-makes coverage partial; successful sibling records remain available. Request
-timeouts, rate limits and other provider/application errors retain their
-existing behavior, as do GitLab requests.
+and the rest of that repository continues at the smaller size. The sweep's
+reach is bounded by records (2000 per connection), not pages, so the smaller
+size covers the same items; a sweep stopped at that cap with pages left is
+partial. Exhaustion still makes coverage partial; successful sibling records
+remain available. Request timeouts, auth failures, rate limits and other
+provider/application errors retain their existing behavior and never trigger
+the half-size retry, as do GitLab requests.
 
 GitHub pull-request discovery deliberately uses different query shapes for the
 two sweep modes. A full sweep reads the rich paginated PR connection so it can

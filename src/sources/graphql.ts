@@ -26,6 +26,7 @@ import {
   traceAuthSelection,
   type AuthTokenInput,
   type GitHubRateLimitInfo,
+  type TransientRetryBudget,
 } from "./http.ts";
 import { log } from "../log.ts";
 
@@ -55,11 +56,12 @@ export class GqlNonJsonResponseError extends ProviderHttpError {
 }
 
 // True for the GitHub failures a smaller page can avoid: a gateway status or a
-// non-JSON body, both left after the bounded retries. Transport errors and rate
-// limits are not caused by the page size.
+// 2xx non-JSON body, both left after the bounded retries. Transport errors,
+// auth failures and rate limits are not caused by the page size.
 export function isGithubHeavyQueryFailure(err: unknown): boolean {
-  if (err instanceof GqlNonJsonResponseError) return true;
-  return err instanceof ProviderHttpError && !(err instanceof GqlResponseError) && [502, 503, 504].includes(err.status);
+  if (!(err instanceof ProviderHttpError) || err instanceof GqlResponseError) return false;
+  if (err instanceof GqlNonJsonResponseError && err.status >= 200 && err.status < 300) return true;
+  return [502, 503, 504].includes(err.status);
 }
 
 export class GqlResponseError extends ProviderHttpError {
@@ -135,10 +137,11 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
         let res: Response;
         let text: string;
         let json: any;
-        // A GitHub 2xx whose body is not JSON is retried on the same backoff as a
-        // gateway status. A non-JSON gateway status already used that budget in
-        // fetchWithTransientResponseRetry; other providers keep failing fast.
-        for (let bodyRetry = 0; ; bodyRetry++) {
+        // A GitHub 2xx whose body is not JSON is retried on the same backoff and
+        // the same retry budget as a gateway status; other providers keep
+        // failing fast.
+        const retryBudget: TransientRetryBudget = { used: 0 };
+        for (;;) {
           res = await fetchWithTransientResponseRetry(
             url,
             {
@@ -154,6 +157,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
             provider,
             "GraphQL request",
             onRequest,
+            retryBudget,
           );
           text = await res.text();
           try {
@@ -161,6 +165,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
             break;
           } catch {
             const delays = provider === "github" && res.ok ? githubTransientRetryDelaysMs() : [];
+            const bodyRetry = retryBudget.used;
             const delayMs = delays[bodyRetry];
             if (delayMs === undefined) {
               recordAuthAttemptDone(tokens, idx, selection, provider === "github" ? githubRateBudgetFromHeaders(res.headers) : null);
@@ -172,6 +177,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
               `[source] GraphQL request HTTP ${res.status} non-JSON body; retrying in ${delayMs}ms ` +
               `(${bodyRetry + 2}/${delays.length + 1})`,
             );
+            retryBudget.used++;
             await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
           }
         }

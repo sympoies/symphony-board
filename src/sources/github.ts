@@ -33,6 +33,8 @@ import { log } from "../log.ts";
 const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40; // safety cap (~2000 items/connection)
+// The full sweep bounds coverage by records, so a page-size drop keeps its reach.
+const MAX_ITEMS = MAX_PAGES * PAGE_SIZE;
 const MAX_REVIEW_THREAD_PAGES = 40; // safety cap (~4000 threads/PR)
 // Safety cap for paginated REST activity surfaces (per_page=100 -> 2000 records
 // per surface per project). Sized so a fresh-DB full sweep can cover a year of
@@ -348,7 +350,8 @@ export class GitHubSource implements Source {
           }
           let cursor: string | null = null;
           let pageSize = PAGE_SIZE;
-          for (let page = 0; page < MAX_PAGES; page++) {
+          let fetched = 0;
+          for (;;) {
             let data: any;
             try {
               data = await gql(kind === "issue" ? ISSUE_Q : PR_Q, { owner, name, cursor, first: pageSize });
@@ -392,7 +395,13 @@ export class GitHubSource implements Source {
                 contentHash: hash(payload),
               });
             }
+            fetched += conn.nodes.length;
             if (stop || !conn.pageInfo.hasNextPage) break;
+            // Stopping at the cap with pages left must leave the sweep partial,
+            // so the unseen older items are not tombstoned.
+            if (fetched >= MAX_ITEMS || conn.nodes.length === 0) {
+              throw new Error(`stopped after ${fetched} records with more pages left (cap ${MAX_ITEMS})`);
+            }
             cursor = conn.pageInfo.endCursor;
           }
         } catch (err) {
