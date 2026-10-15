@@ -34,7 +34,9 @@ const API_VERSION = "github.graphql.v4";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 40; // safety cap (~2000 items/connection)
 // The full sweep bounds coverage by records, so a page-size drop keeps its reach.
-const MAX_ITEMS = MAX_PAGES * PAGE_SIZE;
+// A sweep stopped here with pages left is partial, so keep it above the largest
+// tracked repository (one is near 2000 pull requests).
+const MAX_ITEMS = 4000;
 const MAX_REVIEW_THREAD_PAGES = 40; // safety cap (~4000 threads/PR)
 // Safety cap for paginated REST activity surfaces (per_page=100 -> 2000 records
 // per surface per project). Sized so a fresh-DB full sweep can cover a year of

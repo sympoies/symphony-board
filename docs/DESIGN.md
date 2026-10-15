@@ -305,7 +305,7 @@ repeats the failed request rather than restarting project pagination. In a full
 sweep, an issue or pull-request page that still fails with one of those
 heavy-query symptoms is retried once from the same cursor at half the page size,
 and the rest of that repository continues at the smaller size. The sweep's
-reach is bounded by records (2000 per connection), not pages, so the smaller
+reach is bounded by records (4000 per connection), not pages, so the smaller
 size covers the same items; a sweep stopped at that cap with pages left is
 partial. Exhaustion still makes coverage partial; successful sibling records
 remain available. Request timeouts, auth failures, rate limits and other

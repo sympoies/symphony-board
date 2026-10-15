@@ -132,8 +132,15 @@ test("a half-size retry keeps the full sweep's record coverage", async () => {
   assert.equal(result.complete, true);
 });
 
-test("a full sweep that stops at its record cap with more pages left is partial", async () => {
+test("a full sweep reaches a repository with more than 2000 pull requests", async () => {
   mockFetch((c) => (isPrPage(c) ? prPages(2001, c) : page("issues", ["ISSUE_1"])));
+  const result = await source().fetch({ full: true, since: null });
+  assert.equal(result.records.filter((r) => r.entityKind === "change_request").length, 2001);
+  assert.equal(result.complete, true);
+});
+
+test("a full sweep that stops at its record cap with more pages left is partial", async () => {
+  mockFetch((c) => (isPrPage(c) ? prPages(4001, c) : page("issues", ["ISSUE_1"])));
   const result = await source().fetch({ full: true, since: null });
   assert.equal(result.complete, false, "unseen older pull requests must not be tombstoned");
   assert.match(result.error ?? "", /change_request/);
