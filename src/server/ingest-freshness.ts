@@ -17,9 +17,9 @@ import type { AppConfig } from "../config.ts";
 import type { RepoActivityBoundsRow } from "../db/store.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
 import { sendJson } from "./http.ts";
+import { GITHUB_SOURCE_ID } from "../live/github.ts";
 
 const MAX_LAG_SECONDS_LIMIT = 7 * 24 * 3600;
-const GITHUB_SOURCE_PREFIX = "github:";
 
 export interface LiveStatusBody {
   schema: string;
@@ -30,6 +30,8 @@ export interface LiveStatusBody {
     rejected_in_window?: number;
   };
   latest_event_received_at?: string | null;
+  // Source ids the receiver's webhook routes are wired to.
+  sources?: string[];
 }
 
 export type IngestUnhealthyReason = "live_unreachable" | "lag_exceeded" | "only_rejected_deliveries";
@@ -79,9 +81,14 @@ export function evaluateIngestFreshness(input: {
   maxLagSeconds: number | null;
 }): IngestFreshnessEvaluation {
   const allow = new Set((input.allowlistProjects ?? []).filter(Boolean));
+  // Compare only activity Live can ingest: the sources its routes are wired
+  // to (github.com when an older receiver does not declare them).
+  const sources = new Set(
+    Array.isArray(input.live?.sources) && input.live.sources.length > 0 ? input.live.sources : [GITHUB_SOURCE_ID],
+  );
   const syncLatest = latest(
     input.activity
-      .filter((r) => r.source_id.startsWith(GITHUB_SOURCE_PREFIX))
+      .filter((r) => sources.has(r.source_id))
       .filter((r) => allow.size === 0 || (r.project_path !== null && allow.has(r.project_path)))
       .map((r) => r.last_activity_at),
   );
@@ -102,10 +109,14 @@ export function evaluateIngestFreshness(input: {
   if (input.maxLagSeconds !== null) {
     if (!input.live) reasons.push("live_unreachable");
     else {
-      if (lagSeconds !== null && lagSeconds > input.maxLagSeconds) reasons.push("lag_exceeded");
-      const w = input.live.webhooks ?? {};
-      if ((w.rejected_in_window ?? 0) > 0 && (w.accepted_in_window ?? 0) === 0) {
-        reasons.push("only_rejected_deliveries");
+      if (lagSeconds !== null && lagSeconds > input.maxLagSeconds) {
+        reasons.push("lag_exceeded");
+        // Rejections are counted before signature verification, so anyone can
+        // fabricate them. They only explain an exceeded lag, never decide it.
+        const w = input.live.webhooks ?? {};
+        if ((w.rejected_in_window ?? 0) > 0 && (w.accepted_in_window ?? 0) === 0) {
+          reasons.push("only_rejected_deliveries");
+        }
       }
     }
   }

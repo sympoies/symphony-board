@@ -337,6 +337,7 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
       window_seconds: WEBHOOK_STATS_WINDOW_SECONDS,
       webhooks: webhookStats.snapshot(),
       latest_event_received_at: store.recent(1)[0]?.received_at ?? null,
+      sources: [...new Set(opts.routes.map((r) => r.sourceId))],
     });
   }
 

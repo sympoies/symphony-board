@@ -89,6 +89,7 @@ test("live-status reports accepted and rejected deliveries with a rolling window
       rejected_in_window: 0,
     });
     assert.equal(empty.body.latest_event_received_at, null);
+    assert.deepEqual(empty.body.sources, [GITHUB_SOURCE_ID]);
 
     assert.equal(await post(hook, { delivery: "d-1" }), 202);
     nowMs += 60_000;

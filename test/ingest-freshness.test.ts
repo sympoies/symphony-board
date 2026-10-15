@@ -22,6 +22,7 @@ function liveStatus(o: {
   accepted?: number;
   rejected?: number;
   started?: string;
+  sources?: string[];
 }) {
   return {
     schema: "live-status/1",
@@ -37,6 +38,7 @@ function liveStatus(o: {
       rejected_in_window: o.rejected ?? 0,
     },
     latest_event_received_at: o.latestEvent ?? null,
+    sources: o.sources ?? ["github:github.com"],
   };
 }
 
@@ -94,19 +96,89 @@ test("non-GitHub sources and repos outside the allowlist do not count as activit
   assert.equal(r.healthy, true);
 });
 
-test("an hour with only rejected deliveries is unhealthy; mixed is not", () => {
-  const onlyRejected = evaluateIngestFreshness({
+// Rejections are counted before signature verification, so a caller can
+// fabricate them. They may explain a lag but must never decide health alone.
+test("rejected deliveries alone never decide health", () => {
+  const zeroLag = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(5), rejected: 3 }),
+    activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
+    maxLagSeconds: 1800,
+  });
+  assert.equal(zeroLag.lag_seconds, 0);
+  assert.deepEqual(zeroLag.unhealthy_reasons, []);
+  assert.equal(zeroLag.healthy, true);
+
+  const belowThreshold = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(15), rejected: 3 }),
+    activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
+    maxLagSeconds: 1800,
+  });
+  assert.equal(belowThreshold.lag_seconds, 600);
+  assert.deepEqual(belowThreshold.unhealthy_reasons, []);
+  assert.equal(belowThreshold.healthy, true);
+
+  const noActivity = evaluateIngestFreshness({
     live: liveStatus({ latestEvent: minutesAgo(5), rejected: 3 }),
     activity: [],
     maxLagSeconds: 1800,
   });
-  assert.deepEqual(onlyRejected.unhealthy_reasons, ["only_rejected_deliveries"]);
-  const mixed = evaluateIngestFreshness({
-    live: liveStatus({ latestEvent: minutesAgo(5), rejected: 3, accepted: 1 }),
-    activity: [],
+  assert.equal(noActivity.healthy, true);
+});
+
+test("only-rejected deliveries are reported as the cause of an exceeded lag", () => {
+  const stale = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(60), rejected: 3 }),
+    activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
     maxLagSeconds: 1800,
   });
-  assert.deepEqual(mixed.unhealthy_reasons, []);
+  assert.deepEqual(stale.unhealthy_reasons, ["lag_exceeded", "only_rejected_deliveries"]);
+  const mixed = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(60), rejected: 3, accepted: 1 }),
+    activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
+    maxLagSeconds: 1800,
+  });
+  assert.deepEqual(mixed.unhealthy_reasons, ["lag_exceeded"]);
+});
+
+// Only sources the receiver is wired to can be ingested, so only they count.
+test("activity from sources Live does not receive is ignored", () => {
+  const r = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: "2026-10-15T07:00:00.000Z" }),
+    activity: bounds([
+      ["github:github.com", "example/repo", "2026-10-15T07:00:00.000Z"],
+      ["github:ghe.example.com", "example/repo", "2026-10-15T08:00:00.000Z"],
+    ]),
+    allowlistProjects: ["example/repo"],
+    maxLagSeconds: 1800,
+  });
+  assert.equal(r.sync_latest_activity_at, "2026-10-15T07:00:00.000Z");
+  assert.equal(r.lag_seconds, 0);
+  assert.equal(r.healthy, true);
+
+  const declared = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: "2026-10-15T07:00:00.000Z", sources: ["github:ghe.example.com"] }),
+    activity: bounds([
+      ["github:github.com", "example/repo", "2026-10-15T07:30:00.000Z"],
+      ["github:ghe.example.com", "example/repo", "2026-10-15T08:00:00.000Z"],
+    ]),
+    maxLagSeconds: 1800,
+  });
+  assert.equal(declared.sync_latest_activity_at, "2026-10-15T08:00:00.000Z");
+  assert.deepEqual(declared.unhealthy_reasons, ["lag_exceeded"]);
+});
+
+test("a Live status without declared sources falls back to github.com", () => {
+  const legacy = { ...liveStatus({ latestEvent: "2026-10-15T07:00:00.000Z" }) } as Record<string, unknown>;
+  delete legacy.sources;
+  const r = evaluateIngestFreshness({
+    live: legacy as unknown as ReturnType<typeof liveStatus>,
+    activity: bounds([
+      ["github:github.com", "example/repo", "2026-10-15T07:00:00.000Z"],
+      ["github:ghe.example.com", "example/repo", "2026-10-15T08:00:00.000Z"],
+    ]),
+    maxLagSeconds: 1800,
+  });
+  assert.equal(r.lag_seconds, 0);
 });
 
 test("unreachable Live is unhealthy; no threshold means no verdict", () => {
