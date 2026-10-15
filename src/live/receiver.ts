@@ -12,8 +12,9 @@
 //     surface — deployment-owned public ingress targets this listener's loopback
 //     port directly, so even exposing the whole listener port cannot reach the
 //     event stream, and no path rewrite is needed.
-//   - readServer: GET /api/live (SSE) + /api/live-snapshot (+ /healthz). The
-//     private reads, proxied by the web sidecar over the compose network.
+//   - readServer: GET /api/live (SSE) + /api/live-snapshot + /api/live-status
+//     (+ /healthz). The private reads, proxied by the web sidecar over the
+//     compose network.
 // Neither listener serves the other's routes (a webhook POST to readServer or an
 // /api/live GET to webhookServer is a 404), so the public/tailnet split is
 // enforced in-app, not only by out-of-repo ingress config.
@@ -36,6 +37,7 @@ import {
   readBodyBytes,
 } from "./http-body.ts";
 import { Broadcaster, DEFAULT_MAX_CONNECTIONS } from "./broadcaster.ts";
+import { WebhookStats, WEBHOOK_STATS_WINDOW_SECONDS } from "./webhook-stats.ts";
 
 export interface ProviderRoute {
   // Path segment under /webhooks (e.g. "github" -> POST /webhooks/github).
@@ -68,6 +70,8 @@ export interface ReceiverOptions {
   headersTimeoutMs?: number;
   maxWebhookConnections?: number;
   actorProfiles?: ActorProfileObserver;
+  // Clock for /api/live-status (ms since epoch); tests inject a fixed clock.
+  now?: () => number;
 }
 
 export interface LiveReceiver {
@@ -109,6 +113,9 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const replayLimit = opts.replayLimit ?? REPLAY_LIMIT;
   const broadcaster = new Broadcaster(maxConnections);
+  const now = opts.now ?? Date.now;
+  const startedAt = new Date(now()).toISOString();
+  const webhookStats = new WebhookStats(now);
 
   async function handleWebhook(
     req: IncomingMessage,
@@ -320,6 +327,19 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
     );
   }
 
+  // Raw ingestion status for an external monitor. Values only; the consumer
+  // decides what is stale.
+  function handleStatus(res: ServerResponse): void {
+    sendJson(res, 200, {
+      schema: "live-status/1",
+      observed_at: new Date(now()).toISOString(),
+      started_at: startedAt,
+      window_seconds: WEBHOOK_STATS_WINDOW_SECONDS,
+      webhooks: webhookStats.snapshot(),
+      latest_event_received_at: store.recent(1)[0]?.received_at ?? null,
+    });
+  }
+
   // Public webhook ingress: POST /webhooks/<provider> (+ /healthz) only. No read
   // routes, so this listener can face public ingress directly. Abuse controls bound
   // an unauthenticated POST flood (per-request + headers timeouts, conn cap).
@@ -336,6 +356,8 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
         sendJson(res, 404, { error: "unknown_provider" });
         return;
       }
+      const providerDelivery = route.provider.deliveryId(req.headers) !== null;
+      res.once("finish", () => webhookStats.record(res.statusCode, providerDelivery));
       void handleWebhook(req, res, route).catch((err: unknown) => {
         log.error(`[live] webhook handler error: ${(err as Error).message}`);
         if (!res.headersSent) sendJson(res, 500, { error: "internal_error" });
@@ -365,6 +387,10 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
     }
     if (method === "GET" && path === "/api/live-snapshot") {
       handleSnapshot(req, res);
+      return;
+    }
+    if (method === "GET" && path === "/api/live-status") {
+      handleStatus(res);
       return;
     }
     sendJson(res, 404, { error: "not_found" });

@@ -319,6 +319,8 @@ fails to load — exactly when it is needed.
 | --- | --- | --- | --- |
 | `/api/capabilities` | GET | read-only `api` sidecar / app server | safe server capability/status document: board read routes, Live read availability, Live snapshot status, optional non-secret webhook setup hint, and allowlist enabled/count |
 | `/api/graph-neighborhood` | GET | read-only `api` sidecar / app server | bounded canonical-history relationship neighborhood for one `ref`; accepts `depth=1..5` (default 1) and `mentions=direct\|all` (default `all`; the UI requests `all`), returns deterministic nodes with hop distance and original directed edges, and reports depth/node/edge limit reasons; `scope=program` returns a tracker's program instead (children, what blocks them, what closes them) in the same shape |
+| `/api/ingest-freshness` | GET | read-only `api` sidecar / app server | Live webhook ingestion compared with the sync loop's newest polled GitHub activity (allowlisted repos): raw `sync_latest_activity_at`, `live_latest_ingest_at`, `lag_seconds`, and the Live status body; `?max_lag_seconds=1..604800` adds `healthy` / `unhealthy_reasons` (`live_unreachable`, `lag_exceeded`, `only_rejected_deliveries`) and answers `503` when unhealthy |
+| `/api/live-status` | GET | Live receiver reads listener (via `web`) | raw webhook ingestion stats: last accepted / rejected delivery time, last rejected status and class, rolling one-hour counts, the store's newest `received_at`, and receiver `started_at` (stats are in-memory and reset on restart) |
 | `/api/stats` | GET | read-only `api` sidecar / app server | store statistics: db + WAL file sizes, per-table row counts, live/tombstoned items and edges with kind/state/type/lifecycle breakdowns, activity bounds, recent `sync_run` history (`?runs=`, default 20) |
 | `/api/review-candidates` | GET | read-only `api` sidecar / app server | review-cleanup discovery over the full canonical store; accepts `repo`, `pr`, `days`, repeated `actor`, `all_actors`, and `limit`, and returns the same candidate array as `pnpm review-candidates --json` |
 | `/api/actionable` | GET | read-only `api` sidecar / app server | open-work discovery over the full canonical store; accepts `repo`, `source`, `limit`, `stale_days`, and `include_unconfigured`, and returns items grouped into actionable buckets |
@@ -332,6 +334,10 @@ needs no bump. It may probe the internal Live reads listener
 `LIVE_WEBHOOK_PUBLIC_URL`, `LIVE_WEBHOOK_PROVIDER`, `LIVE_WEBHOOK_EVENTS`, and
 the count of `LIVE_PROJECT_ALLOWLIST`; it must never return webhook secrets,
 provider tokens, private keys, or raw auth headers.
+
+`/api/live-status` (`live-status/1`) and `/api/ingest-freshness`
+(`ingest-freshness/1`) are operational too: they describe ingestion health,
+never work-item data, and changing them does not bump `contract_version`.
 
 `/api/stats` describes the
 store (sizes, row counts, run history), never the work-item data model, so it
