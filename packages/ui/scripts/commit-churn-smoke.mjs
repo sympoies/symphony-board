@@ -13,7 +13,7 @@ const out = process.env.SYMPHONY_BOARD_LAYOUT_OUT;
 if (out) await mkdir(out, { recursive: true });
 const fixture = JSON.parse(await readFile(join(dist, "contract.json"), "utf8"));
 // Fixed calendar fixture; the route pins the range rather than using the clock.
-const dates = Array.from({ length: 7 }, (_, i) => `2020-01-${String(6 + i).padStart(2, "0")}`);
+const dates = Array.from({ length: 7 }, (_, i) => `2020-01-${String(4 + i).padStart(2, "0")}`);
 fixture.generated_at = `${dates.at(-1)}T23:59:59Z`;
 fixture.generator = "symphony-board (chart fixture)";
 fixture.timezone = "UTC";
@@ -25,7 +25,7 @@ fixture.activities = dates.flatMap((date, index) => [false, true].map(missing =>
   target_kind: null, target_ref: null, target_iid: null, title: "fix: synthetic chart commit",
   url: null, actor: "contributor", occurred_at: `${date}T12:00:00Z`,
   details: { sha: `${index}${missing ? "b" : "a"}`.padEnd(40, "0"),
-    ...(missing ? {} : { additions: (index + 1) * 100, deletions: (index + 1) * 40 }) },
+    ...(missing ? {} : { additions: [10000, 25000, 100000, 30000, 20000, 90000, 100000][index], deletions: (index + 1) * 6000 }) },
   first_seen_at: null, last_seen_at: null,
 })));
 
@@ -113,52 +113,93 @@ try {
   while (!(await evaluate("!!document.querySelector('.activity-page, .commits-page')")) && Date.now() < startupDeadline) await sleep(100);
   await evaluate(`location.hash = '#/commits?from=${dates[0]}&to=${dates.at(-1)}'`);
   console.log(`Browser: ${(await send("Browser.getVersion")).product}`);
-  // Both sides of the stack tier, plus a typical desktop width.
-  for (const width of [1400, 1470, 2479, 2480]) {
-    await send("Emulation.setDeviceMetricsOverride", { width, height: 1080, deviceScaleFactor: 1, mobile: false });
-    const deadline = Date.now() + 10000;
-    while (!(await evaluate("document.querySelectorAll('.churn-col').length === 7")) && Date.now() < deadline) await sleep(100);
-    assert.equal(await evaluate("document.querySelectorAll('.churn-col').length"), 7, await evaluate("document.body.innerText.slice(0, 5000)"));
-    await sleep(150);
-    await evaluate("document.querySelector('.commit-churn').scrollIntoView({block: 'center'})");
-    const g = await evaluate(`(() => {
-      const box = el => { const r = el.getBoundingClientRect(); return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height, center: r.x + r.width / 2 }; };
-      const chart = document.querySelector('.commit-churn');
-      return { tier: chart.closest('[data-panes]').dataset.panes, plot: box(chart.querySelector('.churn-cols')),
-        days: [...chart.querySelectorAll('.churn-col')].map((col, i) => ({
-          col: box(col), tip: col.querySelector('.rail-daybar-tip').textContent,
-          bars: [...col.querySelectorAll('.churn-add, .churn-del')].map(box),
-          partial: col.querySelector('.churn-partial') ? box(col.querySelector('.churn-partial')) : null,
-          axis: box(chart.querySelectorAll('.rail-days-axis > i')[i]),
-          label: chart.querySelectorAll('.rail-days-axis > i')[i].textContent,
-        })) };
-    })()`);
-    for (const index of [0, 3, 6]) {
-      const day = g.days[index].col;
-      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: day.center, y: day.y + day.height / 2 });
-      await sleep(200);
-      const tip = await evaluate(`(() => {
-        const el = document.querySelectorAll('.churn-col')[${index}].querySelector('.rail-daybar-tip');
-        const r = el.getBoundingClientRect();
-        return { opacity: Number(getComputedStyle(el).opacity), x: r.x, right: r.right };
+  // Tall later days overlap the plot-anchored readout in the stack tier.
+  // Cover the native acceptance size and both stack breakpoint boundaries.
+  for (const length of [7, 4]) {
+    const rangeDates = length === 7 ? dates : dates.slice(1, 5);
+    await evaluate(`location.hash = '#/commits?from=${rangeDates[0]}&to=${rangeDates.at(-1)}'`);
+    for (const [width, height] of [[1400, 1080], [1440, 960], [1470, 1080], [2479, 1080], [2480, 1080]]) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+      const deadline = Date.now() + 10000;
+      while (!(await evaluate(`document.querySelectorAll('.churn-col').length === ${length}`)) && Date.now() < deadline) await sleep(100);
+      assert.equal(await evaluate("document.querySelectorAll('.churn-col').length"), length, "range must render every day");
+      await sleep(150);
+      await evaluate("document.querySelector('.commit-churn').scrollIntoView({block: 'center'})");
+      const g = await evaluate(`(() => {
+        const box = el => { const r = el.getBoundingClientRect(); return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height, center: r.x + r.width / 2 }; };
+        const chart = document.querySelector('.commit-churn');
+        return { chart: box(chart), hovers: [], tier: chart.closest('[data-panes]').dataset.panes, plot: box(chart.querySelector('.churn-cols')),
+          days: [...chart.querySelectorAll('.churn-col')].map((col, i) => ({
+            col: box(col), tip: col.querySelector('.rail-daybar-tip').textContent,
+            bars: [...col.querySelectorAll('.churn-add, .churn-del')].map(box),
+            partial: col.querySelector('.churn-partial') ? box(col.querySelector('.churn-partial')) : null,
+            axis: box(chart.querySelectorAll('.rail-days-axis > i')[i]),
+            label: chart.querySelectorAll('.rail-days-axis > i')[i].textContent,
+          })) };
       })()`);
-      assert.equal(tip.opacity, 1, "day tooltip must remain hoverable");
-      if (g.tier === "stack") assert.ok(tip.x >= g.plot.x - 1 && tip.right <= g.plot.right + 1, "stack tooltip must stay within plot");
-    }
-    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
-    await sleep(200);
-    observations.push({ width, ...g });
-    if (out) {
-      const png = await send("Page.captureScreenshot", { format: "png" });
-      await writeFile(join(out, `churn-${width}.png`), Buffer.from(png.data, "base64"));
+      for (const index of new Set([0, 1, Math.floor((length - 1) / 2), length - 1])) {
+        const day = g.days[index].col;
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: day.center, y: day.y + day.height / 2 });
+        await sleep(200);
+        const tip = await evaluate(`(() => {
+          const el = document.querySelectorAll('.churn-col')[${index}].querySelector('.rail-daybar-tip');
+          const r = el.getBoundingClientRect();
+          const probes = [];
+          // Enabling hit testing does not change paint order. Restore the
+          // production pointer behavior before captures and the next hover.
+          const pointerEvents = el.style.pointerEvents;
+          el.style.pointerEvents = 'auto';
+          try {
+            document.querySelectorAll('.churn-add').forEach((bar, barIndex) => {
+              const b = bar.getBoundingClientRect();
+              const left = Math.max(r.left + 2, b.left + 2);
+              const right = Math.min(r.right - 2, b.right - 2);
+              const top = Math.max(r.top + 2, b.top + 2);
+              const bottom = Math.min(r.bottom - 2, b.bottom - 2);
+              if (right <= left || bottom <= top) return;
+              const x = (left + right) / 2, y = (top + bottom) / 2;
+              const hit = document.elementFromPoint(x, y);
+              probes.push({ barIndex, x, y, hit: hit?.className, tooltipOnTop: hit === el || el.contains(hit) });
+            });
+          } finally { el.style.pointerEvents = pointerEvents; }
+          return { index: ${index}, opacity: Number(getComputedStyle(el).opacity), x: r.x, right: r.right, probes };
+        })()`);
+        g.hovers.push(tip);
+        if (out) {
+          const png = await send("Page.captureScreenshot", { format: "png", clip: {
+            x: g.chart.x, y: g.chart.y, width: g.chart.width, height: g.chart.height, scale: 1,
+          } });
+          await writeFile(join(out, `churn-${length}d-${width}-hover-${index}.png`), Buffer.from(png.data, "base64"));
+        }
+        assert.equal(tip.opacity, 1, "day tooltip must remain hoverable");
+        if (g.tier === "stack") assert.ok(tip.x >= g.plot.x - 1 && tip.right <= g.plot.right + 1, "stack tooltip must stay within plot");
+      }
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+      await sleep(200);
+      observations.push({ width, height, rangeDates, ...g });
+      if (out) {
+        const png = await send("Page.captureScreenshot", { format: "png" });
+        await writeFile(join(out, `churn-${length}d-${width}.png`), Buffer.from(png.data, "base64"));
+      }
     }
   }
   for (const g of observations) {
-    console.log(`commit-churn-smoke: ${g.width}px ${g.tier}, seven aligned bar pairs with partial markers`);
+    for (const hover of g.hovers) {
+      // At narrow widths this fixture must exercise a real overlap. Wider
+      // four-day readouts can fit beside the bars; check every overlap present.
+      if (g.tier === "stack" && g.width <= 1470 && hover.index === 0) {
+        assert.ok(hover.probes.some(p => p.barIndex !== hover.index), "tall later bars must exercise tooltip overlap");
+      }
+      for (const probe of hover.probes) {
+        assert.ok(probe.tooltipOnTop,
+          `${g.width}px ${g.rangeDates.length}d hover ${hover.index}: tooltip must paint above day ${probe.barIndex}, hit ${probe.hit}`);
+      }
+    }
+    console.log(`commit-churn-smoke: ${g.width}px ${g.tier}, ${g.rangeDates.length} aligned bar pairs with partial markers and readable hover`);
     for (const [index, day] of g.days.entries()) {
-      assert.match(day.tip, new RegExp(dates[index]), "tooltip must name its own day");
+      assert.match(day.tip, new RegExp(g.rangeDates[index]), "tooltip must name its own day");
       assert.match(day.tip, /1 of 2 commits counted/, "partial stats must retain known counts");
-      assert.equal(day.label, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index]);
+      assert.equal(day.label, (g.rangeDates.length === 7 ? ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"] : ["Sun", "Mon", "Tue", "Wed"])[index]);
       assert.equal(day.bars.length, 2, "each day retains its additions and deletions");
       for (const bar of day.bars) {
         assert.ok(Math.abs(bar.center - day.axis.center) < 1,
