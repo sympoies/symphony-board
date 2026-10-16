@@ -76,12 +76,17 @@ export const CommitChurn = memo(function CommitChurn({ days, range }: { days: re
                 <span className="rail-daybar-tip">
                   {`${weekdayLabel(day.date)} ${day.date} · +${day.additions.toLocaleString("en-US")} -${day.deletions.toLocaleString("en-US")} · ${day.counted.toLocaleString("en-US")} of ${day.commits.toLocaleString("en-US")} commits counted`}
                 </span>
-                {day.additions > 0 ? (
-                  <span className="churn-add" style={{ "--churn-h": `${(day.additions / axisMax) * 50}%` } as CSSProperties} />
-                ) : null}
-                {day.deletions > 0 ? (
-                  <span className="churn-del" style={{ "--churn-h": `${(day.deletions / axisMax) * 50}%` } as CSSProperties} />
-                ) : null}
+                <span className="churn-bars">
+                  {day.additions > 0 ? (
+                    <span className="churn-add" style={{ "--churn-h": `${(day.additions / axisMax) * 50}%` } as CSSProperties} />
+                  ) : null}
+                  {day.deletions > 0 ? (
+                    <span className="churn-del" style={{ "--churn-h": `${(day.deletions / axisMax) * 50}%` } as CSSProperties} />
+                  ) : null}
+                  {day.counted < day.commits ? (
+                    <span className="churn-partial" aria-label="partial line counts" />
+                  ) : null}
+                </span>
               </span>
             ))}
           </div>
