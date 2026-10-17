@@ -304,6 +304,23 @@ export function planSnapshotFold(opts: {
   return { kind: "merge", reset: plan.reset, ingest: plan.ingest, cursor: plan.nextCursor };
 }
 
+// One poll tick's fetch: everything newer than `cursor`, up to the buffer cap.
+// fetchLiveSnapshotResult folds the receiver's byte-capped pages under this
+// `cursor`, so the snapshot's max_seq (where the caller advances to) never
+// outruns the rows actually returned. Exported for the multi-page poll test.
+export function fetchPollSnapshot(
+  serverBaseUrl: string | null,
+  cursor: number,
+  signal: AbortSignal,
+): Promise<LiveSnapshotFetchResult> {
+  return fetchLiveSnapshotResult(
+    serverBaseUrl,
+    LIVE_EVENT_BUFFER_LIMIT,
+    cursor > 0 ? cursor : undefined,
+    { signal },
+  );
+}
+
 // App mounts this hook once at the always-present shell so the event BUFFER
 // survives tab switches (instant, current return to Live). It owns the WHOLE Live
 // lifecycle — availability, seed, stream, and the offline cache — off two gates:
@@ -542,12 +559,7 @@ export function useLive(serverBaseUrl: string | null, enabled = true, active = t
     };
 
     const pollOnce = async (signal: AbortSignal): Promise<void> => {
-      const { snapshot: snap, transientFailure } = await fetchLiveSnapshotResult(
-        serverBaseUrl,
-        LIVE_EVENT_BUFFER_LIMIT,
-        lastSeq.current > 0 ? lastSeq.current : undefined,
-        { signal },
-      );
+      const { snapshot: snap, transientFailure } = await fetchPollSnapshot(serverBaseUrl, lastSeq.current, signal);
       if (cancelled) return;
       if (!snap) {
         applyProbeFailure(transientFailure);

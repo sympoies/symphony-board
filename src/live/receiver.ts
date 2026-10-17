@@ -36,7 +36,7 @@ import {
   DEFAULT_MAX_BODY_BYTES,
   readBodyBytes,
 } from "./http-body.ts";
-import { Broadcaster, DEFAULT_MAX_CONNECTIONS, formatSseFrame } from "./broadcaster.ts";
+import { Broadcaster, DEFAULT_MAX_CONNECTIONS } from "./broadcaster.ts";
 import { WebhookStats, WEBHOOK_STATS_WINDOW_SECONDS } from "./webhook-stats.ts";
 
 export interface ProviderRoute {
@@ -311,9 +311,14 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
     // budget: send the in-order prefix and close. EventSource reconnects with
     // Last-Event-ID = the last frame's id and continues, so nothing is lost and
     // the subscriber buffer is never pushed past its eviction cap mid-replay.
+    // The prefix goes through a transient registered subscriber so it shares the
+    // guarded writer and the response 'error' listener (#852): an async socket
+    // error mid-prefix is logged and evicted, never an unhandled 'error'.
     if (backlog.length < matched) {
-      for (const ev of backlog) res.write(formatSseFrame(ev));
-      res.end();
+      const sub = broadcaster.add(res, cursor);
+      for (const ev of backlog) broadcaster.send(sub, ev);
+      broadcaster.remove(sub.id);
+      if (!res.writableEnded) res.end();
       return;
     }
     // Register BEFORE replaying so an event appended concurrently is never lost

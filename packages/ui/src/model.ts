@@ -3886,6 +3886,10 @@ export interface LiveSnapshot {
   events: LiveEvent[];
   max_seq: number;
   generated_at: string;
+  // Byte-capped page (receiver): more matching rows exist than `events` carries;
+  // `next_before` is the oldest seq returned, to fetch the next-older page.
+  truncated?: boolean;
+  next_before?: number | null;
 }
 
 const diagnosticsTextEncoder = new TextEncoder();

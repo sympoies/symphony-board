@@ -55,7 +55,7 @@ interface Built {
   store: LiveStore;
   webhookServer: Server;
   readServer: Server;
-  broadcaster: { closeAll(): void };
+  broadcaster: { closeAll(): void; readonly size: number };
 }
 function build(
   opts: {
@@ -1020,7 +1020,12 @@ test("SSE replay larger than the byte budget sends a prefix and closes so the cl
     // Each byte-cut replay ends the response (text() resolves) with a bounded
     // in-order prefix, not a gap reset; the client resumes from the last id.
     for (let round = 0; round < 2; round++) {
-      const res = await fetch(`${read}/api/live?since=${cursor}`, { signal: AbortSignal.timeout(3000) });
+      // Reconnect the way EventSource does: the ORIGINAL stale ?since URL plus the
+      // Last-Event-ID header, which must win over the query cursor.
+      const res = await fetch(`${read}/api/live?since=0`, {
+        headers: cursor > 0 ? { "last-event-id": String(cursor) } : {},
+        signal: AbortSignal.timeout(3000),
+      });
       const frames = (await res.text()).split("\n\n").filter(Boolean);
       assert.ok(!frames.some((f) => f.includes("event: reset")), "a byte-cut replay is not a gap reset");
       const seqs = dataSeqs(frames);
@@ -1039,6 +1044,39 @@ test("SSE replay larger than the byte budget sends a prefix and closes so the cl
       sse.destroy();
     }
     assert.deepEqual(seen, [1, 2, 3, 4, 5], "lossless, in order, across reconnects");
+  } finally {
+    await stop(b);
+  }
+});
+
+test("a response error during a byte-cut SSE replay is logged and evicted, not unhandled (#851)", async () => {
+  const b = build({ replayMaxBytes: 25_000 });
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 5, 10_000);
+    let listeners = -1;
+    let escaped: unknown = null;
+    // The same asynchronous response 'error' a reset socket raises after the
+    // handler returned (ERR_STREAM_WRITE_AFTER_END / ECONNRESET). Without a
+    // registered listener node throws it as an uncaught exception.
+    b.readServer.prependListener("request", (req, res) => {
+      if (!(req.url ?? "").startsWith("/api/live?")) return;
+      setImmediate(() => {
+        listeners = res.listenerCount("error");
+        try {
+          res.emit("error", new Error("socket reset"));
+        } catch (err) {
+          escaped = err;
+        }
+      });
+    });
+    const res = await fetch(`${read}/api/live?since=0`, { signal: AbortSignal.timeout(3000) });
+    const frames = (await res.text()).split("\n\n").filter(Boolean);
+    assert.equal(dataSeqs(frames).length, 2, "the byte-cut prefix was still sent");
+    await until(() => listeners !== -1);
+    assert.equal(escaped, null, "response error did not escape as unhandled");
+    assert.ok(listeners >= 1, "response error listener stays registered");
+    assert.equal(b.broadcaster.size, 0, "transient subscriber is removed");
   } finally {
     await stop(b);
   }

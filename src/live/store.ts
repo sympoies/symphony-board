@@ -31,6 +31,11 @@ export const DEFAULT_SINCE_LIMIT = 1000;
 // Fixed per-row allowance for the small JSON columns (actor, target, title, …)
 // when sizing a bounded page; raw_json and body dominate and are measured.
 const ROW_OVERHEAD_BYTES = 2048;
+// Stored payload bytes of a row, from the record header only: octet_length() on
+// a bare column is answered without reading the value (SQLite's length-arg
+// column optimisation), unlike length(CAST(col AS BLOB)).
+export const ROW_BYTES_EXPR =
+  "COALESCE(octet_length(raw_json), 0) + COALESCE(octet_length(body), 0)";
 
 interface LiveEventRow {
   seq: number;
@@ -414,7 +419,8 @@ export class LiveStore {
   // Memory-bounded page of rows for the snapshot / SSE-replay reads. A row can
   // carry a large raw provider payload (tens of KB), so a count-only limit lets
   // one read materialise tens of MB. This sizes candidate rows from the record
-  // header (CAST to BLOB makes length() O(1), without loading the payload),
+  // header (octet_length() of a bare column reads the record header only, never
+  // the payload; wrapping the column in CAST/expressions would load it),
   // picks the longest prefix of the requested order that fits `maxBytes` (and
   // `limit` rows, and always at least one row so a caller makes progress), and
   // only then loads those rows. `after` / `before` bound seq exclusively.
@@ -441,9 +447,7 @@ export class LiveStore {
     const dir = opts.order === "asc" ? "ASC" : "DESC";
     const sizes = this.#db
       .prepare(
-        `SELECT seq,
-           COALESCE(length(CAST(raw_json AS BLOB)), 0) +
-             COALESCE(length(CAST(body AS BLOB)), 0) AS bytes
+        `SELECT seq, ${ROW_BYTES_EXPR} AS bytes
          FROM live_event ${cond} ORDER BY seq ${dir} LIMIT ?`,
       )
       .all(...params, opts.limit + 1) as unknown as { seq: number; bytes: number }[];

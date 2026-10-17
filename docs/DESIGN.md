@@ -948,10 +948,16 @@ public/tailnet boundary does not depend on out-of-repo proxy config alone:
   `next_before`, the `seq` of its oldest row when more matching rows exist.
   Pages stay newest-first; a client continues with `before=<next_before>` (also
   combinable with `since`), so a capped page is never mistaken for "no more
-  rows". A SSE resume whose backlog fits the row bound but not the replay byte
-  budget (2 MiB) sends the in-order prefix and closes; `EventSource` reconnects
-  with `Last-Event-ID` and continues losslessly. `/api/live-status` reads only
-  the newest `received_at`, never a full row.
+  rows". The UI's snapshot client folds those older pages under the original
+  `since` before the poll cursor advances to `max_seq`, so no row newer than the
+  cursor is skipped (a failed page fails the whole fetch and the next poll
+  retries the same range). Row sizes are read from the record header
+  (`octet_length` of the bare columns), not by loading payloads. A SSE resume
+  whose backlog fits the row bound but not the replay byte budget (2 MiB) sends
+  the in-order prefix through a short-lived registered subscriber (so response
+  errors are handled like any other subscriber's) and closes; `EventSource`
+  reconnects with `Last-Event-ID` and continues losslessly. `/api/live-status`
+  reads only the newest `received_at`, never a full row.
 - **Ingestion freshness:** the reads listener also serves
   `GET /api/live-status`. It returns raw, in-memory webhook stats: the last
   accepted and rejected delivery instants, the last rejected status and its

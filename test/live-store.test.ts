@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { openLiveStore } from "../src/live/store.ts";
+import { ROW_BYTES_EXPR, openLiveStore } from "../src/live/store.ts";
 import {
   LIVE_EVENT_SCHEMA,
   isLiveEvent,
@@ -256,6 +256,33 @@ test("page bounds rows by count and bytes, honours after/before, and always yiel
     assert.equal(openLiveStore(":memory:").latestReceivedAt(), null);
   } finally {
     store.close();
+  }
+});
+
+test("the page size scan reads record headers only, never the payload columns (#851)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-page-size-"));
+  const path = join(dir, "live.db");
+  const store = openLiveStore(path);
+  const probe = new DatabaseSync(path, { readOnly: true });
+  try {
+    appendNew(store, ev(1, { raw: { pad: "é".repeat(5_000) } }));
+    const sql = `SELECT seq, ${ROW_BYTES_EXPR} AS bytes FROM live_event ORDER BY seq DESC LIMIT 2`;
+    // Opcode proof: a bare-column octet_length() compiles to a Column read flagged
+    // length-only (OPFLAG_LENGTHARG | OPFLAG_TYPEOFARG = 0xC0) with no Cast, so
+    // SQLite never loads the overflow pages of the payload. Wrapping the column
+    // in CAST (the first version of this scan) drops the flag and loads it.
+    const ops = probe.prepare(`EXPLAIN ${sql}`).all() as { opcode: string; p2: number; p5: number }[];
+    assert.equal(ops.filter((o) => o.opcode === "Cast").length, 0, "no CAST in the size scan");
+    const columnReads = ops.filter((o) => o.opcode === "Column");
+    assert.equal(columnReads.length, 2, "size scan reads exactly the raw_json and body columns");
+    for (const col of columnReads) assert.equal(col.p5 & 0xc0, 0xc0, "payload column read is length-only");
+    // And it still reports UTF-8 bytes (not characters).
+    const row = probe.prepare(sql).get() as { bytes: number };
+    assert.ok(row.bytes >= 10_000, `utf-8 bytes counted, got ${row.bytes}`);
+  } finally {
+    probe.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
