@@ -1089,18 +1089,18 @@ export interface LiveSnapshotFetchResult {
   transientFailure: boolean;
 }
 
-// Snapshot GET that seeds the Live page and the Tauri polling fallback, returning
-// the snapshot AND why it failed. The browser path streams via EventSource against
+// One snapshot page (see fetchLiveSnapshotResult). The browser path streams via EventSource against
 // ./api/live directly (it cannot go through appFetch); only the snapshot uses this
 // client. The per-attempt timeout is the key cold-start fix: an unbounded request
 // hung for ~a minute on a cold link and left the Live page stuck on "Connecting…";
 // now it aborts and (for the patient one-shot probe) retries on a transient
 // failure instead of stranding.
-export async function fetchLiveSnapshotResult(
-  serverBaseUrl: string | null = loadServerBaseUrl(),
-  limit?: number,
-  sinceSeq?: number,
-  opts: LiveSnapshotFetchOptions = {},
+async function fetchLiveSnapshotPage(
+  serverBaseUrl: string | null,
+  limit: number | undefined,
+  sinceSeq: number | undefined,
+  beforeSeq: number | undefined,
+  opts: LiveSnapshotFetchOptions,
 ): Promise<LiveSnapshotFetchResult> {
   const requestTimeoutMs = opts.requestTimeoutMs ?? liveSnapshotRequestTimeoutMs(currentClientKind());
   const connectTimeoutMs = opts.connectTimeoutMs ?? LIVE_SNAPSHOT_CONNECT_TIMEOUT_MS;
@@ -1115,6 +1115,9 @@ export async function fetchLiveSnapshotResult(
   if (typeof sinceSeq === "number" && Number.isFinite(sinceSeq) && sinceSeq >= 0) {
     params.set("since", String(Math.trunc(sinceSeq)));
   }
+  if (typeof beforeSeq === "number" && Number.isFinite(beforeSeq) && beforeSeq >= 0) {
+    params.set("before", String(Math.trunc(beforeSeq)));
+  }
   const query = params.toString();
   const path = query ? `./api/live-snapshot?${query}` : "./api/live-snapshot";
   const target = resolveEndpoint(path, serverBaseUrl);
@@ -1125,6 +1128,42 @@ export async function fetchLiveSnapshotResult(
     if (opts.signal?.aborted || !transient || attempt >= retries) return { snapshot: null, transientFailure: transient };
     await sleep(Math.min(retryBaseDelayMs * 2 ** attempt, LIVE_SNAPSHOT_RETRY_MAX_MS));
   }
+}
+
+// Snapshot GET that seeds the Live page and the Tauri polling fallback, returning
+// the snapshot AND why it failed. The receiver caps a page by bytes as well as
+// rows, so a page can be `truncated` (with `next_before`, the oldest seq it
+// carried) while newer-than-`sinceSeq` or newest rows remain. The cursor the
+// caller advances to is this snapshot's `max_seq`, so older pages are folded in
+// HERE, under the original `sinceSeq`, until the requested `limit` rows are
+// gathered or the receiver reports the range complete; a page failure fails the
+// whole fetch so the caller's cursor stays put and the next poll retries the
+// same range. Without a `limit` a single page is returned (nothing to fill).
+export async function fetchLiveSnapshotResult(
+  serverBaseUrl: string | null = loadServerBaseUrl(),
+  limit?: number,
+  sinceSeq?: number,
+  opts: LiveSnapshotFetchOptions = {},
+): Promise<LiveSnapshotFetchResult> {
+  const first = await fetchLiveSnapshotPage(serverBaseUrl, limit, sinceSeq, undefined, opts);
+  const head = first.snapshot;
+  if (head === null || typeof limit !== "number" || !(limit > 0)) return first;
+  const events = [...head.events];
+  let page = head;
+  while (page.truncated === true && typeof page.next_before === "number" && events.length < limit) {
+    const before = page.next_before;
+    const next = await fetchLiveSnapshotPage(serverBaseUrl, limit - events.length, sinceSeq, before, opts);
+    if (next.snapshot === null) return next;
+    page = next.snapshot;
+    // Pages are disjoint newest-first slices; a receiver that does not move the
+    // cursor backwards would loop forever, so treat it as the end of the range.
+    if (page.events.length === 0 || page.events.some((ev) => ev.seq >= before)) break;
+    events.push(...page.events);
+  }
+  return {
+    snapshot: { ...head, events, truncated: page.truncated, next_before: page.next_before },
+    transientFailure: false,
+  };
 }
 
 // Snapshot-or-null convenience wrapper for callers that don't need the failure
