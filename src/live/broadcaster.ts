@@ -7,8 +7,13 @@
 // whose outbound socket buffer grows past a cap is evicted rather than buffered
 // unbounded (which would OOM-restart the receiver), and a write that throws
 // evicts only that one subscriber instead of breaking the whole fan-out loop.
+// A write to an ended response does not throw: node emits an async 'error'
+// (ERR_STREAM_WRITE_AFTER_END) that kills the process when unhandled (#851), so
+// ended/destroyed or already-evicted subscribers are never written, and every
+// registered response carries an 'error' listener that logs and evicts.
 // Never imports the canonical store.
 import type { ServerResponse } from "node:http";
+import { log } from "../log.ts";
 import type { LiveEvent } from "./types.ts";
 
 export const DEFAULT_MAX_CONNECTIONS = 100;
@@ -80,6 +85,10 @@ export class Broadcaster {
   add(res: ServerResponse, lastSentSeq: number): Subscriber {
     const sub: Subscriber = { id: this.#nextId++, res, lastSentSeq };
     this.#subs.set(sub.id, sub);
+    res.on("error", (err: Error) => {
+      log.warn(`[live] SSE subscriber ${sub.id} response error: ${err.message}`);
+      this.#evict(sub.id);
+    });
     this.#ensureHeartbeat();
     return sub;
   }
@@ -123,11 +132,17 @@ export class Broadcaster {
     this.#stopHeartbeat();
   }
 
-  // Write a chunk to a subscriber, evicting (and returning false) when its
-  // outbound buffer is over the cap or the write throws. Isolates one bad
-  // subscriber from the rest of the fan-out / heartbeat loop.
+  // Write a chunk to a subscriber, evicting (and returning false) when it was
+  // already evicted, its response has ended or been destroyed, its outbound
+  // buffer is over the cap, or the write throws. Isolates one bad subscriber
+  // from the rest of the fan-out / heartbeat / replay loop.
   #writeOrEvict(sub: Subscriber, chunk: string): boolean {
-    if (sub.res.writableLength > this.#maxBufferBytes) {
+    if (this.#subs.get(sub.id) !== sub) return false;
+    if (
+      sub.res.writableEnded ||
+      sub.res.destroyed ||
+      sub.res.writableLength > this.#maxBufferBytes
+    ) {
       this.#evict(sub.id);
       return false;
     }
@@ -143,10 +158,12 @@ export class Broadcaster {
   #evict(id: number): void {
     const sub = this.#subs.get(id);
     if (!sub) return;
-    try {
-      sub.res.end();
-    } catch {
-      /* already closed */
+    if (!sub.res.writableEnded) {
+      try {
+        sub.res.end();
+      } catch {
+        /* already closed */
+      }
     }
     this.remove(id);
   }

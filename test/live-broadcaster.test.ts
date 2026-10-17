@@ -1,10 +1,12 @@
 // Unit coverage for the in-process SSE broadcaster: connection cap, seq dedupe
 // across multiple subscribers, the idle heartbeat, closeAll, slow-subscriber
-// backpressure eviction (#313), and per-subscriber write-error isolation (#313).
-// Uses a fake ServerResponse so no socket is bound.
+// backpressure eviction (#313), per-subscriber write-error isolation (#313), and
+// write-after-end safety (#851). Uses a fake ServerResponse so no socket is bound.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ServerResponse } from "node:http";
+import { EventEmitter } from "node:events";
+import { createServer, request, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   Broadcaster,
   MAX_SUBSCRIBER_BUFFER_BYTES,
@@ -13,12 +15,26 @@ import {
 } from "../src/live/broadcaster.ts";
 import { LIVE_EVENT_SCHEMA, type LiveEvent } from "../src/live/types.ts";
 
-class FakeRes {
+// Mirrors node:http's ServerResponse where it matters: a write after end() does
+// not throw, it emits ERR_STREAM_WRITE_AFTER_END as an async 'error' event, which
+// crashes the process when no listener is attached (#851).
+class FakeRes extends EventEmitter {
   writes: string[] = [];
   ended = false;
+  destroyed = false;
   writableLength = 0;
   throwOnWrite = false;
+  get writableEnded(): boolean {
+    return this.ended;
+  }
   write(chunk: string): boolean {
+    if (this.ended) {
+      const err = Object.assign(new Error("write after end"), {
+        code: "ERR_STREAM_WRITE_AFTER_END",
+      });
+      process.nextTick(() => this.emit("error", err));
+      return false;
+    }
     if (this.throwOnWrite) throw new Error("socket write failed");
     this.writes.push(chunk);
     return true;
@@ -204,4 +220,105 @@ test("the heartbeat evicts a subscriber that has backed up past the cap", async 
   b.add(asRes(slow), 0);
   await until(() => slow.ended);
   assert.equal(b.size, 0, "the heartbeat evicted the stalled subscriber");
+});
+
+// A tick for any async 'error' emitted by a write-after-end to surface; an
+// unhandled one fails the test as an uncaught exception.
+const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+test("send to a subscriber whose response already ended evicts it without writing (#851)", async () => {
+  const b = new Broadcaster();
+  const r = res();
+  const sub = b.add(asRes(r), 0);
+  r.end(); // client gone before the send
+  b.send(sub, event(1));
+  await settle();
+  assert.equal(r.writes.length, 0, "nothing written after end");
+  assert.equal(sub.lastSentSeq, 0, "an unsent event does not advance the cursor");
+  assert.equal(b.size, 0, "the ended subscriber is evicted");
+});
+
+test("send to a destroyed response evicts it without writing (#851)", async () => {
+  const b = new Broadcaster();
+  const r = res();
+  const sub = b.add(asRes(r), 0);
+  r.destroyed = true;
+  b.send(sub, event(1));
+  await settle();
+  assert.equal(r.writes.length, 0);
+  assert.equal(b.size, 0);
+});
+
+test("a subscriber evicted mid-replay is never written again in that replay (#851)", async () => {
+  // handleSse registers then replays its backlog through send(). An eviction
+  // part-way (here: over the buffer cap) ends the response; the remaining replay
+  // sends must not write after end, even once the buffered bytes drain away.
+  const b = new Broadcaster(10, 100);
+  const r = res();
+  const sub = b.add(asRes(r), 0);
+  b.send(sub, event(1));
+  r.writableLength = 1000; // backed up past the cap -> next send evicts
+  b.send(sub, event(2));
+  assert.equal(r.ended, true, "evicted mid-replay");
+  r.writableLength = 0; // buffer flushed/detached after end
+  b.send(sub, event(3));
+  await settle();
+  assert.equal(r.writes.filter((w) => w.includes("event: live")).length, 1);
+  assert.equal(sub.lastSentSeq, 1);
+});
+
+test("a stray response error is handled and evicts the subscriber, not the process (#851)", async () => {
+  const b = new Broadcaster();
+  const r = res();
+  const other = res();
+  b.add(asRes(r), 0);
+  b.add(asRes(other), 0);
+  r.emit("error", new Error("socket hang up"));
+  await settle();
+  assert.equal(r.ended, true, "the erroring subscriber is evicted");
+  assert.equal(b.size, 1, "other subscribers survive");
+});
+
+test("the heartbeat skips and evicts a subscriber whose response ended (#851)", async () => {
+  const b = new Broadcaster(10, MAX_SUBSCRIBER_BUFFER_BYTES, 5);
+  const r = res();
+  b.add(asRes(r), 0);
+  r.end();
+  await until(() => b.size === 0);
+  await settle();
+  assert.equal(r.writes.length, 0);
+});
+
+test("a real ended ServerResponse is evicted, not written after end (#851)", async () => {
+  const b = new Broadcaster();
+  let resolveSent!: () => void;
+  const sent = new Promise<void>((r) => (resolveSent = r));
+  const server = createServer((_req, response) => {
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    const sub = b.add(response, 0);
+    response.end(); // ended before the initial replay send
+    b.send(sub, event(1));
+    b.broadcast(event(2));
+    setImmediate(resolveSent);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const { port } = server.address() as AddressInfo;
+    const body = await new Promise<string>((resolve, reject) => {
+      request({ port, host: "127.0.0.1", path: "/" }, (incoming) => {
+        let data = "";
+        incoming.on("data", (c: Buffer) => (data += c.toString()));
+        incoming.on("end", () => resolve(data));
+      })
+        .on("error", reject)
+        .end();
+    });
+    await sent;
+    await settle();
+    assert.equal(body, "", "no frame written after end");
+    assert.equal(b.size, 0, "the ended subscriber is evicted");
+  } finally {
+    b.closeAll();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
 });
