@@ -62,6 +62,8 @@ function build(
     allowlist?: string[];
     maxBodyBytes?: number;
     replayLimit?: number;
+    snapshotMaxBytes?: number;
+    replayMaxBytes?: number;
     routes?: ProviderRoute[];
     actorProfiles?: { observe(event: LiveEvent, onUpdate?: (event: LiveEvent) => void): void };
   } = {},
@@ -80,6 +82,8 @@ function build(
     projectAllowlist: opts.allowlist,
     maxBodyBytes: opts.maxBodyBytes,
     replayLimit: opts.replayLimit,
+    snapshotMaxBytes: opts.snapshotMaxBytes,
+    replayMaxBytes: opts.replayMaxBytes,
     actorProfiles: opts.actorProfiles,
   });
   return { store, webhookServer, readServer, broadcaster };
@@ -878,5 +882,164 @@ test("the receiver imports no canonical store, token, or config", () => {
     );
     assert.ok(!/_TOKEN/.test(src), `${f} references a provider token`);
     assert.ok(!/loadConfig|sources\.json/.test(src), `${f} loads provider config`);
+  }
+});
+
+// Append `n` rows whose raw payload is ~`rawBytes` bytes each (row i has seq i),
+// straight into the store: the memory-bound reads (#851) are about row weight.
+function seedHeavyRows(store: LiveStore, n: number, rawBytes: number): void {
+  for (let i = 1; i <= n; i++) {
+    store.append({
+      event_id: `heavy-${i}`,
+      source_id: GITHUB_SOURCE_ID,
+      provider: "github",
+      received_at: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+      event_type: "issues",
+      action: "opened",
+      category: "issue",
+      title: `heavy ${i}`,
+      delivery: { delivery_id: `heavy-${i}`, event_header: "issues", signature_status: "verified" },
+      raw: { pad: "x".repeat(rawBytes) },
+    });
+  }
+}
+
+interface SnapshotBody {
+  events: { seq: number }[];
+  max_seq: number;
+  truncated?: boolean;
+  next_before?: number | null;
+}
+
+test("a byte-capped snapshot says it is truncated and pages older rows via next_before (#851)", async () => {
+  const b = build({ snapshotMaxBytes: 25_000 });
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 5, 10_000);
+    const first = (await getJson(read, "/api/live-snapshot?limit=10")).body as SnapshotBody;
+    assert.deepEqual(first.events.map((e) => e.seq), [5, 4], "newest rows within the byte budget");
+    assert.equal(first.truncated, true);
+    assert.equal(first.next_before, 4, "continue strictly older than the oldest returned row");
+    assert.equal(first.max_seq, 5);
+
+    const second = (await getJson(read, "/api/live-snapshot?limit=10&before=4")).body as SnapshotBody;
+    assert.deepEqual(second.events.map((e) => e.seq), [3, 2]);
+    assert.equal(second.truncated, true);
+    assert.equal(second.next_before, 2);
+
+    const last = (await getJson(read, "/api/live-snapshot?limit=10&before=2")).body as SnapshotBody;
+    assert.deepEqual(last.events.map((e) => e.seq), [1]);
+    assert.equal(last.truncated, false);
+    assert.equal(last.next_before, null);
+  } finally {
+    await stop(b);
+  }
+});
+
+test("a byte-capped since delta stays newest-first and signals truncation so a stale cursor cannot loop silently", async () => {
+  const b = build({ snapshotMaxBytes: 25_000 });
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 6, 10_000);
+    const delta = (await getJson(read, "/api/live-snapshot?limit=10&since=1")).body as SnapshotBody;
+    assert.deepEqual(delta.events.map((e) => e.seq), [6, 5]);
+    assert.equal(delta.truncated, true);
+    assert.equal(delta.next_before, 5);
+
+    const older = (await getJson(read, "/api/live-snapshot?limit=10&since=1&before=5")).body as SnapshotBody;
+    assert.deepEqual(older.events.map((e) => e.seq), [4, 3]);
+    assert.equal(older.truncated, true);
+    assert.equal(older.next_before, 3);
+
+    const tail = (await getJson(read, "/api/live-snapshot?limit=10&since=1&before=3")).body as SnapshotBody;
+    assert.deepEqual(tail.events.map((e) => e.seq), [2], "stops at the since cursor");
+    assert.equal(tail.truncated, false);
+  } finally {
+    await stop(b);
+  }
+});
+
+test("a snapshot always returns at least one row even when it alone exceeds the byte budget", async () => {
+  const b = build({ snapshotMaxBytes: 1_000 });
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 3, 10_000);
+    const snap = (await getJson(read, "/api/live-snapshot?limit=10")).body as SnapshotBody;
+    assert.deepEqual(snap.events.map((e) => e.seq), [3], "progress is guaranteed");
+    assert.equal(snap.truncated, true);
+    assert.equal(snap.next_before, 3);
+  } finally {
+    await stop(b);
+  }
+});
+
+test("a snapshot cut by the row limit is also reported truncated; a complete one is not", async () => {
+  const b = build();
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 3, 10);
+    const cut = (await getJson(read, "/api/live-snapshot?limit=2")).body as SnapshotBody;
+    assert.deepEqual(cut.events.map((e) => e.seq), [3, 2]);
+    assert.equal(cut.truncated, true);
+    assert.equal(cut.next_before, 2);
+    const all = (await getJson(read, "/api/live-snapshot?limit=3")).body as SnapshotBody;
+    assert.equal(all.events.length, 3);
+    assert.equal(all.truncated, false);
+    assert.equal(all.next_before, null);
+  } finally {
+    await stop(b);
+  }
+});
+
+test("live-status reads only the newest received_at, never a full row with its raw payload (#851)", async () => {
+  const b = build();
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 2, 10);
+    b.store.recent = () => {
+      throw new Error("live-status must not load full rows");
+    };
+    const { status, body } = await getJson(read, "/api/live-status");
+    assert.equal(status, 200);
+    assert.equal(
+      (body as { latest_event_received_at: string | null }).latest_event_received_at,
+      "2026-01-01T00:00:02.000Z",
+    );
+  } finally {
+    await stop(b);
+  }
+});
+
+test("SSE replay larger than the byte budget sends a prefix and closes so the client resumes by Last-Event-ID (#851)", async () => {
+  const b = build({ replayMaxBytes: 25_000 });
+  const { read } = await start(b);
+  try {
+    seedHeavyRows(b.store, 5, 10_000);
+    const seen: number[] = [];
+    let cursor = 0;
+    // Each byte-cut replay ends the response (text() resolves) with a bounded
+    // in-order prefix, not a gap reset; the client resumes from the last id.
+    for (let round = 0; round < 2; round++) {
+      const res = await fetch(`${read}/api/live?since=${cursor}`, { signal: AbortSignal.timeout(3000) });
+      const frames = (await res.text()).split("\n\n").filter(Boolean);
+      assert.ok(!frames.some((f) => f.includes("event: reset")), "a byte-cut replay is not a gap reset");
+      const seqs = dataSeqs(frames);
+      assert.equal(seqs.length, 2, "prefix bounded by the byte budget");
+      seen.push(...seqs);
+      cursor = seqs[seqs.length - 1]!;
+    }
+    // The remaining backlog fits the budget, so it replays in full and the
+    // stream stays open for live events.
+    const frames: string[] = [];
+    const sse = openSse(read, `/api/live?since=${cursor}`, frames);
+    try {
+      await until(() => dataSeqs(frames).length === 1);
+      seen.push(...dataSeqs(frames));
+    } finally {
+      sse.destroy();
+    }
+    assert.deepEqual(seen, [1, 2, 3, 4, 5], "lossless, in order, across reconnects");
+  } finally {
+    await stop(b);
   }
 });

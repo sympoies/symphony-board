@@ -237,6 +237,28 @@ test("recent returns newest-first, bounded by limit", () => {
   }
 });
 
+test("page bounds rows by count and bytes, honours after/before, and always yields one row (#851)", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    const seqs: number[] = [];
+    for (let i = 1; i <= 6; i++) seqs.push(appendNew(store, ev(i, { raw: { pad: "x".repeat(10_000) } })));
+    const ids = (r: { events: { seq: number }[] }): number[] => r.events.map((e) => e.seq);
+    const big = 1_000_000;
+    assert.deepEqual(ids(store.page({ order: "desc", limit: 3, maxBytes: big })), [6, 5, 4]);
+    assert.equal(store.page({ order: "desc", limit: 3, maxBytes: big }).matched, 4, "matched counts up to limit + 1");
+    assert.deepEqual(ids(store.page({ order: "asc", limit: 10, maxBytes: big, after: 2, before: 5 })), [3, 4]);
+    // ~12 KB per row against a 25 KB budget: two rows, newest-first or oldest-first.
+    assert.deepEqual(ids(store.page({ order: "desc", limit: 10, maxBytes: 25_000 })), [6, 5]);
+    assert.deepEqual(ids(store.page({ order: "asc", limit: 10, maxBytes: 25_000 })), [1, 2]);
+    assert.deepEqual(ids(store.page({ order: "desc", limit: 10, maxBytes: 1 })), [6], "one row even over budget");
+    assert.deepEqual(store.page({ order: "desc", limit: 10, maxBytes: big, after: 6 }), { events: [], matched: 0 });
+    assert.equal(store.latestReceivedAt(), "2026-06-20T08:14:55Z");
+    assert.equal(openLiveStore(":memory:").latestReceivedAt(), null);
+  } finally {
+    store.close();
+  }
+});
+
 test("a fully-populated record round-trips through the JSON columns without loss", () => {
   const store = openLiveStore(":memory:");
   try {

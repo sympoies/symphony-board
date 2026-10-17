@@ -36,7 +36,7 @@ import {
   DEFAULT_MAX_BODY_BYTES,
   readBodyBytes,
 } from "./http-body.ts";
-import { Broadcaster, DEFAULT_MAX_CONNECTIONS } from "./broadcaster.ts";
+import { Broadcaster, DEFAULT_MAX_CONNECTIONS, formatSseFrame } from "./broadcaster.ts";
 import { WebhookStats, WEBHOOK_STATS_WINDOW_SECONDS } from "./webhook-stats.ts";
 
 export interface ProviderRoute {
@@ -64,6 +64,11 @@ export interface ReceiverOptions {
   maxSnapshotLimit?: number;
   // SSE resume replay bound; beyond it a `reset` re-snapshot is signalled.
   replayLimit?: number;
+  // Byte budgets for the memory-bound reads (#851). A snapshot page and an SSE
+  // replay each stop at the row limit OR this many bytes of stored row data
+  // (always at least one row), because rows carry raw provider payloads.
+  snapshotMaxBytes?: number;
+  replayMaxBytes?: number;
   // Public webhook listener abuse controls. An unauthenticated POST flood on the
   // public ingress must not be able to hold sockets open or exhaust the process.
   webhookRequestTimeoutMs?: number;
@@ -87,6 +92,13 @@ const DEFAULT_MAX_SNAPSHOT_LIMIT = 1000;
 // SSE resume replay bound. Beyond this many backlog rows we re-snapshot via a
 // `reset` sentinel instead of a partial replay that would drop the gap's middle.
 const REPLAY_LIMIT = 1000;
+// A snapshot page is built, serialized and gzipped in memory (several copies of
+// the row bytes), so it is capped well below the 256 MiB container budget.
+const DEFAULT_SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024;
+// An SSE replay is written synchronously into the subscriber's socket buffer,
+// which the broadcaster evicts past MAX_SUBSCRIBER_BUFFER_BYTES (4 MiB); keep a
+// replay prefix comfortably inside it (frames are re-serialized JSON).
+const DEFAULT_REPLAY_MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_WEBHOOK_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_HEADERS_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_WEBHOOK_CONNECTIONS = 256;
@@ -112,6 +124,8 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
   const maxSnapshotLimit = opts.maxSnapshotLimit ?? DEFAULT_MAX_SNAPSHOT_LIMIT;
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const replayLimit = opts.replayLimit ?? REPLAY_LIMIT;
+  const snapshotMaxBytes = opts.snapshotMaxBytes ?? DEFAULT_SNAPSHOT_MAX_BYTES;
+  const replayMaxBytes = opts.replayMaxBytes ?? DEFAULT_REPLAY_MAX_BYTES;
   const broadcaster = new Broadcaster(maxConnections);
   const now = opts.now ?? Date.now;
   const startedAt = new Date(now()).toISOString();
@@ -277,17 +291,31 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
     }
     // More backlog than the resume cap: a partial replay would silently drop the
     // middle of the gap, so signal a re-snapshot instead.
-    const backlog = store.since(cursor, replayLimit + 1);
+    const { events: backlog, matched } = store.page({
+      order: "asc",
+      after: cursor,
+      limit: replayLimit,
+      maxBytes: replayMaxBytes,
+    });
     if (backlog[0] && backlog[0].seq > cursor + 1) {
       sendReset(req, res, "gap", maxSeq);
       return;
     }
-    if (backlog.length > replayLimit) {
+    if (matched > replayLimit) {
       sendReset(req, res, "gap", maxSeq);
       return;
     }
 
     writeSseHead(res);
+    // The backlog is within the row bound but heavier than the replay byte
+    // budget: send the in-order prefix and close. EventSource reconnects with
+    // Last-Event-ID = the last frame's id and continues, so nothing is lost and
+    // the subscriber buffer is never pushed past its eviction cap mid-replay.
+    if (backlog.length < matched) {
+      for (const ev of backlog) res.write(formatSseFrame(ev));
+      res.end();
+      return;
+    }
     // Register BEFORE replaying so an event appended concurrently is never lost
     // between replay and subscribe; send() dedupes by seq.
     const sub = broadcaster.add(res, cursor);
@@ -307,13 +335,30 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
       sinceParam !== null && /^\d+$/.test(sinceParam)
         ? Number(sinceParam)
         : null;
+    const beforeParam = url.searchParams.get("before");
+    const before =
+      beforeParam !== null && /^\d+$/.test(beforeParam)
+        ? Number(beforeParam)
+        : undefined;
     const maxSeq = store.maxSeq();
-    const events =
-      since === null || since > maxSeq
-        ? store.recent(limit)
-        : since >= maxSeq
-          ? []
-          : store.sinceDesc(since, limit);
+    // A cursor at the head has nothing newer; one ahead of the head (store
+    // recreated / pruned) falls back to the newest rows, like no cursor at all.
+    const delta = since !== null && since < maxSeq ? since : undefined;
+    const { events, matched } =
+      since === maxSeq
+        ? { events: [] as LiveEvent[], matched: 0 }
+        : store.page({
+            order: "desc",
+            limit,
+            maxBytes: snapshotMaxBytes,
+            after: delta,
+            before,
+          });
+    // More matching rows exist than this page carries (row limit or byte
+    // budget): say so, and give the cursor for the next-older page, so a capped
+    // page is never mistaken for "no more rows".
+    const truncated = matched > events.length;
+    const oldest = events[events.length - 1];
     sendJsonMaybeGzip(
       res,
       200,
@@ -321,6 +366,8 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
         schema: "live-snapshot/1",
         events,
         max_seq: maxSeq,
+        truncated,
+        next_before: truncated && oldest ? oldest.seq : null,
         generated_at: new Date().toISOString(),
       },
       req.headers["accept-encoding"],
@@ -336,7 +383,7 @@ export function createLiveReceiver(opts: ReceiverOptions): LiveReceiver {
       started_at: startedAt,
       window_seconds: WEBHOOK_STATS_WINDOW_SECONDS,
       webhooks: webhookStats.snapshot(),
-      latest_event_received_at: store.recent(1)[0]?.received_at ?? null,
+      latest_event_received_at: store.latestReceivedAt(),
       sources: [...new Set(opts.routes.map((r) => r.sourceId))],
     });
   }

@@ -941,6 +941,17 @@ public/tailnet boundary does not depend on out-of-repo proxy config alone:
   and a connection cap to bound an unauthenticated POST flood, and the SSE
   broadcaster evicts a subscriber whose buffer backs up past a cap (so one slow
   reader cannot grow receiver memory without bound).
+  Stored rows carry the raw provider payload (tens of KB each), so the read
+  routes are also bounded by bytes, not only row count (#851). A snapshot page
+  stops at its row `limit` or a byte budget (8 MiB of stored row data; always at
+  least one row, so a client makes progress) and reports `truncated` plus
+  `next_before`, the `seq` of its oldest row when more matching rows exist.
+  Pages stay newest-first; a client continues with `before=<next_before>` (also
+  combinable with `since`), so a capped page is never mistaken for "no more
+  rows". A SSE resume whose backlog fits the row bound but not the replay byte
+  budget (2 MiB) sends the in-order prefix and closes; `EventSource` reconnects
+  with `Last-Event-ID` and continues losslessly. `/api/live-status` reads only
+  the newest `received_at`, never a full row.
 - **Ingestion freshness:** the reads listener also serves
   `GET /api/live-status`. It returns raw, in-memory webhook stats: the last
   accepted and rejected delivery instants, the last rejected status and its
