@@ -581,10 +581,21 @@ test("runBridge treats cursor progress across short SSE sessions as healthy", as
   }
 });
 
-test("runBridge does not treat a stalled Telegram send as stable SSE health", async () => {
+test("runBridge does not treat a stalled Telegram send as stable SSE health", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "live-tg-"));
   const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), 100);
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000_000 });
+  // Model a timeout delivered one clock tick before the recovery deadline.
+  // Timer delivery and Date.now() need not agree at millisecond boundaries.
+  t.mock.method(AbortSignal, "timeout", (ms: number) => {
+    const timeout = new AbortController();
+    setTimeout(
+      () => timeout.abort(new DOMException("Request timed out", "TimeoutError")),
+      Math.max(1, ms - 1),
+    );
+    return timeout.signal;
+  });
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
   try {
     const cursorPath = join(dir, "cursor");
     writeFileSync(cursorPath, "0", "utf8");
@@ -621,16 +632,27 @@ test("runBridge does not treat a stalled Telegram send as stable SSE health", as
     }) as typeof fetch;
 
     const startedAt = Date.now();
-    await assert.rejects(
-      () => runBridge(cfg, controller.signal),
+    let settled = false;
+    const rejected = assert.rejects(
+      runBridge(cfg, controller.signal),
       /rapid-failure loop.*container restart/,
-    );
+    ).finally(() => { settled = true; });
+    await settle();
+    assert.equal(telegramCalls, 1, "the first send is stalled");
+    t.mock.timers.tick(9);
+    await settle();
+    t.mock.timers.tick(1); // recovery backoff reaches the restart deadline
+    await settle();
+    t.mock.timers.tick(1); // allow an erroneous second attempt to time out
+    await settle();
+    assert.ok(settled, "the bridge exits when the recovery budget is exhausted");
+    await rejected;
     assert.ok(Date.now() - startedAt < cfg.connectionTimeoutMs);
     assert.equal(liveCalls, 1);
     assert.equal(telegramCalls, 1);
     assert.equal(readFileSync(cursorPath, "utf8"), "0");
   } finally {
-    clearTimeout(abortTimer);
+    controller.abort();
     rmSync(dir, { recursive: true, force: true });
   }
 });

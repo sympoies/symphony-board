@@ -611,16 +611,20 @@ export async function runBridge(
     activeCursor = persistedCursor;
     if (madeProgress || stableSession) unstableSince = now;
     const failedFor = Date.now() - unstableSince;
-    if (failedFor >= cfg.restartAfterMs) {
-      throw new Error(
-        `bridge remained in a rapid-failure loop for ${failedFor}ms; exiting for container restart`,
-      );
-    }
+    if (failedFor >= cfg.restartAfterMs) break;
     const waitMs = Math.min(backoff, cfg.restartAfterMs - failedFor);
     await sleep(waitMs, signal);
+    // A failed attempt's backoff can consume the last of the recovery budget.
+    // Healthy sessions still get their normal reconnect after the idle wait.
+    if (!madeProgress && !stableSession && Date.now() - unstableSince >= cfg.restartAfterMs) break;
     // Capped exponential backoff: a persistently-down receiver is not hammered
     // at a fixed 20 req/min; a healthy reconnect resets it above.
     backoff = Math.min(backoff * 2, MAX_RETRY_MS);
+  }
+  if (!signal.aborted) {
+    throw new Error(
+      `bridge remained in a rapid-failure loop for ${Date.now() - unstableSince}ms; exiting for container restart`,
+    );
   }
 }
 
