@@ -547,7 +547,7 @@ Pages:
   repositories, active days, per-day sparkline), Where (share, active days,
   sparkline), Branches, What and How. Where, What, How and a verdict toggle
   the route-backed facets. In the laptop tier a rail list cut at its eight rows
-  ends in "Show all N" (or "Show top 50 of N"), which opens it in place. Every pane reads the rows the feed renders, except
+  ends in "Show all N", which opens it in place; "Show fewer" folds it back. Every pane reads the rows the feed renders, except
   the rhythm, which reads `activity_daily`. Below 1400px the page keeps its two
   columns and the plain overview; the old who / where / when rail is gone.
 - **Items**: newest-updated issue and PR/MR list over `items[]`, scoped by the

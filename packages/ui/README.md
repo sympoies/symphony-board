@@ -38,7 +38,9 @@ time and opens on `Trackers`.
 The Board uses the shared URL-backed date range with quick presets: calendar
 `today`, `yesterday`, `this week`, `last week` and rolling `1w`, `1mo`, `3mo`,
 `6mo`, `1y`. It filters cards by `updated_at` and
-defaults to the Settings default range preset (`this week` for new browsers).
+defaults to the Settings default range preset (`this week` for new browsers,
+`1w` in the Android client).
+
 The summary pills on the Board are scoped to that same Board window: item totals
 count the cards that survive the date-range filter, and edge lifecycle counts
 cover relationships touching those windowed cards. If the loaded contract
@@ -142,12 +144,14 @@ Rows surface the most identifiable context available in the contract: issue and
 change-request events show the provider number plus title, commits show a short
 SHA plus commit title, and push/ref events show the branch or tag plus available
 commit-range chips. Each row is two lines, with the item's current state or a
-commit's line counts on the right. Selecting a row opens the event's detail
-above the overview: the item as it is now, the event's own facts, a review
-comment's words when `review_threads[]` carries them, and the other events in
-the range on the same item. Below 1212px the detail is a reader over the page
-(`activityDetail=1`). From 1400px the page takes the Commits pane tiers: the
-overview becomes panes (summary tiles, rhythm, events per day stacked by kind,
+commit's line counts on the right.
+
+Selecting a row opens the event's detail above the overview: the item as it is
+now, the event's own facts, a review comment's words when `review_threads[]`
+carries them, and the other events in the range on the same item. Below 1212px
+the detail is a reader over the page (`activityDetail=1`).
+
+From 1400px the page takes the Commits pane tiers: the overview becomes panes (summary tiles, rhythm, events per day stacked by kind,
 action, repo or actor, a day-by-hour grid, review verdicts, busiest items) and a
 third column ranks people, repositories, branches, kinds and actions as tables
 with share, active days and per-day sparklines. Every truncated ranking offers
@@ -192,14 +196,22 @@ until the contract has comparable GitHub and GitLab semantics.
 Commit detail is manually selected by default. Settings can opt this device into
 following the latest visible commit: the page opens detail for the newest row
 and advances when a newer row arrives or the active commit filters change. The
-detail shows `Following latest` or `Pinned`; selecting another row pins it.
+detail shows `Following latest` or `Pinned · follow latest`; selecting another
+row pins it, and clicking `Pinned · follow latest` resumes following.
 
 The changed-file tree and per-file line counts come from `/api/commit-files` on
-request. The layout adapts by width: phones open a full-screen Info/Files reader
-with swipes and bottom Newer/Older controls; 761–1211px keeps the list beside a
-compact detail/files column; 1212–1279px stacks the overview and digest rail
-beside the list; and 1280px and wider show list, overview, and rail as three
-columns.
+request. The layout adapts by width:
+
+- phones (760px and narrower) open a full-screen Info/Files reader with swipes
+  and bottom Newer/Older controls;
+- 761–1211px keeps the list beside a compact detail/files column;
+- 1212–1279px stacks the overview and digest rail beside the list;
+- 1280–1399px shows list, overview, and rail as three columns with the plain
+  digest;
+- 1400–2479px (the laptop tier) keeps three columns, but each supporting column
+  stacks the wide tier's panes and scrolls inside itself;
+- 2480px and wider (the wide tier) lays the panes out two-up; charts keep a
+  fixed height and lists take the spare height.
 
 ### Items (`#/items`)
 
@@ -253,9 +265,11 @@ tab adds the writer-owned Sources editor. Display groups:
 - Live: the Live tab, preview lines, and event types
 
 Appearance opens by default; Connection & sync also opens when no server URL is
-set. The choices are stored in `localStorage` and apply as a pre-filter across
-every contract-backed page before it computes its view. They are view-only; the daemon keeps syncing every configured
-source.
+set (outside the standalone client). The standalone client has no Live group.
+
+The choices are stored in `localStorage` and apply as a pre-filter across every
+contract-backed page before it computes its view. They are view-only; the daemon
+keeps syncing every configured source.
 
 Repo rows use `repo_stats[]` when present so Settings keeps full repo counts
 even though contract v2 `items[]` is windowed. Older v1 contracts fall back to
@@ -329,70 +343,84 @@ pnpm run emit --out packages/ui/public/contract.json
 
 Runtime contracts under `data/` stay gitignored.
 
+`build:standalone` builds the standalone client into `dist-standalone/` with the
+server URL `http://127.0.0.1:8787/`; `smoke:standalone` runs the render smoke
+against that build.
+
 The standalone Vite dev server serves only the static sample contract. The
 default `this week` range and other custom ranges call `/api/range`; use the
 Docker stack for full local range-query testing.
 
 ## Smoke Test
 
-`pnpm --filter @symphony-board/ui run smoke` first checks scrolling rank-header
-alignment in Commits and Activity at both wide-pane widths with native, zero
-and custom scrollbar gutters (`smoke:rank-headers`). Set
-`SYMPHONY_BOARD_HEADER_OUT` to retain its screenshots and measured geometry.
-The header harness uses a short Chrome profile and child temporary root, logs each layout,
-and bounds browser startup and DevTools/navigation waits. UI tests cover failed
-browser startup with a long `TMPDIR`, including signal exit and profile cleanup.
-The focused smoke also launches real Chrome with long parent `TMPDIR`, `TMP`
-and `TEMP` roots, so socket-path handling is exercised in the normal smoke gate.
-It then runs the grouped WHO layout regression (`smoke:grouped-who`):
-a synthetic linked identity disclosure and
-neighboring rank rows must keep their labels and numbers inside separate row
-bounds, with ellipsis and full-name titles, at stack and wide pane widths.
-Set `SYMPHONY_BOARD_LAYOUT_OUT` to an output directory to retain geometry and
-1512×945 / 1800×1169 screenshots. Next, `ranking-controls-smoke.mjs` checks
-that every truncated ranking renders the shared control, expands beyond fifty
-rows, and collapses to its layout limit. It covers Commits and Activity at
-phone, sidebar, stack, and wide widths, plus file/directory rankings, Live, and
-Metrics actor lists. `SYMPHONY_BOARD_LAYOUT_OUT` retains its desktop and phone
-Commits captures. It then runs
-`packages/ui/scripts/render-smoke.mjs` against the built `dist/` in headless
-Chrome. It asserts the Board, Graph, Activity feed, Items, Commits log, Reviews,
-Metrics, Live, Settings, deep-link search, focus path, and configured display colors render
-without console errors. It also verifies that Board, Graph, Activity, Commits,
-and Metrics share the same range presets, that the Settings default-range
-selector renders, that Board/Graph scoped summaries change when the range
-narrows through `/api/range`, that the sample tracker card shows its progress
-and ready children and stays in the Trackers lane — and out of every other
-column and count — when the range excludes it, that the Graph relation type
-toggles and legend follow the loaded types and change what is drawn, that
-focusing the sample tracker shows its program view (children in dependency
-order with their status markers, with and without a server), keeps it under an
-item facet, switches to the neighborhood and back, opens a node activated from
-that neighborhood on its default view, and labels the fallback against a server
-without the program scope, that a focus link without a range keeps its focus
-through a reload (a tracker opening on its program view) while a facet picked
-in focus that changes the listed items drops it, and that large synthetic
-Activity/Commits feeds stay virtualized. Commits layout checks cover the phone reader, foldable
-compact split, filter wrapping, the three-column plain digest, the laptop
-tier (the wide tier's panes stacked one per column at 1512x945), and the
-wide-panes tier (two-up supporting columns whose charts keep a fixed height
-while lists take the spare height). It checks that merge commits are tagged
-instead of shown without line counts, that the default branch is marked, and
-that the hide-merges toggle removes them from the list and from every ranked facet.
-It checks that a commit's change request is drawn on its row, in its detail and
-in the Change requests pane, and that "none" and "unknown" are told apart.
-It checks that the file aggregate draws a Hot files pane with its coverage, that
-a row narrows the page to the commits that touched it, and that the pane falls
-back to scopes under an author filter. Activity checks cover the compact
-two-line row, the detail pane following the newest event and pinning a clicked
-one, the quoted review-comment words (and none for an issue comment), and the
-phone reader's route flag and Back, and the pane tiers at 2560px and 1512px:
-the overview's panes and the rail's tables, two-up and stacked, the per-day
-re-split, a busiest item opening its event, and a Where row toggling the repo
-facet. It also mocks the daemon's sync control surface to assert the
-Header Sync action renders, enters the running (disabled) state on click, shows
-the reloaded status on completion, and that Settings exposes the advanced
-manual-sync controls.
+`pnpm --filter @symphony-board/ui run smoke` runs five stages in order:
+
+1. `smoke:rank-headers` checks scrolling rank-header alignment in Commits and
+   Activity at both wide-pane widths with native, zero and custom scrollbar
+   gutters. Set `SYMPHONY_BOARD_HEADER_OUT` to retain its screenshots and
+   measured geometry. The header harness uses a short Chrome profile and child
+   temporary root, logs each layout, and bounds browser startup and
+   DevTools/navigation waits. UI tests cover failed browser startup with a long
+   `TMPDIR`, including signal exit and profile cleanup. The focused smoke also
+   launches real Chrome with long parent `TMPDIR`, `TMP` and `TEMP` roots, so
+   socket-path handling is exercised in the normal smoke gate.
+2. `smoke:grouped-who` is the grouped WHO layout regression: a synthetic linked
+   identity disclosure and neighboring rank rows must keep their labels and
+   numbers inside separate row bounds, with ellipsis and full-name titles, at
+   stack and wide pane widths. Set `SYMPHONY_BOARD_LAYOUT_OUT` to an output
+   directory to retain geometry and 1512×945 / 1800×1169 screenshots.
+3. `ranking-controls-smoke.mjs` checks that every truncated ranking renders the
+   shared control, expands beyond fifty rows, and collapses to its layout
+   limit. It covers Commits and Activity at phone, sidebar, stack, and wide
+   widths, plus file/directory rankings, Live, and Metrics actor lists.
+   `SYMPHONY_BOARD_LAYOUT_OUT` retains its desktop and phone Commits captures.
+4. `commit-churn-smoke.mjs` checks the Commits chart's day slots, additions and
+   deletions, partial-stat markers, and hoverable tooltips in the pane tiers.
+5. `packages/ui/scripts/render-smoke.mjs` runs against the built `dist/` in
+   headless Chrome, as listed below.
+
+The render smoke asserts that the Board, Graph, Activity feed, Items, Commits
+log, Reviews, Metrics, Live, Settings, deep-link search, focus path, and
+configured display colors render without console errors. It also verifies:
+
+- Range: Board, Graph, Activity, Commits, and Metrics share the same range
+  presets; the Settings default-range selector renders; Board/Graph scoped
+  summaries change when the range narrows through `/api/range`.
+- Trackers: the sample tracker card shows its progress and ready children and
+  stays in the Trackers lane — and out of every other column and count — when
+  the range excludes it.
+- Graph: the relation type toggles and legend follow the loaded types and
+  change what is drawn. Focusing the sample tracker shows its program view
+  (children in dependency order with their status markers, with and without a
+  server), keeps it under an item facet, switches to the neighborhood and
+  back, opens a node activated from that neighborhood on its default view, and
+  labels the fallback against a server without the program scope.
+- Focus links: a focus link without a range keeps its focus through a reload
+  (a tracker opening on its program view), while a facet picked in focus that
+  changes the listed items drops it.
+- Virtualization: large synthetic Activity/Commits feeds stay virtualized.
+- Commits layout: the phone reader, foldable compact split, filter wrapping,
+  the three-column plain digest, the laptop tier (the wide tier's panes
+  stacked one per column at 1512x945), and the wide-panes tier (two-up
+  supporting columns whose charts keep a fixed height while lists take the
+  spare height).
+- Commits content: merge commits are tagged instead of shown without line
+  counts, the default branch is marked, and the hide-merges toggle removes
+  them from the list and from every ranked facet. A commit's change request is
+  drawn on its row, in its detail and in the Change requests pane, and "none"
+  and "unknown" are told apart. The file aggregate draws a Hot files pane with
+  its coverage, a row narrows the page to the commits that touched it, and the
+  pane falls back to scopes under an author filter.
+- Activity: the compact two-line row, the detail pane following the newest
+  event and pinning a clicked one, the quoted review-comment words (and none
+  for an issue comment), and the phone reader's route flag and Back. At the
+  2560px and 1512px pane tiers it checks the overview's panes and the rail's
+  tables, two-up and stacked, the per-day re-split, a busiest item opening its
+  event, and a Where row toggling the repo facet.
+- Manual sync: with the daemon's sync control surface mocked, the Header Sync
+  action renders, enters the running (disabled) state on click, and shows the
+  reloaded status on completion, and Settings exposes the advanced manual-sync
+  controls.
 
 Set `CHROME_BIN` if Chrome is not available at the default macOS path or through
 the CI setup action.
@@ -407,14 +435,24 @@ pnpm run emit --out packages/ui/public/contract.json
 pnpm --filter @symphony-board/ui dev
 ```
 
-For deployment, use the repo's Docker Compose stack. The `web` service serves
-the built UI, aliases the daemon-emitted `data/contract.json` to
-`/contract.json`, proxies `/api/range`, `/api/graph-neighborhood`, and
-`/api/capabilities` to the read-only API sidecar, proxies `/api/live*` to the Live reads listener, and proxies
-the sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the `board`
-daemon. The UI therefore reads the latest static contract, can request explicit
-date ranges, can explain Live read/webhook setup state, and can trigger a
-daemon-owned manual sync — all without becoming a database writer itself.
+For deployment, use the repo's Docker Compose stack. The `web` service
+(`docker/ui-nginx.conf`) serves the built UI and routes:
+
+- `/contract.json`: alias of the daemon-emitted `data/contract.json`;
+  `/contract.json.gz` serves its precompressed bytes so native clients can read
+  the gzip length for Diagnostics;
+- `/api/live-snapshot` and `/api/live*`: the Live reads listener;
+- `/api/sync-control`, `/api/sync-runs`, `/api/commit-files`, and the writer
+  config routes (`/api/config`, `/api/secrets`, `/api/logs`,
+  `/api/token-rate-limits`): the `board` daemon;
+- every other `/api/` path, including `/api/range`,
+  `/api/graph-neighborhood`, and `/api/capabilities`: the read-only API
+  sidecar.
+
+The UI therefore reads the latest static contract, can request explicit date
+ranges and commit file lists, can explain Live read/webhook setup state, and can
+trigger a daemon-owned manual sync — all without becoming a database writer
+itself.
 
 ### Settings version
 
