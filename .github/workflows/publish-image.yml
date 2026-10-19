@@ -103,6 +103,7 @@ jobs:
 
     steps:
       - name: Checkout
+        id: source_checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
@@ -158,6 +159,8 @@ jobs:
         with:
           context: .
           file: docker/ui.Dockerfile
+          build-args: |
+            SYMPHONY_BOARD_BUILD_COMMIT=${{ steps.source_checkout.outputs.commit }}
           platforms: linux/amd64
           load: true
           tags: symphony-board-web:smoke
@@ -246,6 +249,8 @@ jobs:
         with:
           context: .
           file: docker/ui.Dockerfile
+          build-args: |
+            SYMPHONY_BOARD_BUILD_COMMIT=${{ steps.source_checkout.outputs.commit }}
           platforms: linux/amd64,linux/arm64
           push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.web_meta.outputs.tags }}

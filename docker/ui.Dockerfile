@@ -26,7 +26,8 @@ RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY packages/contract packages/contract
 COPY packages/ui packages/ui
 COPY shared shared
-RUN pnpm --filter @symphony-board/ui run build
+ARG SYMPHONY_BOARD_BUILD_COMMIT
+RUN SYMPHONY_BOARD_BUILD_COMMIT="$SYMPHONY_BOARD_BUILD_COMMIT" pnpm --filter @symphony-board/ui run build
 
 # Non-root nginx: the unprivileged image runs as uid 101 and listens on 8080
 # (see docker/ui-nginx.conf). The build-time COPY/rm step briefly switches to

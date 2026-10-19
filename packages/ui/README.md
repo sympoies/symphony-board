@@ -415,3 +415,18 @@ the sync-control routes (`/api/sync-control`, `/api/sync-runs`) to the `board`
 daemon. The UI therefore reads the latest static contract, can request explicit
 date ranges, can explain Live read/webhook setup state, and can trigger a
 daemon-owned manual sync — all without becoming a database writer itself.
+
+### Settings version
+
+Settings shows the client release version and seven-character source commit
+embedded by the UI build. The version comes from the release-controlled root
+`package.json`, shared with the native package version checks. The build uses
+`SYMPHONY_BOARD_BUILD_COMMIT`, then the build checkout's commit. Source archives and Docker contexts without Git must inject
+`SYMPHONY_BOARD_BUILD_COMMIT`; absent metadata displays `Unavailable`. The Web
+release image workflow passes this build argument explicitly.
+
+The backend currently exposes no authoritative runtime version, so Settings
+shows `Backend: Unavailable`. Contract and schema versions do not identify a
+running server. **Copy version** copies only the client surface, release version,
+short commit and backend availability. Installed native package and deployed Web
+readback must still be compared with the matching artifact by the release tester.

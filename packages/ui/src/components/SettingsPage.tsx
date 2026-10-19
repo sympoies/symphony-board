@@ -1,3 +1,4 @@
+import { VersionInfo } from "./VersionInfo.tsx";
 import { EntityLink } from "./ExternalLink.tsx";
 import { useState, type ReactNode } from "react";
 import type { SourceDTO } from "@symphony-board/contract";
@@ -206,6 +207,7 @@ export function SettingsPage({
             GitHub PAT required before sync. Navigation unlocks after the token validates and saves.
           </div>
         ) : null}
+        <VersionInfo />
         <SourcesEditor config={config} sync={sync} variant={standalone ? "standalone" : "default"} />
       </section>
     );
@@ -222,6 +224,8 @@ export function SettingsPage({
           </p>
         </div>
       </div>
+
+      <VersionInfo />
 
       <SettingsGroup title="Connection & sync" description="Server address and manual sync." initiallyOpen={!serverBaseUrl && !standalone}>
         <div className="settings-pref settings-server">

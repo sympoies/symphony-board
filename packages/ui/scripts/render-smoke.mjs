@@ -3712,6 +3712,39 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/settings'" });
   await sleep(300);
   const settingsHtml = await waitHtml("document.querySelector('.settings-page .settings-repo')");
+  // Exercise the real Settings action while capturing the clipboard locally.
+  // No permissions, provider calls, or environment diagnostics enter the copy.
+  const expectedClientVersion = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")).version;
+  const settingsVersion = (await send("Runtime.evaluate", {
+    expression: `(async () => {
+      const block = document.querySelector('.settings-version');
+      if (!block) return { present: false };
+      const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      let copied = null;
+      try {
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+          writeText: async (text) => { copied = text; },
+        } });
+        block.querySelector('button').click();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const success = block.querySelector('[role="status"]').textContent;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+          writeText: async () => { throw new Error('fixture clipboard denial'); },
+        } });
+        block.querySelector('button').click();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return { present: true, version: block.querySelector('[data-client-version]').textContent,
+          build: block.querySelector('[data-client-build]').textContent, copied, success,
+          failure: block.querySelector('[role="status"]').textContent,
+          backendUnavailable: block.textContent.includes('Backend: Unavailable') };
+      } finally {
+        if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor);
+        else delete navigator.clipboard;
+      }
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
   await captureOutboundLinks('Settings', ['a.settings-repo-name']);
   const settingsGroups = (await send("Runtime.evaluate", {
     expression: `(() => {
@@ -10295,6 +10328,10 @@ try {
     [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],
     // page 5: the settings repo filter renders its checkboxes + count
 	    [has(settingsHtml, "settings-page"), "settings: page rendered"],
+    [settingsVersion.present && settingsVersion.version === expectedClientVersion && /^[a-f0-9]{7}$/i.test(settingsVersion.build) && settingsVersion.backendUnavailable, "settings: embedded client release version/build and separate unavailable backend render"],
+    [settingsVersion.copied === `Client (${STANDALONE_SMOKE ? "Standalone" : "Web"}): ${expectedClientVersion}\nBuild: ${settingsVersion.build}\nBackend: Unavailable` && settingsVersion.success === "Copied", "settings: Copy version writes only surface, version and build"],
+    [settingsVersion.failure?.startsWith("Copy failed."), "settings: clipboard rejection offers manual copy without claiming success"],
+
 	    [settingsRepos >= 2, `settings: repo checkboxes rendered (${settingsRepos} >= 2)`],
 	    [/repos shown/.test(settingsHtml), "settings: repo count shown"],
 	    // settings: source hide toggle, the read-only source color swatch, and the
