@@ -412,7 +412,7 @@ function CommitTimeline({
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!sha) return;
-                      void copyText(sha).then(() => setCopiedId(rowKey));
+                      void copyText(sha).then(() => setCopiedId(rowKey), () => {});
                     }}
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}
