@@ -6104,6 +6104,23 @@ span.live-avatar { cursor: default; }
 .stack-plot > .rail-days-axis { grid-column: 2; gap: 0; }
 
 /* Lines changed: one scale, additions above the zero line and deletions below. */
+/* The stack tier anchors tooltips to the whole plot with static day columns.
+   Keep a separate containing block for each day's absolute bars. */
+/* The tooltip belongs to its day's stacking context, even when positioned
+   against the plot. Lift the hovered day above later sibling bars. */
+.churn-col:hover { z-index: 2; }
+.churn-bars { position: relative; display: block; height: 100%; }
+.churn-partial {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
 .churn-plot { --plot-h: clamp(88px, 7vh, 120px); --plot-pad: 0px; }
 .churn-plot .stack-yaxis > span:nth-child(1) { transform: none; }
 .churn-plot .stack-yaxis > span:nth-child(3) { transform: translateY(-100%); }

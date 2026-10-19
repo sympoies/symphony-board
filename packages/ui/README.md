@@ -353,7 +353,7 @@ Docker stack for full local range-query testing.
 
 ## Smoke Test
 
-`pnpm --filter @symphony-board/ui run smoke` runs four stages in order:
+`pnpm --filter @symphony-board/ui run smoke` runs five stages in order:
 
 1. `smoke:rank-headers` checks scrolling rank-header alignment in Commits and
    Activity at both wide-pane widths with native, zero and custom scrollbar
@@ -374,7 +374,9 @@ Docker stack for full local range-query testing.
    limit. It covers Commits and Activity at phone, sidebar, stack, and wide
    widths, plus file/directory rankings, Live, and Metrics actor lists.
    `SYMPHONY_BOARD_LAYOUT_OUT` retains its desktop and phone Commits captures.
-4. `packages/ui/scripts/render-smoke.mjs` runs against the built `dist/` in
+4. `commit-churn-smoke.mjs` checks the Commits chart's day slots, additions and
+   deletions, partial-stat markers, and hoverable tooltips in the pane tiers.
+5. `packages/ui/scripts/render-smoke.mjs` runs against the built `dist/` in
    headless Chrome, as listed below.
 
 The render smoke asserts that the Board, Graph, Activity feed, Items, Commits

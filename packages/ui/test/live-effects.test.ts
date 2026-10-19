@@ -7,9 +7,10 @@
 // the same fetch/snapshot mocking style as live.test.ts.
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { fetchLiveSnapshot } from "../src/contract.ts";
+import { fetchLiveSnapshot, fetchLiveSnapshotResult } from "../src/contract.ts";
 import {
   appendCapped,
+  fetchPollSnapshot,
   liveStreamUrl,
   planPollIngest,
   planSseResetSnapshot,
@@ -367,4 +368,96 @@ test("fetchLiveSnapshot carries the polling cursor when supplied", async () => {
   const got = await fetchLiveSnapshot(null, 1000, 7);
   assert.ok(got);
   assert.equal(requested, "./api/live-snapshot?limit=1000&since=7");
+});
+
+// --- byte-capped snapshot pages (#851) ----------------------------------------
+// The receiver caps a snapshot page by bytes, returning the NEWEST rows with
+// `truncated` + `next_before`. The poll cursor advances to the snapshot's
+// max_seq, so the client must fold the older pages under the ORIGINAL `since`
+// first, or the omitted rows are lost for good once the cursor passes them.
+
+// Fake receiver: rows 1..head, at most `perPage` rows per page (a tiny byte
+// budget), newest-first, honouring since/before/limit exactly like the server.
+function pagedReceiver(head: number, perPage: number): { requests: string[] } {
+  const requests: string[] = [];
+  globalThis.fetch = (async (url) => {
+    const u = new URL(String(url), "http://x/");
+    requests.push(u.pathname + u.search);
+    const since = u.searchParams.has("since") ? Number(u.searchParams.get("since")) : 0;
+    const before = u.searchParams.has("before") ? Number(u.searchParams.get("before")) : Infinity;
+    const limit = Number(u.searchParams.get("limit") ?? 200);
+    const matching: number[] = [];
+    for (let seq = head; seq >= 1; seq--) if (seq > since && seq < before) matching.push(seq);
+    const page = matching.slice(0, Math.min(limit, perPage));
+    const truncated = matching.length > page.length;
+    const body: LiveSnapshot = {
+      ...snap(head, page.map(ev)),
+      truncated,
+      next_before: truncated ? page[page.length - 1]! : null,
+    };
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  return { requests };
+}
+
+test("fetchLiveSnapshotResult folds byte-capped pages under the original since before returning", async () => {
+  const rx = pagedReceiver(6, 2);
+  const { snapshot, transientFailure } = await fetchLiveSnapshotResult(null, 1000, 1);
+  assert.equal(transientFailure, false);
+  assert.deepEqual(snapshot!.events.map((e) => e.seq), [6, 5, 4, 3, 2], "every row newer than since, newest-first");
+  assert.equal(snapshot!.max_seq, 6);
+  assert.equal(snapshot!.truncated, false, "range complete");
+  assert.deepEqual(rx.requests, [
+    "/api/live-snapshot?limit=1000&since=1",
+    "/api/live-snapshot?limit=998&since=1&before=5",
+    "/api/live-snapshot?limit=996&since=1&before=3",
+  ]);
+});
+
+test("poll ticks over byte-capped pages never skip rows and then go quiet at the head", async () => {
+  const rx = pagedReceiver(6, 2);
+  const ctl = new AbortController();
+  // Mirror the effect: fetch the tick, fold it onto the buffer, advance the cursor.
+  let kept: LiveEvent[] = [];
+  let cursor = 1;
+  const tick = async (): Promise<void> => {
+    const { snapshot } = await fetchPollSnapshot(null, cursor, ctl.signal);
+    assert.ok(snapshot);
+    const fold = planSnapshotFold({ cursor, snapshot, seededFromCache: false, cap: 1000 });
+    assert.equal(fold.kind, "merge");
+    if (fold.kind === "merge") {
+      kept = appendCapped(fold.reset ? [] : kept, fold.ingest, 1000);
+      cursor = fold.cursor;
+    }
+  };
+  await tick();
+  assert.deepEqual(kept.map((e) => e.seq), [6, 5, 4, 3, 2]);
+  assert.equal(cursor, 6);
+  const before = rx.requests.length;
+  await tick();
+  assert.equal(rx.requests.length, before + 1, "caught up: one request, no paging");
+  assert.deepEqual(kept.map((e) => e.seq), [6, 5, 4, 3, 2]);
+});
+
+test("a failing older page fails the whole fetch so the cursor does not advance", async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    if (calls === 1) {
+      const body: LiveSnapshot = { ...snap(6, [ev(6), ev(5)]), truncated: true, next_before: 5 };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("boom", { status: 503 });
+  }) as typeof fetch;
+  const res = await fetchLiveSnapshotResult(null, 1000, 1);
+  assert.equal(res.snapshot, null);
+  assert.equal(res.transientFailure, true);
+});
+
+test("paging stops once the requested limit is gathered", async () => {
+  const rx = pagedReceiver(50, 2);
+  const { snapshot } = await fetchLiveSnapshotResult(null, 4);
+  assert.deepEqual(snapshot!.events.map((e) => e.seq), [50, 49, 48, 47]);
+  assert.equal(rx.requests.length, 2);
+  assert.equal(snapshot!.truncated, true, "older rows beyond the limit remain, as with any limit");
 });

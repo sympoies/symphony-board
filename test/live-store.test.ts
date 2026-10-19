@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { openLiveStore } from "../src/live/store.ts";
+import { ROW_BYTES_EXPR, openLiveStore } from "../src/live/store.ts";
 import {
   LIVE_EVENT_SCHEMA,
   isLiveEvent,
@@ -234,6 +234,55 @@ test("recent returns newest-first, bounded by limit", () => {
     );
   } finally {
     store.close();
+  }
+});
+
+test("page bounds rows by count and bytes, honours after/before, and always yields one row (#851)", () => {
+  const store = openLiveStore(":memory:");
+  try {
+    const seqs: number[] = [];
+    for (let i = 1; i <= 6; i++) seqs.push(appendNew(store, ev(i, { raw: { pad: "x".repeat(10_000) } })));
+    const ids = (r: { events: { seq: number }[] }): number[] => r.events.map((e) => e.seq);
+    const big = 1_000_000;
+    assert.deepEqual(ids(store.page({ order: "desc", limit: 3, maxBytes: big })), [6, 5, 4]);
+    assert.equal(store.page({ order: "desc", limit: 3, maxBytes: big }).matched, 4, "matched counts up to limit + 1");
+    assert.deepEqual(ids(store.page({ order: "asc", limit: 10, maxBytes: big, after: 2, before: 5 })), [3, 4]);
+    // ~12 KB per row against a 25 KB budget: two rows, newest-first or oldest-first.
+    assert.deepEqual(ids(store.page({ order: "desc", limit: 10, maxBytes: 25_000 })), [6, 5]);
+    assert.deepEqual(ids(store.page({ order: "asc", limit: 10, maxBytes: 25_000 })), [1, 2]);
+    assert.deepEqual(ids(store.page({ order: "desc", limit: 10, maxBytes: 1 })), [6], "one row even over budget");
+    assert.deepEqual(store.page({ order: "desc", limit: 10, maxBytes: big, after: 6 }), { events: [], matched: 0 });
+    assert.equal(store.latestReceivedAt(), "2026-06-20T08:14:55Z");
+    assert.equal(openLiveStore(":memory:").latestReceivedAt(), null);
+  } finally {
+    store.close();
+  }
+});
+
+test("the page size scan reads record headers only, never the payload columns (#851)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-page-size-"));
+  const path = join(dir, "live.db");
+  const store = openLiveStore(path);
+  const probe = new DatabaseSync(path, { readOnly: true });
+  try {
+    appendNew(store, ev(1, { raw: { pad: "é".repeat(5_000) } }));
+    const sql = `SELECT seq, ${ROW_BYTES_EXPR} AS bytes FROM live_event ORDER BY seq DESC LIMIT 2`;
+    // Opcode proof: a bare-column octet_length() compiles to a Column read flagged
+    // length-only (OPFLAG_LENGTHARG | OPFLAG_TYPEOFARG = 0xC0) with no Cast, so
+    // SQLite never loads the overflow pages of the payload. Wrapping the column
+    // in CAST (the first version of this scan) drops the flag and loads it.
+    const ops = probe.prepare(`EXPLAIN ${sql}`).all() as { opcode: string; p2: number; p5: number }[];
+    assert.equal(ops.filter((o) => o.opcode === "Cast").length, 0, "no CAST in the size scan");
+    const columnReads = ops.filter((o) => o.opcode === "Column");
+    assert.equal(columnReads.length, 2, "size scan reads exactly the raw_json and body columns");
+    for (const col of columnReads) assert.equal(col.p5 & 0xc0, 0xc0, "payload column read is length-only");
+    // And it still reports UTF-8 bytes (not characters).
+    const row = probe.prepare(sql).get() as { bytes: number };
+    assert.ok(row.bytes >= 10_000, `utf-8 bytes counted, got ${row.bytes}`);
+  } finally {
+    probe.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
