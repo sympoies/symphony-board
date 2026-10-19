@@ -219,7 +219,7 @@ export function ActivityFeed({
                     onClick={(e) => {
                       e.stopPropagation();
                       const value = view.copy?.value;
-                      if (value) void copyText(value).then(() => setCopiedKey(key));
+                      if (value) void copyText(value).then(() => setCopiedKey(key), () => {});
                     }}
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}

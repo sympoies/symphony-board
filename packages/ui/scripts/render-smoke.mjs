@@ -2750,6 +2750,49 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // Exercise the actual copy buttons with both browser clipboard failure modes.
+  async function checkCopyFailure(selector) {
+    const result = await send("Runtime.evaluate", {
+      expression: `(async () => {
+        const button = document.querySelector(${JSON.stringify(selector)});
+        if (!button) return { present: false };
+        const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+        const execCommand = Object.getOwnPropertyDescriptor(document, 'execCommand');
+        const rejections = [];
+        const onRejected = (event) => rejections.push(String(event.reason));
+        window.addEventListener('unhandledrejection', onRejected);
+        const failures = [];
+        try {
+          for (const mode of ['legacy', 'async']) {
+            Object.defineProperty(navigator, 'clipboard', { configurable: true, value:
+              mode === 'legacy' ? undefined : {
+                writeText: async () => { throw new Error('fixture clipboard denial'); },
+              },
+            });
+            Object.defineProperty(document, 'execCommand', { configurable: true, value: () => false });
+            button.click();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            failures.push({ mode, copied: button.classList.contains('is-copied') });
+          }
+          Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+            writeText: async () => {},
+          } });
+          button.click();
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return { present: true, failures, rejections, success: button.classList.contains('is-copied') };
+        } finally {
+          window.removeEventListener('unhandledrejection', onRejected);
+          if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+          else delete navigator.clipboard;
+          if (execCommand) Object.defineProperty(document, 'execCommand', execCommand);
+          else delete document.execCommand;
+        }
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    return result.result.value || {};
+  }
   // Page 3 — the Activity feed: developer-significant events from item state
   // transitions plus provider REST activity surfaces.
   await send("Emulation.setDeviceMetricsOverride", { width: 1880, height: 1100, deviceScaleFactor: 1, mobile: false });
@@ -2757,6 +2800,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/activity'" });
   await sleep(300);
   const activityHtml = await waitHtml("document.querySelector('.activity-row')");
+  const activityCopyFailure = await checkCopyFailure('.activity-row button[aria-label^="Copy "]');
   await captureOutboundLinks('Activity', ['.activity-meta a.card-repo']);
   await captureTitleLinkHitTarget("activity row", ".activity-page .activity-title[href]", ".activity-row");
   const activityListText = await textOf(".activity-list");
@@ -3213,6 +3257,7 @@ try {
   await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
   await sleep(300);
   const commitsHtml = await waitHtml("document.querySelector('.commits-page .commit-row')");
+  const commitsCopyFailure = await checkCopyFailure(".commits-page .commit-copy-button:not(:disabled)");
   await captureOutboundLinks('Commits', ['.commit-meta-repo a.card-repo', '.commit-ref-chip a']);
   await captureTitleLinkHitTarget("commits row", ".commits-page .commit-message-link[href]", ".commit-row-body");
   const commitsLinkDecoration = [];
@@ -10328,6 +10373,10 @@ try {
     [has(settingsConfigHtml, "config-add-source") && has(settingsConfigHtml, "config-save-button"), "config: add-source form and explicit save render"],
     // page 5: the settings repo filter renders its checkboxes + count
 	    [has(settingsHtml, "settings-page"), "settings: page rendered"],
+    ...[["Activity", activityCopyFailure], ["Commits", commitsCopyFailure]].map(([page, result]) => [
+      result.present && result.failures?.length === 2 && result.failures.every((failure) => !failure.copied) && result.rejections?.length === 0 && result.success,
+      `${page}: legacy and async clipboard refusals stay handled without copied feedback; success still copies (${JSON.stringify(result)})`,
+    ]),
     [settingsVersion.present && settingsVersion.version === expectedClientVersion && /^[a-f0-9]{7}$/i.test(settingsVersion.build) && settingsVersion.backendUnavailable, "settings: embedded client release version/build and separate unavailable backend render"],
     [settingsVersion.copied === `Client (${STANDALONE_SMOKE ? "Standalone" : "Web"}): ${expectedClientVersion}\nBuild: ${settingsVersion.build}\nBackend: Unavailable` && settingsVersion.success === "Copied", "settings: Copy version writes only surface, version and build"],
     [settingsVersion.failure?.startsWith("Copy failed."), "settings: clipboard rejection offers manual copy without claiming success"],
