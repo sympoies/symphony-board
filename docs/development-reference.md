@@ -145,7 +145,9 @@ pnpm desktop:build
 pnpm desktop-standalone:build
 ```
 
-Desktop release packaging (host architecture unless `--target` is provided):
+Desktop release packaging supports only Apple Silicon (`aarch64-apple-darwin`).
+Omitting `--target` detects the Rust host target; Intel macOS and other targets
+are rejected:
 
 ```sh
 scripts/package-desktop-release.sh --out-dir dist/release

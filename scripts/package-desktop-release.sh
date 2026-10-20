@@ -11,8 +11,8 @@ Usage:
 Options:
   --version VERSION      Release version, with or without leading v.
                          Defaults to package.json version.
-  --target TRIPLE        Optional Rust target triple, for example
-                         aarch64-apple-darwin or x86_64-apple-darwin.
+  --target TRIPLE        Rust target triple: aarch64-apple-darwin only.
+                         Defaults to the Apple Silicon host target.
   --out-dir DIR          Output directory. Defaults to dist/release.
   --skip-build           Package already-built app bundles.
   -h, --help             Show this help.
@@ -50,21 +50,17 @@ target_label() {
     aarch64-apple-darwin)
       printf '%s\n' "macos-arm64"
       ;;
-    x86_64-apple-darwin)
-      printf '%s\n' "macos-x64"
-      ;;
     "")
-      local host arch
+      local host
+      need_command rustc
       host="$(rustc -vV | awk '/^host:/ {print $2}')"
       case "$host" in
-        aarch64-apple-darwin) arch="macos-arm64" ;;
-        x86_64-apple-darwin) arch="macos-x64" ;;
-        *) arch="${host:-macos}" ;;
+        aarch64-apple-darwin) printf '%s\n' "macos-arm64" ;;
+        *) die "unsupported host '${host:-unknown}': only aarch64-apple-darwin is supported" ;;
       esac
-      printf '%s\n' "$arch"
       ;;
     *)
-      printf '%s\n' "$1" | tr -c 'A-Za-z0-9._-' '-'
+      die "unsupported target '$1': only aarch64-apple-darwin is supported"
       ;;
   esac
 }
@@ -139,6 +135,8 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" ||
   die "current directory is not inside a git work tree"
 cd "$repo_root"
 
+label="$(target_label "$target")"
+
 need_command ditto
 need_command git
 need_command jq
@@ -166,7 +164,6 @@ else
   version="$(normalize_version "$(package_version)")"
 fi
 
-label="$(target_label "$target")"
 mkdir -p "$out_dir"
 
 info "version=$version"
