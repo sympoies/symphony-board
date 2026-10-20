@@ -1192,6 +1192,8 @@ const chrome = spawn(
   chromeBinary(),
   [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
+    // The hover probes exercise a desktop pointer, including on headless Linux.
+    "--blink-settings=primaryHoverType=2,availableHoverTypes=2",
     `--user-data-dir=${userDataDir}`,
     `--remote-debugging-port=${CDP_PORT}`, "--remote-allow-origins=*",
     "about:blank",

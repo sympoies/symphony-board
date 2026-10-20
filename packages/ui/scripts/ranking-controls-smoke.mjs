@@ -85,6 +85,9 @@ const profile = await mkdtemp("/tmp/sb-w-");
 const chromeBin = process.env.CHROME_BIN ?? (platform() === "darwin"
   ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
 const chrome = spawn(chromeBin, ["--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
+  // Headless Linux may report no pointer; start with a desktop hover device.
+  // Touch emulation below overrides that capability for the mixed-input checks.
+  "--blink-settings=primaryHoverType=2,availableHoverTypes=2",
   `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"], {
   env: { ...process.env, TMPDIR: profile, TMP: profile, TEMP: profile }, stdio: ["ignore", "ignore", "inherit"],
 });
@@ -171,6 +174,91 @@ try {
       }
       assert.ok(ready, `${page} ${width}: fixture must render: ${await evaluate(() => location.hash + " " + document.body.innerText.slice(0, 500))} errors=${JSON.stringify(errors)}`);
       await sleep(150);
+      if (page === "commits" && width === 1512) {
+        const point = await evaluate(() => {
+          document.activeElement.blur();
+          const row = document.querySelector('.live-rank-item:has(.live-rank-item-action)');
+          row.id = 'tooltip-mouse-row';
+          row.scrollIntoView({ block: 'center' });
+          const r = row.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
+        await sleep(120);
+        assert.equal(await evaluate(() => getComputedStyle(document.querySelector('#tooltip-mouse-row .rank-name-tip')).visibility), 'visible', `${page}: desktop mouse hover opens the name tooltip`);
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 10 });
+        const dismissed = await evaluate(async () => {
+          const tip = document.querySelector('#tooltip-mouse-row .rank-name-tip');
+          for (let i = 0; i < 20; i++) {
+            if (getComputedStyle(tip).visibility === 'hidden') return true;
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          return false;
+        });
+        assert.equal(dismissed, true, `${page}: leaving desktop hover dismisses the name tooltip`);
+      }
+      if (page === "commits" && width === 412) {
+        // Touch can leave :hover latched even after keyboard focus leaves a row.
+        // Exercise the real rank actions and provider links, without navigation.
+        await send("Emulation.setTouchEmulationEnabled", { enabled: true });
+        assert.equal(await evaluate(() => matchMedia("(hover: none)").matches), true, "touch emulation has no hover-capable primary pointer");
+        const point = await evaluate(() => {
+          const title = 'Top branches';
+          const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === title);
+          const rows = [...block.querySelectorAll('.live-rank-item')];
+          rows[0].id = 'tooltip-touch-first';
+          rows[1].id = 'tooltip-touch-next';
+          const action = rows[0].querySelector('.live-rank-item-action');
+          action.scrollIntoView({ block: 'center' });
+          const r = action.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+        await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await sleep(150);
+        const inspectTips = () => evaluate(() => {
+          const first = document.querySelector('#tooltip-touch-first');
+          const next = document.querySelector('#tooltip-touch-next');
+          const visible = row => getComputedStyle(row.querySelector('.rank-name-tip')).visibility === 'visible';
+          return { first: visible(first), next: visible(next), stickyHover: first.matches(':hover'),
+            firstFocused: first.contains(document.activeElement), nextFocused: next.contains(document.activeElement),
+            selected: first.querySelector('button').getAttribute('aria-pressed'),
+            providerFocused: document.activeElement.matches('a.external-link') };
+        });
+        assert.equal((await inspectTips()).selected, 'true', 'touch selects the branch');
+        // Move through the row and its provider link just as an attached keyboard does.
+        const tab = async (shift = false) => {
+          await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0 });
+          await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0 });
+          await sleep(120);
+        };
+        await tab();
+        assert.equal((await inspectTips()).first, true, 'the touched branch tooltip remains visible within the row');
+        assert.equal((await inspectTips()).providerFocused, true, `Tab reaches the provider link: ${JSON.stringify(await inspectTips())}`);
+        await tab();
+        await tab();
+        const moved = await inspectTips();
+        assert.equal(moved.stickyHover, true, "touch leaves hover latched after keyboard focus moves");
+        assert.equal(moved.nextFocused, true, 'Tab moves to the adjacent branch');
+        assert.equal(moved.next, true, 'the adjacent branch tooltip opens on keyboard focus');
+        if (out) {
+          const png = await send("Page.captureScreenshot", { format: "png" });
+          await writeFile(join(out, `${page}-rank-tooltip-touch-keyboard.png`), Buffer.from(png.data, "base64"));
+        }
+        assert.equal(moved.first, false, `the previous tooltip dismisses after mixed touch and keyboard focus: ${JSON.stringify(moved)}`);
+        await tab(true);
+        await tab(true);
+        const returned = await inspectTips();
+        assert.equal(returned.firstFocused, true, 'Shift+Tab returns to the original branch');
+        assert.equal(returned.first, true, 'returning focus reopens the original tooltip');
+        assert.equal(returned.next, false, 'returning focus dismisses the adjacent tooltip');
+        await evaluate(() => {
+          document.activeElement.blur();
+          document.querySelector('#tooltip-touch-first .live-rank-item-action').click();
+        });
+        await sleep(150);
+        await send("Emulation.setTouchEmulationEnabled", { enabled: false });
+      }
       if (out && page === "commits" && [1512, 412].includes(width)) {
         const png = await send("Page.captureScreenshot", { format: "png" });
         await writeFile(join(out, `commits-${width}.png`), Buffer.from(png.data, "base64"));
