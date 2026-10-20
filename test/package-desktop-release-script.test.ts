@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, cpSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -38,9 +38,8 @@ function writeReleaseAppVersions(dir: string, version: string): void {
 }
 
 // package-desktop-release.sh `need_command`s these before building. None is
-// actually invoked in these tests — the tag-vs-package guard dies first, and on
-// a matching tag the run dies at the missing-bundle check before any of them run
-// — but they must exist on PATH for the script to get that far.
+// invoked by the version-gate tests, which stop before packaging. The target
+// and asset tests replace individual stubs to exercise host detection and archives.
 const STUB_COMMANDS = ["ditto", "rustc", "shasum", "pnpm"];
 
 function fixtureRepo(version = "1.2.3"): string {
@@ -104,3 +103,46 @@ test("package lets a --version matching package.json past the version gate", () 
   assert.doesNotMatch(result.stderr, /does not match package\.json/);
   assert.match(result.stderr, /expected app bundle missing/);
 });
+
+for (const target of ["x86_64-apple-darwin", "aarch64-unknown-linux-gnu"]) {
+  test(`package rejects unsupported explicit target ${target}`, () => {
+    const result = runPackage(fixtureRepo(), ["--target", target, "--skip-build"]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unsupported target.*only aarch64-apple-darwin is supported/);
+    assert.doesNotMatch(result.stderr, /expected app bundle missing/);
+  });
+}
+
+for (const host of ["x86_64-apple-darwin", "aarch64-unknown-linux-gnu"]) {
+  test(`package rejects unsupported detected host ${host}`, () => {
+    const cwd = fixtureRepo();
+    writeFileSync(join(cwd, "bin", "rustc"), `#!/bin/sh\nprintf 'host: ${host}\\n'\n`);
+    const result = runPackage(cwd, ["--skip-build"]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unsupported host.*only aarch64-apple-darwin is supported/);
+  });
+}
+
+for (const explicit of [true, false]) {
+  test(`package preserves arm64 assets with ${explicit ? "explicit target" : "host autodetection"}`, () => {
+    const cwd = fixtureRepo();
+    writeFileSync(join(cwd, "bin", "rustc"), "#!/bin/sh\nprintf 'host: aarch64-apple-darwin\\n'\n");
+    // Record the ditto invocation in place of creating a real macOS archive.
+    writeFileSync(join(cwd, "bin", "ditto"), '#!/bin/sh\nlast=""\nfor arg do previous="$last"; last="$arg"; done\nprintf "%s\\n" "$previous" > "$last"\n');
+    writeFileSync(join(cwd, "bin", "shasum"), '#!/bin/sh\nprintf "%s\\n" "$*"\n');
+    const targetDir = explicit ? "target/aarch64-apple-darwin/release" : "target/release";
+    for (const [pkg, name] of [["desktop", "Symphony Board"], ["desktop-standalone", "Symphony Board Standalone"]] as const) {
+      mkdirSync(join(cwd, "packages", pkg, "src-tauri", targetDir, "bundle/macos", `${name}.app`), { recursive: true });
+    }
+    const result = runPackage(cwd, ["--skip-build", ...(explicit ? ["--target", "aarch64-apple-darwin"] : [])]);
+    assert.equal(result.status, 0, result.stderr);
+    const thin = "Symphony-Board-v1.2.3-macos-arm64-unsigned.zip";
+    const standalone = "Symphony-Board-Standalone-v1.2.3-macos-arm64-unsigned.zip";
+    const sums = "SHA256SUMS-v1.2.3-macos-arm64.txt";
+    const out = join(cwd, "dist/release");
+    assert.deepEqual(readdirSync(out).sort(), [thin, standalone, sums].sort());
+    assert.equal(readFileSync(join(out, thin), "utf8"), `packages/desktop/src-tauri/${targetDir}/bundle/macos/Symphony Board.app\n`);
+    assert.equal(readFileSync(join(out, standalone), "utf8"), `packages/desktop-standalone/src-tauri/${targetDir}/bundle/macos/Symphony Board Standalone.app\n`);
+    assert.equal(readFileSync(join(out, sums), "utf8"), `-a 256 ${thin} ${standalone}\n`);
+  });
+}
