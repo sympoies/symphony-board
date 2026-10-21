@@ -888,7 +888,7 @@ The contract projects these rows as `commit_file_stats` (4.9.0): per
 repository, coverage plus the most-changed files and directories of the
 emitted commit window, each with the sha prefixes of the commits that touched
 it. It is an aggregate because per-commit file lists on `activities[]` would
-multiply the payload; see `docs/CONTRACT.md`, Commit File Stats. The key is
+multiply the payload; see [Commit File Stats](contract-activities-reference.md#commit-file-stats). The key is
 left out when the deployment collects nothing — no enabled source runs the
 pass and the store holds no file rows for the window — so a consumer can tell
 "not collected" from "not reached yet".
