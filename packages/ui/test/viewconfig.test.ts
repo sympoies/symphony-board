@@ -485,19 +485,22 @@ test("rangeViewFor: only Commits on a range projection asks for the slim view, u
   assert.equal(rangeViewFor("commits", true, true), undefined, "a latched full envelope is not downgraded");
   assert.equal(rangeViewFor("commits", false, false), undefined, "the static contract.json fast-path has no views");
   assert.equal(rangeViewFor("commits", false, true, "full"), undefined, "a complete env that is already loaded is kept");
-  for (const page of ["items", "board", "graph", "activity", "reviews", "repo-analytics", "settings"]) {
+  for (const page of ["items", "board", "graph", "activity", "reviews", "repo-analytics"]) {
     assert.equal(rangeViewFor(page, false, true, "commits"), undefined, `${page} requests the complete shape`);
   }
   assert.equal(rangeViewFor("live", false, true, "commits"), "commits", "Live keeps a loaded slim view rather than forcing a reload");
   assert.equal(rangeViewFor("live", false, true, "full"), undefined, "Live keeps a loaded complete env");
   assert.equal(rangeViewFor("live", false, true), undefined, "Live asks for nothing slim before any env exists");
   assert.equal(rangeViewFor("live", true, true, "commits"), undefined, "a latched session never keeps the slim view");
+  assert.equal(rangeViewFor("settings", false, true, "commits"), "commits", "Commits -> Settings keeps the slim view: no full-range refetch");
+  assert.equal(rangeViewFor("settings", false, true, "full"), undefined, "Settings keeps a loaded complete env");
 });
 
-test("pageNeedsFullRange: Commits and Live do not read the complete range envelope", () => {
+test("pageNeedsFullRange: Commits, Live and Settings do not read the complete range envelope", () => {
   assert.equal(pageNeedsFullRange("commits"), false);
   assert.equal(pageNeedsFullRange("live"), false);
-  for (const page of ["items", "board", "graph", "activity", "reviews", "repo-analytics", "settings"]) {
+  assert.equal(pageNeedsFullRange("settings"), false);
+  for (const page of ["items", "board", "graph", "activity", "reviews", "repo-analytics"]) {
     assert.equal(pageNeedsFullRange(page), true, page);
   }
 });
