@@ -1783,6 +1783,11 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (max-width: 1211px) {
   .activity-layout { grid-template-columns: minmax(0, 720px); }
   .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
+  /* One column: the overview and the rail have no list beside them to follow,
+     and a sticky one slid over the column above it as the page scrolled. They
+     scroll with the page, in their own bands. */
+  .commits-split > .commits-context,
+  .commits-split > .commits-rail { position: static; }
 }
 /* Between the split floor and the third-column tier, Commits keeps the two-pane
    shape it has always had here: the list at its reading measure, and the
