@@ -4240,6 +4240,30 @@ try {
     })()`,
     returnByValue: true,
   })).result.value || {};
+  // The phone page is one column that scrolls with the document: the list, the
+  // overview and the rail must stay in their own bands at every scroll offset.
+  // Sticky columns (meant for the side-by-side tiers) slid over each other.
+  const commitsPhoneScroll = (await send("Runtime.evaluate", {
+    expression: `new Promise(async (resolve) => {
+      const columns = ['.commit-list', '.commits-context', '.commits-rail'];
+      const band = (el) => { const r = el.getBoundingClientRect(); return { top: r.top + scrollY, bottom: r.bottom + scrollY }; };
+      const nodes = columns.map((selector) => document.querySelector('.commits-split > ' + selector));
+      const range = document.documentElement.scrollHeight - innerHeight;
+      const offsets = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(range * f));
+      let overlaps = 0;
+      for (const offset of offsets) {
+        scrollTo(0, offset);
+        await new Promise((r) => setTimeout(r, 60));
+        const bands = nodes.map((el) => el && band(el));
+        if (bands.some((b) => !b)) { overlaps = -1; break; }
+        for (let i = 1; i < bands.length; i++) if (bands[i].top < bands[i - 1].bottom - 1) overlaps++;
+      }
+      scrollTo(0, 0);
+      resolve({ present: nodes.every(Boolean), scrollable: range > innerHeight / 2, overlaps, sticky: nodes.slice(1).map((el) => el && getComputedStyle(el).position) });
+    })`,
+    awaitPromise: true,
+    returnByValue: true,
+  })).result.value || {};
   // The system/browser Back must close a phone reader before leaving Commits.
   await send("Runtime.evaluate", { expression: "document.querySelector('.commit-list .commit-row')?.click()" });
   await waitValue("location.hash.includes('commitDetail=1') && document.querySelector('.commits-split')?.dataset.mobileDetailOpen === 'true' ? true : null");
@@ -10401,6 +10425,7 @@ try {
     [commitDetailRhythm.measured === true && commitDetailRhythm.gapBeforeBody >= 8 && commitDetailRhythm.metaTighterThanBody === true, `commits: the detail body panel is separated from the meta list (${JSON.stringify(commitDetailRhythm)})`],
     [commitFilesRail.enabled === true && commitFilesRail.isRailBlock === true && commitFilesRail.isFirstBlock === true && commitFilesRail.title === "Changed files" && commitFilesRail.inDetail === false && commitFilesRail.detailStillRenders === true, `commits: changed files lead the digest rail when enabled (${JSON.stringify(commitFilesRail)})`],
     [commitsCompactSplits.every(r => r.targetSha && r.filtersCollapsed && r.opened && r.fits && r.independentScroll && r.sha.includes(r.targetSha) && r.filesMounted && r.noHorizontalOverflow && r.overlayClosed && r.closed), `commits: foldable list/detail split and filter collapse (${JSON.stringify(commitsCompactSplits)})`],
+    [commitsPhoneScroll.present === true && commitsPhoneScroll.scrollable === true && commitsPhoneScroll.overlaps === 0, `commits: phone columns scroll with the page without overlapping (${JSON.stringify(commitsPhoneScroll)})`],
     [commitsMobileBeforeTap.selected === true && commitsMobileBeforeTap.overlayOpen === false && commitsMobileBeforeTap.targetSha !== "" && commitsMobileDetail.open === true && commitsMobileDetail.fixed === true && commitsMobileDetail.selectedIsTappedRow === true && commitsMobileDetail.selectedRows === 1 && commitsMobileDetail.detailSha.startsWith(commitsMobileBeforeTap.targetSha) && commitsMobileDetail.detailVisible === true && commitsMobileDetail.filesMounted === true && commitsMobileDetail.filesHiddenOnInfo === true && commitsMobileDetail.listHidden === true && commitsMobileDetail.overviewHidden === true && commitsMobileDetail.backLabel.includes("commits") && commitsMobileDetail.noHorizontalOverflow === true && commitsMobileWide.overlayClosed === true && commitsMobileWide.dialogRemoved === true && commitsMobileWide.detailVisible === true && commitsMobilePortraitReturn.closed === true && commitsMobilePortraitReturn.rowPresent === true && commitsMobileAfterBack.closed === true && commitsMobileAfterBack.listVisible === true && commitsMobileAfterBack.detailClosed === true && commitsMobileAfterBack.selectedRows === 0, `commits: phone detail opens for the tapped commit, handles rotation, then returns to the list (${JSON.stringify({ before: commitsMobileBeforeTap, open: commitsMobileDetail, wide: commitsMobileWide, portrait: commitsMobilePortraitReturn, back: commitsMobileAfterBack })})`],
     [commitFilesTree.rendered === true && commitFilesTree.rows === 11 && commitFilesTree.lines >= 17 && commitFilesTree.clipped === false && commitFilesTree.maxHeight === "none" && commitFilesTree.treeBeforeList === true && commitFilesTree.totalLast === true && commitFilesTree.summary === "11 directories, 11 files", `commits: the changed-files tree renders whole above the rows (${JSON.stringify(commitFilesTree)})`],
     [selectionSurfaces.length === 5 && selectionSurfaces.every(s => s.found && s.themes.length === 2 && s.themes.every(t => t.matches && t.wrapperClear)), `selection: content lists share quiet card surfaces in both themes, without virtual-row shading (${JSON.stringify(selectionSurfaces)})`],
