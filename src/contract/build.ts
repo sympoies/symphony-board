@@ -28,6 +28,7 @@ import type {
   ItemWindowDTO,
   ItemWindowReason,
   TimeRangeDTO,
+  RangeViewDTO,
   ItemState,
   ReviewState,
   CiState,
@@ -1701,15 +1702,38 @@ export interface RepoActivityBounds {
 
 export interface BuildRangeInput extends BuildInput {
   range: TimeRangeDTO;
+  // Opt-in slimmer projection (`GET /api/range?view=`). Absent = the complete
+  // range shape every existing client already consumes.
+  view?: RangeViewDTO;
   // Optional all-time coverage bounds (see RepoActivityBounds). When present,
   // repo_metrics coverage uses these instead of the range-bounded activities.
   repoActivityBounds?: RepoActivityBounds[];
+}
+
+// The `commits` view: the commit rows plus only the items they name as their
+// change request (what the Commits page resolves a row's PR/MR chip against),
+// without their bodies, which only the Items detail reads. Every other activity
+// kind, the edges, and the review threads are the bulk of a long range and are
+// not read there, so they are not emitted. Aggregates are computed by the caller
+// from the unprojected rows, so they still reconcile.
+function commitsViewRows(ranged: { items: ItemDTO[]; activities: ActivityDTO[] }): { items: ItemDTO[]; activities: ActivityDTO[] } {
+  const activities = ranged.activities.filter((activity) => activity.kind === "commit");
+  const changeRequestRefs = new Set<string>();
+  for (const activity of activities) {
+    const ref = commitChangeRequestRef(activity);
+    if (ref) changeRequestRefs.add(ref);
+  }
+  const items = ranged.items
+    .filter((item) => changeRequestRefs.has(item.id))
+    .map(({ body: _body, ...rest }) => rest);
+  return { activities, items };
 }
 
 export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
   const mapped = mapRows(input);
   const sourcesById = sourceLinkMap(input.sources);
   const ranged = buildRangeProjection(mapped.items, mapped.edges, mapped.activities, input.range);
+  const emitted = input.view === "commits" ? { ...commitsViewRows(ranged), edges: [] as EdgeDTO[] } : ranged;
   const actorKeys = activityActorKeyMap(input.activities);
   const identityMatchers = buildIdentityMatchers(input.identities);
   const actorExcludes = compileActorExcludes(input.excludeActors);
@@ -1732,10 +1756,10 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     generator: GENERATOR,
     timezone,
     sources: mapped.sources,
-    items: ranged.items,
-    edges: ranged.edges,
-    activities: ranged.activities,
-    review_threads: reviewThreadsForItems(mapped.reviewThreads, ranged.items),
+    items: emitted.items,
+    edges: emitted.edges,
+    activities: emitted.activities,
+    review_threads: input.view === "commits" ? [] : reviewThreadsForItems(mapped.reviewThreads, ranged.items),
     // activity_daily over the projected in-range activities (the SAME set emitted
     // as `activities`, so the Overview totals reconcile), so a client that loads a
     // windowed range AS its primary env still gets the Activity Overview / trend
@@ -1751,6 +1775,6 @@ export function buildRangeContract(input: BuildRangeInput): ContractEnvelope {
     item_window: ranged.itemWindow,
     repo_stats: buildRepoStats(mapped.items),
     repo_metrics: buildRepoMetrics(mapped.items, mapped.edges, mapped.activities, repoMetricWindow, sourcesById, actorKeys, identityMatchers, actorExcludes, input.timezone ?? "UTC", coverageBounds, configuredRepoKeys),
-    range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to },
+    range_query: { kind: "time_range", timezone, from: input.range.from, to: input.range.to, ...(input.view ? { view: input.view } : {}) },
   };
 }

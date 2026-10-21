@@ -3,7 +3,7 @@
 // accepts (it does not re-validate — producers validate strictly; see
 // docs/CONTRACT.md). Types come from @symphony-board/contract.
 
-import type { ContractEnvelope, ActivityDailyDTO } from "@symphony-board/contract";
+import type { ContractEnvelope, ActivityDailyDTO, RangeViewDTO } from "@symphony-board/contract";
 import type { TimeRange, SyncControlInfo, SyncRunStatus, SyncRunRequest, ConfigControlInfo, ConfigDocument, SecretsInfo, StoreStats, DaemonLogsInfo, TokenRateLimitsInfo, ServerCapabilities, LiveSnapshot, GraphNeighborhoodResponse, GraphFocusScope } from "./model.ts";
 import { GRAPH_FOCUS_MAX_DEPTH } from "./model.ts";
 import { appFetch } from "./runtime.ts";
@@ -562,8 +562,8 @@ export function parseContractWithMetadata(text: string, url = "uploaded contract
   };
 }
 
-export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<ContractEnvelope> {
-  return (await fetchRangeContractWithMetadata(range, serverBaseUrl, opts)).env;
+export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}, view?: RangeViewDTO): Promise<ContractEnvelope> {
+  return (await fetchRangeContractWithMetadata(range, serverBaseUrl, opts, view)).env;
 }
 
 // The metadata-carrying range fetch. A mobile client whose board-scope is a time
@@ -571,8 +571,12 @@ export async function fetchRangeContract(range: TimeRange, serverBaseUrl: string
 // needs the same LoadedContract shape (env + load metadata for Diagnostics) the
 // full loader returns. Reuses the same resilient loader (timeouts/retries), so
 // the Android per-attempt ceiling applies here too.
-export async function fetchRangeContractWithMetadata(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}): Promise<LoadedContract> {
+//
+// `view` opts into a slimmer server projection (see RangeViewDTO). Omitted, the
+// request is byte-identical to what older clients send.
+export async function fetchRangeContractWithMetadata(range: TimeRange, serverBaseUrl: string | null = loadServerBaseUrl(), opts: ContractLoadOptions = {}, view?: RangeViewDTO): Promise<LoadedContract> {
   const params = new URLSearchParams({ from: range.from, to: range.to });
+  if (view) params.set("view", view);
   return fetchContractWithMetadata(`./api/range?${params.toString()}`, serverBaseUrl, currentClientKind(), opts);
 }
 

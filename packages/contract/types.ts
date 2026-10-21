@@ -55,6 +55,11 @@ export interface TimeRangeDTO {
   to: string;
 }
 
+// Opt-in `/api/range` projections. Absent means the complete range shape.
+// "commits" keeps the commit rows and the change requests they name and drops
+// the other activity kinds, edges, and review threads (added in 4.11.0).
+export type RangeViewDTO = "commits";
+
 export interface RangeQueryDTO extends TimeRangeDTO {
   kind: "time_range";
   // The IANA timezone the producer used to bucket calendar days (e.g. "UTC" or
@@ -62,6 +67,9 @@ export interface RangeQueryDTO extends TimeRangeDTO {
   // "UTC" in 3.1.0 — the same value as the envelope-level `timezone`. The `from`
   // and `to` instants below are already expanded at this zone's day boundaries.
   timezone: string;
+  // Present only when the request asked for a slimmer projection (`?view=`).
+  // Consumers that did not ask never see it.
+  view?: RangeViewDTO;
 }
 
 export interface AggregateStatsDTO {

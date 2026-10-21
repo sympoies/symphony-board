@@ -70,7 +70,7 @@ for (const seeded of [false, true]) {
     try {
       await entered.promise;
       const intermediate = readContract(path);
-      assert.equal(intermediate.contract_version, "4.10.0");
+      assert.equal(intermediate.contract_version, "4.11.0");
       assert.deepEqual(intermediate.sync_run, {
         mode: "full", source_scope: null, status: "running",
         sources: [{ source_id: github, status: "ok" }, { source_id: gitlab, status: "pending" }],

@@ -24,7 +24,7 @@
 import { gzipSync, gunzipSync, strToU8, strFromU8 } from "fflate";
 import { majorOf, SUPPORTED_MAJOR, isContractEnvelopeShape } from "./contract.ts";
 import { currentClientKind, ANDROID_CLIENT_KIND } from "./viewconfig.ts";
-import type { ContractEnvelope } from "@symphony-board/contract";
+import type { ContractEnvelope, RangeViewDTO } from "@symphony-board/contract";
 
 const CACHE_KEY = "symphony-board:contract-cache";
 // AppLocalData filename for the native-FS backend (Android). A flat filename, not
@@ -36,6 +36,14 @@ const CACHE_FILE = "contract-cache.json";
 // immediately on every launch, so a generous window is safe; a week balances
 // "instant repeat launches" against "do not surface week-old data as if live".
 export const CONTRACT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Largest decoded envelope the cache will hold or read back. The cache is a
+// cold-start accelerator, and persisting or reloading it costs another full copy
+// of the envelope (stringify + IPC on the write, read + JSON.parse on the load)
+// next to the live one -- on a phone that second copy is what tips a ~40MB
+// range response into an OS low-memory kill. Anything larger is simply not
+// cached; a smaller slimmed response (`view=commits`) still is.
+export const CONTRACT_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 
 // Minimal async key/value store. The default impl wraps localStorage (gzip-
 // compressed); tests inject an in-memory fake so the load/save logic runs
@@ -54,7 +62,8 @@ interface ContractCacheEntry {
   // a range-agnostic entry (legacy / callers that pass no range). Compared by
   // value, so a revisit on the same landing range still paints instantly.
   range?: { from: string; to: string } | null;
-  env: ContractEnvelope;
+  // null when the loaded env was over CONTRACT_CACHE_MAX_BYTES (see save).
+  env: ContractEnvelope | null;
 }
 
 function sameRangeKey(a: { from: string; to: string } | null | undefined, b: { from: string; to: string } | null | undefined): boolean {
@@ -62,6 +71,13 @@ function sameRangeKey(a: { from: string; to: string } | null | undefined, b: { f
   const y = b ?? null;
   if (x === null || y === null) return x === y;
   return x.from === y.from && x.to === y.to;
+}
+
+// Whether an env loaded with `have` can stand in for a request for `want`. The
+// complete shape (undefined) is a superset of every view, so it satisfies any
+// request; a view only satisfies a request for that same view.
+export function viewSatisfies(have: RangeViewDTO | undefined, want: RangeViewDTO | undefined): boolean {
+  return have === undefined || have === want;
 }
 
 // A stale contract is only safe to paint if its major matches what this build
@@ -136,7 +152,12 @@ function tauriFsKv(): AsyncKV {
     async get() {
       const { readTextFile, exists, BaseDirectory } = await import("@tauri-apps/plugin-fs");
       if (!(await exists(CACHE_FILE, { baseDir: BaseDirectory.AppLocalData }))) return undefined;
-      return JSON.parse(await readTextFile(CACHE_FILE, { baseDir: BaseDirectory.AppLocalData }));
+      const text = await readTextFile(CACHE_FILE, { baseDir: BaseDirectory.AppLocalData });
+      // An entry an older build wrote can be larger than we now allow; do not
+      // pay the parse (a second full object graph) for a payload we would
+      // rather refetch. Reads as a miss.
+      if (text.length > CONTRACT_CACHE_MAX_BYTES) return undefined;
+      return JSON.parse(text);
     },
     async set(_key, val) {
       const { writeTextFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
@@ -159,7 +180,7 @@ function defaultKv(): AsyncKV | null {
 // injectable for tests; never throws.
 export async function loadCachedContract(
   serverBaseUrl: string | null,
-  opts: { kv?: AsyncKV; now?: number; range?: { from: string; to: string } | null } = {},
+  opts: { kv?: AsyncKV; now?: number; range?: { from: string; to: string } | null; view?: RangeViewDTO } = {},
 ): Promise<ContractEnvelope | null> {
   const kv = opts.kv ?? defaultKv();
   if (!kv) return null;
@@ -174,7 +195,10 @@ export async function loadCachedContract(
     // Only paint a cached env loaded for the SAME range we are about to load,
     // so a different landing range never flashes the wrong window first (#488).
     if (!sameRangeKey(entry.range, opts.range)) return null;
-    return isSupportedContract(entry.env) ? entry.env : null;
+    if (!isSupportedContract(entry.env)) return null;
+    // A slimmed (view) env must not paint a page that wants the complete shape.
+    if (!viewSatisfies(entry.env.range_query?.view, opts.view)) return null;
+    return entry.env;
   } catch {
     return null;
   }
@@ -186,13 +210,18 @@ export async function loadCachedContract(
 export async function saveCachedContract(
   serverBaseUrl: string | null,
   env: ContractEnvelope,
-  opts: { kv?: AsyncKV; now?: number; range?: { from: string; to: string } | null } = {},
+  opts: { kv?: AsyncKV; now?: number; range?: { from: string; to: string } | null; bytes?: number } = {},
 ): Promise<void> {
   const kv = opts.kv ?? defaultKv();
   if (!kv) return;
   const now = opts.now ?? Date.now();
   try {
-    const entry: ContractCacheEntry = { serverBaseUrl: serverBaseUrl ?? null, cachedAt: now, range: opts.range ?? null, env };
+    // `bytes` is the decoded size the loader already measured. Over the cap the
+    // env is not serialized at all; the slot is overwritten with an env-less
+    // entry so a smaller earlier cache cannot linger as a stale paint, and an
+    // older build's oversized file is replaced by something tiny.
+    const tooLarge = opts.bytes !== undefined && opts.bytes > CONTRACT_CACHE_MAX_BYTES;
+    const entry: ContractCacheEntry = { serverBaseUrl: serverBaseUrl ?? null, cachedAt: now, range: opts.range ?? null, env: tooLarge ? null : env };
     await kv.set(CACHE_KEY, entry);
   } catch {
     /* storage unavailable / over quota — the cache just won't persist this time */

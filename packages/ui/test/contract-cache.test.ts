@@ -14,6 +14,8 @@ import {
   pickColdStartEnv,
   selectCacheBackend,
   CONTRACT_CACHE_TTL_MS,
+  CONTRACT_CACHE_MAX_BYTES,
+  viewSatisfies,
   type AsyncKV,
 } from "../src/contract-cache.ts";
 import type { ContractEnvelope } from "@symphony-board/contract";
@@ -213,4 +215,34 @@ test("pickColdStartEnv keeps a fetched env and never clobbers it with the cache"
   assert.equal(pickColdStartEnv(fetched, cached), fetched, "an existing (fetched) env wins");
   // No fetch yet -> paint the cached board.
   assert.equal(pickColdStartEnv(null, cached), cached, "a still-empty env is filled from cache");
+});
+
+test("an env over the size cap is not serialized and replaces any earlier entry", async () => {
+  const kv = new FakeKV();
+  const now = 1_000_000;
+  await saveCachedContract("https://srv", env("4.2.0"), { kv, now });
+  assert.ok(await loadCachedContract("https://srv", { kv, now }), "a small env is cached");
+
+  await saveCachedContract("https://srv", env("4.2.0"), { kv, now, bytes: CONTRACT_CACHE_MAX_BYTES + 1 });
+  const stored = kv.m.get("symphony-board:contract-cache") as { env: unknown };
+  assert.equal(stored.env, null, "the oversized env is not handed to the store");
+  assert.equal(await loadCachedContract("https://srv", { kv, now }), null, "no stale earlier paint survives");
+
+  await saveCachedContract("https://srv", env("4.2.0"), { kv, now, bytes: CONTRACT_CACHE_MAX_BYTES });
+  assert.ok(await loadCachedContract("https://srv", { kv, now }), "exactly at the cap is still cached");
+});
+
+test("a slim view env paints only a request for that view; the complete env paints either", async () => {
+  assert.equal(viewSatisfies(undefined, undefined), true);
+  assert.equal(viewSatisfies(undefined, "commits"), true, "complete satisfies a view request");
+  assert.equal(viewSatisfies("commits", "commits"), true);
+  assert.equal(viewSatisfies("commits", undefined), false, "a slim env cannot stand in for the complete one");
+
+  const kv = new FakeKV();
+  const now = 1_000_000;
+  const range = { from: "2026-06-13", to: "2026-06-19" };
+  const slim = env("4.11.0", { range_query: { kind: "time_range", timezone: "UTC", from: "a", to: "b", view: "commits" } });
+  await saveCachedContract("https://srv", slim, { kv, now, range });
+  assert.ok(await loadCachedContract("https://srv", { kv, now, range, view: "commits" }));
+  assert.equal(await loadCachedContract("https://srv", { kv, now, range }), null);
 });

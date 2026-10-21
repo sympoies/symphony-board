@@ -225,3 +225,64 @@ test("range-api degrades then recovers when a previously-valid config breaks mid
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// #870: a long range's cost is every non-commit row the Commits page never
+// reads. `view=commits` is an opt-in slimmer shape; the default response (what
+// every existing client requests) must stay the complete range shape.
+test("range-api view=commits returns a slimmer shape and leaves the default response unchanged", async () => {
+  const { dir, dbPath, opts } = await sandbox();
+  const store = await openSqliteStore(dbPath);
+  const SOURCE = "github:github.com";
+  await store.ensureSource({ sourceId: SOURCE, kind: "github", host: "github.com", displayName: "GitHub" }, "2026-06-01T00:00:00Z");
+  const row = (i: number, kind: "commit" | "comment" | "branch") => ({
+    sourceId: SOURCE,
+    externalId: `${kind}-${i}`,
+    kind,
+    action: kind === "commit" ? "committed" : kind === "comment" ? "commented" : "created",
+    projectPath: "example/repo",
+    targetKind: kind,
+    target: null,
+    targetIid: null,
+    title: `${kind} ${i}`,
+    url: `https://example/${kind}/${i}`,
+    actor: "dev-a",
+    actorKey: `provider-user:${SOURCE}:dev-a`,
+    occurredAt: `2026-06-01T${String(i % 24).padStart(2, "0")}:00:00Z`,
+    summary: `${kind} ${i}`,
+    details: { note: "x".repeat(200) },
+  });
+  for (let i = 0; i < 5; i++) await store.upsertActivity(row(i, "commit"), "2026-06-01T00:00:00Z");
+  for (let i = 0; i < 40; i++) await store.upsertActivity(row(i, "comment"), "2026-06-01T00:00:00Z");
+  for (let i = 0; i < 40; i++) await store.upsertActivity(row(i, "branch"), "2026-06-01T00:00:00Z");
+  await store.close();
+
+  const server = createRangeApiServer(opts);
+  const base = await listen(server);
+  try {
+    const query = "from=2026-06-01&to=2026-06-01";
+    const fullRes = await fetch(`${base}/api/range?${query}`);
+    const fullText = await fullRes.text();
+    const full = JSON.parse(fullText);
+    assert.equal(full.activities.length, 85, "the default response still carries every activity kind");
+    assert.equal(full.range_query.view, undefined, "the default response does not name a view");
+
+    const slimRes = await fetch(`${base}/api/range?${query}&view=commits`);
+    assert.equal(slimRes.status, 200);
+    const slimText = await slimRes.text();
+    const slim = JSON.parse(slimText);
+    assert.equal(slim.range_query.view, "commits");
+    assert.deepEqual([...new Set(slim.activities.map((a: { kind: string }) => a.kind))], ["commit"]);
+    assert.equal(slim.activities.length, 5);
+    assert.deepEqual(slim.edges, []);
+    assert.deepEqual(slim.review_threads, []);
+    assert.equal(slim.activity_daily.total, full.activity_daily.total, "aggregates still describe the whole range");
+    assert.ok(slimText.length * 3 < fullText.length, `commits view (${slimText.length} B) is a fraction of the default (${fullText.length} B)`);
+
+    const bad = await fetch(`${base}/api/range?${query}&view=everything`);
+    assert.equal(bad.status, 400);
+    assert.equal((await json(bad)).error, "bad_request");
+  } finally {
+    await close(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

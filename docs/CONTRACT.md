@@ -11,13 +11,14 @@ Definition files:
 - `src/contract/version.ts`: `CONTRACT_VERSION` and `GENERATOR`
 - `src/contract/validate.ts`: dependency-free producer validator
 
-Current emitted version: `4.10.0`.
+Current emitted version: `4.11.0`.
 
 Major 4 version index (newest first). Each note lives beside the field it
 changes; earlier majors are described inline where their fields are defined.
 
 | Version | Kind | Change | Section |
 | --- | --- | --- | --- |
+| `4.11.0` | additive | optional `range_query.view`; opt-in slim `GET /api/range?view=commits` projection | Range Query |
 | `4.10.0` | additive | optional `sync_run` checkpoint coverage for per-source publication | Sync Checkpoints |
 | `4.9.1` | clarification | `target_ref` / `title` filled on comment rows; any in-range row's target is a range support row | Activities |
 | `4.9.0` | additive | optional top-level `commit_file_stats` | Commit File Stats |
@@ -1200,6 +1201,26 @@ same contract envelope shape, with `range_query` set to:
   zone's day boundary
 - `to`: inclusive timestamp for the selected date's end, expanded at this zone's
   day boundary
+
+Version `4.11.0` added an opt-in `view` query parameter. Omitted, the response
+is the complete range shape described below, byte-for-byte what earlier
+clients receive. `GET /api/range?from=…&to=…&view=commits` returns the same
+envelope with a slimmer projection and `range_query.view: "commits"`:
+
+- `activities[]` keeps only `kind: "commit"` rows.
+- `items[]` keeps only the items those commit rows name in
+  `details.change_request.ref`, without `body`; `item_window` and each item's
+  `window_reasons` still describe the complete range projection.
+- `edges[]` and `review_threads[]` are empty.
+- Everything computed over the range (`activity_daily`, `actor_directory`,
+  `commit_file_stats`, `repo_metrics[]`, `repo_stats[]`, `aggregates[]`) is
+  derived from the complete in-range rows, so it reconciles with the default
+  shape.
+
+An unknown `view` value is a `400`. The Commits page requests this view because
+the other activity kinds, items, and review threads dominate a long range's
+payload and the page never reads them; a page that needs the complete shape
+requests it without `view`.
 
 The range response is a projection, not a second schema:
 

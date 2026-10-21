@@ -143,6 +143,11 @@
           "type": "string",
           "format": "date-time",
           "description": "Inclusive UTC range end."
+        },
+        "view": {
+          "type": "string",
+          "enum": ["commits"],
+          "description": "Optional (added in 4.11.0). Present only when the request asked for a slimmer projection with `?view=`. `commits` keeps commit activities and the change-request items they name (without `body`), and emits empty `edges[]` and `review_threads[]`; the aggregate blocks still describe the whole range."
         }
       }
     },

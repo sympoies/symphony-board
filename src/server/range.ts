@@ -5,7 +5,7 @@
 // never holds a second writable handle.
 
 import type { ServerResponse } from "node:http";
-import type { RepoDTO, TimeRangeDTO, ContractEnvelope } from "@symphony-board/contract";
+import type { RepoDTO, TimeRangeDTO, RangeViewDTO, ContractEnvelope } from "@symphony-board/contract";
 import type { AppConfig } from "../config.ts";
 import { configuredRepoRefs } from "../config.ts";
 import { openConfiguredStoreReadOnly } from "../db/factory.ts";
@@ -52,9 +52,21 @@ export function parseRange(url: URL, tz: string): TimeRangeDTO {
   return { from, to };
 }
 
+// The optional `view` projection. Absent keeps the complete range shape, so an
+// existing client's request is unchanged; an unknown value is a 400 rather than
+// a silent fallback, because a client that asked for a slim shape and got the
+// full one would carry the cost it was trying to avoid.
+export function parseRangeView(url: URL): RangeViewDTO | undefined {
+  const value = url.searchParams.get("view");
+  if (value === null) return undefined;
+  if (value === "commits") return value;
+  throw new Error('view must be "commits" when present');
+}
+
 // Build the range-scoped contract envelope for one GET /api/range request.
 export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractEnvelope> {
   const range = parseRange(url, cfg.timezone ?? "UTC");
+  const view = parseRangeView(url);
   const { sourceColors, repoColors } = configColors(cfg);
   const store = await openConfiguredStoreReadOnly(cfg);
   try {
@@ -81,6 +93,7 @@ export async function rangeEnvelope(cfg: AppConfig, url: URL): Promise<ContractE
       timezone: cfg.timezone,
       configuredRepos: configuredRepoRefs(cfg),
       range,
+      view,
     });
   } finally {
     await store.close();

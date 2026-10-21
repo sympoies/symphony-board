@@ -6,6 +6,7 @@ import {
   parseContract,
   fetchContract,
   fetchContractWithMetadata,
+  fetchRangeContractWithMetadata,
   resolveEndpoint,
   endpointRequiresServerUrl,
   fetchSyncControl,
@@ -429,6 +430,27 @@ test("fetchContractWithMetadata reads X-Encoded-Length when transfer headers are
     assert.equal(loaded.meta.encodedBytesSource, "encoded-length-header");
     assert.equal(loaded.meta.contentEncoding, "gzip");
     assert.equal(loaded.meta.transferBytes, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchRangeContractWithMetadata sends view only when asked, so older request shapes are unchanged", async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    const raw = JSON.stringify({ contract_version: "4.11.0", generated_at: "2026-06-19T00:00:00.000Z", generator: "test", items: [] });
+    const seen: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      seen.push(String(url));
+      return { ok: true, status: 200, url: String(url), headers: new Headers(), text: async () => raw };
+    }) as unknown as typeof fetch;
+    const range = { from: "2026-06-13", to: "2026-06-19" };
+    await fetchRangeContractWithMetadata(range, "https://board.example/app/", { retries: 0 });
+    await fetchRangeContractWithMetadata(range, "https://board.example/app/", { retries: 0 }, "commits");
+    assert.deepEqual(seen, [
+      "https://board.example/app/api/range?from=2026-06-13&to=2026-06-19",
+      "https://board.example/app/api/range?from=2026-06-13&to=2026-06-19&view=commits",
+    ]);
   } finally {
     globalThis.fetch = realFetch;
   }
