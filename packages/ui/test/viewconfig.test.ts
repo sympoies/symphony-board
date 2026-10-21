@@ -17,7 +17,7 @@ import {
   loadBoardScope, saveBoardScope, defaultBoardScope,
   isStaticDeployment, liveControlsDisabled, effectiveLiveTabEnabled, STANDALONE_CLIENT_KIND, isStandaloneClient,
   standaloneBrandClass, loadStandaloneSetupRedirectPending, saveStandaloneSetupRedirectPending,
-  deviceCeilingDays, clampRangeToCeiling, isDefaultWindowRange, usesStaticContractFastPath, defaultRangePresetForClient,
+  deviceCeilingDays, clampRangeToCeiling, isDefaultWindowRange, usesStaticContractFastPath, defaultRangePresetForClient, pageNeedsFullRange, rangeViewFor,
   loadLastContractTimezone, saveLastContractTimezone,
   loadWideLayout, saveWideLayout,
   loadHiddenEventTypes, saveHiddenEventTypes,
@@ -477,6 +477,29 @@ test("usesStaticContractFastPath: the 90d window or a static deploy uses contrac
   assert.equal(usesStaticContractFastPath(def, false, REF_NOW, "UTC"), true, "exact default window -> static");
   assert.equal(usesStaticContractFastPath(week, false, REF_NOW, "UTC"), false, "a sub-window -> dynamic /api/range");
   assert.equal(usesStaticContractFastPath(week, true, REF_NOW, "UTC"), true, "static deploy always -> bundled contract.json");
+});
+
+test("rangeViewFor: only Commits on a range projection asks for the slim view, until a full page latches", () => {
+  assert.equal(rangeViewFor("commits", false, true), "commits");
+  assert.equal(rangeViewFor("commits", false, true, "commits"), "commits");
+  assert.equal(rangeViewFor("commits", true, true), undefined, "a latched full envelope is not downgraded");
+  assert.equal(rangeViewFor("commits", false, false), undefined, "the static contract.json fast-path has no views");
+  assert.equal(rangeViewFor("commits", false, true, "full"), undefined, "a complete env that is already loaded is kept");
+  for (const page of ["items", "board", "graph", "activity", "reviews", "repo-analytics", "settings"]) {
+    assert.equal(rangeViewFor(page, false, true, "commits"), undefined, `${page} requests the complete shape`);
+  }
+  assert.equal(rangeViewFor("live", false, true, "commits"), "commits", "Live keeps a loaded slim view rather than forcing a reload");
+  assert.equal(rangeViewFor("live", false, true, "full"), undefined, "Live keeps a loaded complete env");
+  assert.equal(rangeViewFor("live", false, true), undefined, "Live asks for nothing slim before any env exists");
+  assert.equal(rangeViewFor("live", true, true, "commits"), undefined, "a latched session never keeps the slim view");
+});
+
+test("pageNeedsFullRange: Commits and Live do not read the complete range envelope", () => {
+  assert.equal(pageNeedsFullRange("commits"), false);
+  assert.equal(pageNeedsFullRange("live"), false);
+  for (const page of ["items", "board", "graph", "activity", "reviews", "repo-analytics", "settings"]) {
+    assert.equal(pageNeedsFullRange(page), true, page);
+  }
 });
 
 test("last contract timezone is keyed per server and ignores malformed values", () => {

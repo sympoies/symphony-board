@@ -869,3 +869,58 @@ test("listRepoActivityBounds skips activity rows whose occurred_at does not pars
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("buildRangeContract view=commits keeps commit rows and the change requests they name, and drops the rest", () => {
+  const source: SourceRow = { source_id: "github:github.com", kind: "github", host: "github.com", display_name: "GitHub", last_success_at: null, last_status: "ok" };
+  const items: ItemRow[] = [
+    itemRow({ item_id: 1, external_id: "ISSUE_recent", updated_at: "2026-05-20T00:00:00Z" }),
+    itemRow({ item_id: 2, external_id: "PR_old", kind: "change_request", iid: 2, title: "Old PR", body: "A long description.", state: "merged", state_raw: "MERGED", is_draft: false, created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z", merged_at: "2025-01-02T00:00:00Z" }),
+  ];
+  const edges: EdgeRow[] = [
+    { type: "closes", from_source_id: "github:github.com", from_external_id: "PR_old", to_source_id: "github:github.com", to_external_id: "ISSUE_recent", from_state: "merged", to_state: "open", lifecycle: "declared" },
+  ];
+  const commitWithChangeRequest = activityRow({
+    external_id: "commit-1",
+    kind: "commit",
+    action: "committed",
+    target_kind: "commit",
+    target_source_id: null,
+    target_external_id: null,
+    target_iid: null,
+    occurred_at: "2026-05-21T10:00:00Z",
+    details: JSON.stringify({ sha: "abc", change_request: { ref: "github:github.com|PR_old", iid: 2 } }),
+  });
+  const activities: ActivityRow[] = [
+    commitWithChangeRequest,
+    activityRow({ external_id: "comment-1", kind: "comment", action: "commented", occurred_at: "2026-05-21T11:00:00Z" }),
+  ];
+  const base = {
+    sources: [source],
+    items,
+    labels: [],
+    edges,
+    activities,
+    reviewThreads: [],
+    generatedAt: "2026-06-08T00:00:00Z",
+    range: { from: "2026-05-01T00:00:00.000Z", to: "2026-05-31T23:59:59.999Z" },
+  };
+  const full = buildRangeContract(base);
+  const slim = buildRangeContract({ ...base, view: "commits" });
+
+  assert.deepEqual(full.range_query?.view, undefined, "the default shape does not name a view");
+  assert.equal(full.items.find((it) => it.external_id === "PR_old")?.body, "A long description.", "the default shape keeps item bodies");
+  assert.equal(slim.range_query?.view, "commits");
+  assert.deepEqual(validateContract(slim), []);
+  assert.deepEqual(slim.activities?.map((a) => a.external_id), ["commit-1"]);
+  assert.deepEqual(slim.items.map((it) => it.external_id), ["PR_old"], "only the change request a commit names stays");
+  assert.equal("body" in slim.items[0]!, false, "item bodies are only read by the Items detail");
+  assert.deepEqual(slim.edges, []);
+  assert.deepEqual(slim.review_threads, []);
+  // Aggregates are still computed over the whole in-range set, so the daily
+  // series and the repo roll-ups reconcile with the default shape.
+  assert.deepEqual(slim.activity_daily, full.activity_daily);
+  assert.deepEqual(slim.actor_directory, full.actor_directory);
+  assert.deepEqual(slim.repo_metrics, full.repo_metrics);
+  assert.deepEqual(slim.repo_stats, full.repo_stats);
+  assert.ok(JSON.stringify(slim).length < JSON.stringify(full).length);
+});

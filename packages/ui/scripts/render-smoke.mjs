@@ -140,6 +140,8 @@ let contractRequestCount = 0;
 // static ./contract.json is only the default-90d / static-deploy fast-path), so
 // the refresh assertion below counts range requests, not contract.json hits.
 let rangeRequestCount = 0;
+// Every /api/range URL, in order, so a check can see which projection a page asked for.
+const rangeRequestLog = [];
 // The Commits rail per-file breakdown (see the /api/commit-files stub below).
 let commitFilesRequestCount = 0;
 let commitFilesLastRequestedSha = "";
@@ -723,13 +725,19 @@ function rangeProjection(rawBody, reqUrl) {
     });
   const edgeEndpointItems = items.filter((item) => item.window_reasons.includes("edge_endpoint") && !item.window_reasons.includes("primary")).length;
   const activityTargetItems = items.filter((item) => item.window_reasons.includes("activity_target") && !item.window_reasons.includes("primary")).length;
+  // The producer's opt-in `view=commits` projection (contract 4.11.0): commit
+  // rows and the change requests they name, no other kinds, edges, or threads.
+  const commitsView = url.searchParams.get("view") === "commits";
+  const commitRows = rangedActivities.filter((activity) => activity.kind === "commit");
+  const commitChangeRequestRefs = new Set(commitRows.map((activity) => activity.details?.change_request?.ref).filter(Boolean));
   return {
     status: 200,
     body: JSON.stringify({
       ...env,
-      items,
-      edges: [...selectedEdges.values()],
-      activities: rangedActivities,
+      items: commitsView ? items.filter((item) => commitChangeRequestRefs.has(item.id)) : items,
+      edges: commitsView ? [] : [...selectedEdges.values()],
+      activities: commitsView ? commitRows : rangedActivities,
+      ...(commitsView ? { review_threads: [] } : {}),
       aggregates: [],
       repo_metrics: (env.repo_metrics || []).map((metric) => ({
         ...metric,
@@ -744,7 +752,7 @@ function rangeProjection(rawBody, reqUrl) {
         total_items: env.items.length,
         truncated: true,
       },
-      range_query: { kind: "time_range", timezone: "UTC", from: fromIso, to: toIso },
+      range_query: { kind: "time_range", timezone: "UTC", from: fromIso, to: toIso, ...(commitsView ? { view: "commits" } : {}) },
     }),
   };
 }
@@ -885,6 +893,7 @@ async function handleSmokeRequest(req, res) {
     }
     if (p === "/api/range") {
       rangeRequestCount += 1;
+      rangeRequestLog.push(req.url || "/api/range");
       const delayMs = rangeResponseDelayMs;
       if (delayMs > 0) await sleep(delayMs);
       if (rangeFailOnce) {
@@ -1242,6 +1251,12 @@ try {
       const p = pending.get(m.id);
       pending.delete(m.id);
       m.error ? p.rej(new Error(JSON.stringify(m.error))) : p.res(m.result);
+      return;
+    }
+    // A page left with unsaved edits asks before it unloads, and that dialog
+    // blocks every later CDP call (a navigation included) until it is answered.
+    if (m.method === "Page.javascriptDialogOpening") {
+      void send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
       return;
     }
     if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") {
@@ -1720,6 +1735,29 @@ try {
   // left covering a usable app: the "frozen / blank" regression).
   const bootSplashServed = (await readFile(join(DIST, "index.html"), "utf8")).includes('id="boot-splash"');
   const bootSplashRemoved = await waitValue("document.getElementById('boot-splash') ? null : 'gone'");
+  // #870: a cold start on Commits asks for the slim `commits` range view (the
+  // other activity kinds, items, edges, and review threads dominate a long range
+  // and the page never reads them). Opening a page that needs the complete
+  // envelope must replace the slim env with a complete one rather than render
+  // Items from it, and must not request the slim view again. Commits is made the
+  // default tab so the cold start lands there instead of on the pinned Live tab.
+  await send("Runtime.evaluate", { expression: "localStorage.setItem('symphony-board:default-tab','commits')" });
+  await sleep(500);
+  const rangeUrlsBeforeSlim = [...rangeRequestLog];
+  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/?slim-range-view=1` });
+  await waitHtml("document.querySelector('.commits-page .commit-row')");
+  const slimCommitsUrls = [...rangeRequestLog].slice(rangeUrlsBeforeSlim.length);
+  await send("Runtime.evaluate", { expression: "location.hash = '#/items'" });
+  await waitHtml("document.querySelector('.items-page .item-row')");
+  const slimThenItemsUrls = [...rangeRequestLog].slice(rangeUrlsBeforeSlim.length + slimCommitsUrls.length);
+  const slimItemsRows = (await send("Runtime.evaluate", { expression: "document.querySelectorAll('.items-page .item-row').length", returnByValue: true })).result.value || 0;
+  await send("Runtime.evaluate", { expression: "location.hash = '#/commits'" });
+  await waitHtml("document.querySelector('.commits-page .commit-row')");
+  const backToCommitsUrls = [...rangeRequestLog].slice(rangeUrlsBeforeSlim.length + slimCommitsUrls.length + slimThenItemsUrls.length);
+  // Back to the Live landing the rest of the run expects.
+  await send("Runtime.evaluate", { expression: "localStorage.setItem('symphony-board:default-tab','live')" });
+  await send("Page.navigate", { url: `http://127.0.0.1:${HTTP_PORT}/` });
+  await waitHtml("document.querySelector('.live-page') && document.querySelector('.tab-live.tab-on')");
   // #488: under the range-as-download model the selected range IS the primary
   // download — there is no separate /api/range OVERLAY and no "Loading range…"
   // spinner anymore; a range change re-fetches the primary env stale-while-
@@ -9073,6 +9111,9 @@ try {
   const narrowAuthorName = commitsAuthorNameWidths.find((row) => row.width === 933) || {};
 
   const checks = [
+    [slimCommitsUrls.length >= 1 && slimCommitsUrls.every((url) => url.includes("view=commits")), `range view: a cold start on Commits requests the slim commits view (${JSON.stringify(slimCommitsUrls)})`],
+    [slimThenItemsUrls.length === 1 && !slimThenItemsUrls[0].includes("view=") && slimItemsRows > 0, `range view: opening Items replaces the slim env with one complete request (${JSON.stringify(slimThenItemsUrls)}, ${slimItemsRows} rows)`],
+    [backToCommitsUrls.length === 0, `range view: returning to Commits keeps the complete env without a new request (${JSON.stringify(backToCommitsUrls)})`],
     ...commitsLinkDecoration.map((result, index) => {
       const width = [412, 1280][index];
       const covered = ["title", "repo", "author", "pullRequest", "branch", "sha"];

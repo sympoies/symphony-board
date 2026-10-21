@@ -2,7 +2,7 @@ import { ProviderLinks } from "./components/ExternalLink.tsx";
 import { detailRouteController } from "./detail-route.ts";
 import { inPageHref } from "./nav.ts";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ContractEnvelope, ActivityDailyDTO, ItemDTO } from "@symphony-board/contract";
+import type { ContractEnvelope, ActivityDailyDTO, ItemDTO, RangeViewDTO } from "@symphony-board/contract";
 import { fetchContractWithMetadata, fetchRangeContractWithMetadata, fetchActivityDaily, fetchGraphNeighborhood, parseContractWithMetadata, majorOf, resolveEndpoint, endpointRequiresServerUrl, SUPPORTED_MAJOR, INIT_LOAD_PATIENT_ATTEMPTS, initLoadRetryDelayMs, contractLoadingViewVisible, classifyContractLoadError, formatContractLoadError, type ContractLoadMetadata } from "./contract.ts";
 import { dismissBootSplash, setBootSplashStatus, bootSplashReady, BOOT_SPLASH_MAX_MS } from "./boot-splash.ts";
 import { applyWideViewport } from "./runtime.ts";
@@ -135,7 +135,7 @@ import {
   saveBoardScope,
   deviceCeilingDays,
   clampRangeToCeiling,
-  usesStaticContractFastPath,
+  usesStaticContractFastPath, pageNeedsFullRange, rangeViewFor,
   isStaticDeployment,
   liveControlsDisabled,
   effectiveLiveTabEnabled,
@@ -548,6 +548,23 @@ export function App() {
     return clampRangeToCeiling(selectedRange, deviceCeiling, clock, tz);
   }, [selectedRange, env, generatedNowMs, tz, deviceCeiling]);
   const customRange = !!activeRange && !!staticRange && !sameTimeRange(activeRange, staticRange);
+  // #870: the Commits page alone loads the slim `commits` range view. Once any
+  // page that needs the complete envelope has been opened the latch stays set,
+  // so leaving Commits costs one reload and returning does not downgrade. The
+  // static contract.json fast-path has no views, so it never asks for one.
+  const fullRangeLatchRef = useRef(false);
+  if (pageNeedsFullRange(page)) fullRangeLatchRef.current = true;
+  const rangeView: RangeViewDTO | undefined = rangeViewFor(
+    page,
+    fullRangeLatchRef.current,
+    !!primaryRange && !usesStaticContractFastPath(primaryRange, staticDeployment, env ? generatedNowMs : Date.now(), tz),
+    env ? (env.range_query?.view ?? "full") : null,
+  );
+  // A slim env must never be rendered by a page that needs the complete one. It
+  // stays loaded (so the range it anchors does not reseed) but shows the loading
+  // view until the refetch the load effect issues for the changed `rangeView`
+  // lands; a failed refetch surfaces the error instead of loading forever.
+  const slimEnvStale = !!env?.range_query?.view && rangeView === undefined && envAuthority !== "file";
   // #488: the primary env follows the selected range directly. File /
   // static-deploy envs keep their loaded payload and the views filter them to
   // activeRange client-side.
@@ -588,7 +605,7 @@ export function App() {
     const range = primaryRange!;
     const primaryLoad = usesStaticContractFastPath(range, staticDeployment, env ? generatedNowMs : Date.now(), tz)
       ? fetchContractWithMetadata(undefined, serverBaseUrl)
-      : fetchRangeContractWithMetadata(range, serverBaseUrl);
+      : fetchRangeContractWithMetadata(range, serverBaseUrl, undefined, rangeView);
     pending.push(primaryLoad
       .then((loaded) => {
         if (fileEnvAuthoritativeRef.current) return;
@@ -597,7 +614,7 @@ export function App() {
         setContractMeta(loaded.meta);
         rememberContractTimezone(loaded.env);
         // Refresh the cold-start cache keyed by the loaded range (#488).
-        void saveCachedContract(serverBaseUrl, loaded.env, { range });
+        void saveCachedContract(serverBaseUrl, loaded.env, { range, bytes: loaded.meta.bytes });
         setError(null);
         loadedContract = true;
       })
@@ -620,7 +637,7 @@ export function App() {
       setDataReloadEpoch((e) => e + 1);
     }
     return loadedContract;
-  }, [contractDisabled, staticDeployment, tz, primaryRange, serverBaseUrl, env, generatedNowMs, rememberContractTimezone]);
+  }, [contractDisabled, staticDeployment, tz, primaryRange, serverBaseUrl, env, generatedNowMs, rememberContractTimezone, rangeView]);
   const reloadDataAfterSync = useCallback(async () => {
     await reloadData();
   }, [reloadData]);
@@ -892,7 +909,7 @@ export function App() {
     // and replaces it.
     if (contractDisabled || !primaryRange) return;
     let cancelled = false;
-    void loadCachedContract(serverBaseUrl, { range: primaryRange }).then((cached) => {
+    void loadCachedContract(serverBaseUrl, { range: primaryRange, view: rangeView }).then((cached) => {
       if (cancelled || !cached) return;
       if (fileEnvAuthoritativeRef.current) return;
       setEnv((cur) => pickColdStartEnv(cur, cached));
@@ -901,7 +918,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [serverBaseUrl, contractDisabled, primaryRange?.from, primaryRange?.to]);
+  }, [serverBaseUrl, contractDisabled, primaryRange?.from, primaryRange?.to, rangeView]);
 
   useEffect(() => {
     let cancelled = false;
@@ -956,7 +973,7 @@ export function App() {
     const range = primaryRange!;
     const primaryLoad = usesStaticContractFastPath(range, staticDeployment, env ? generatedNowMs : Date.now(), tz)
       ? fetchContractWithMetadata(undefined, serverBaseUrl, undefined, { retries: 0 })
-      : fetchRangeContractWithMetadata(range, serverBaseUrl, { retries: 0 });
+      : fetchRangeContractWithMetadata(range, serverBaseUrl, { retries: 0 }, rangeView);
     primaryLoad
       .then((loaded) => {
         if (cancelled) return;
@@ -969,7 +986,7 @@ export function App() {
         rememberContractTimezone(loaded.env);
         // Refresh the cold-start cache so the NEXT launch paints this board before
         // its download resolves (full scope only — see the cache effect above).
-        void saveCachedContract(serverBaseUrl, loaded.env, { range });
+        void saveCachedContract(serverBaseUrl, loaded.env, { range, bytes: loaded.meta.bytes });
         setError(null);
         setRetrying(false);
         setLoading(false);
@@ -1001,7 +1018,7 @@ export function App() {
         initRetryTimerRef.current = null;
       }
     };
-  }, [serverBaseUrl, reloadKey, contractDisabled, staticDeployment, primaryRange?.from, primaryRange?.to, rememberContractTimezone]);
+  }, [serverBaseUrl, reloadKey, contractDisabled, staticDeployment, primaryRange?.from, primaryRange?.to, rememberContractTimezone, rangeView]);
 
   // Remove the cold-start boot splash (index.html) once the first view has actual
   // CONTENT — never the blank/"Connecting…" gap. On the Live route that means the
@@ -1946,7 +1963,7 @@ export function App() {
   // content yet" (contractLoadingViewVisible), NOT `loading` alone, so a board the
   // cold-start cache already painted is never hidden behind this overlay while the
   // background revalidation fetch runs — see the helper for the full rationale.
-  if (contractLoadingViewVisible(loading, env !== null)) return <div className="state-msg">Loading contract…</div>;
+  if ((slimEnvStale && !error) || contractLoadingViewVisible(loading, env !== null)) return <div className="state-msg">Loading contract…</div>;
 
   if (error && !env) {
     // First-run onboarding: the server is reachable and editable (the config

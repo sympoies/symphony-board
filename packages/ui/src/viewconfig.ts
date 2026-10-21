@@ -18,7 +18,7 @@
 import { cutoffIso, DEFAULT_TIME_RANGE_DAYS, DEFAULT_TIME_RANGE_PRESET_ID, isHexColor, isTimeRangePresetId, timeRangeForDays, type TimeRange, type TimeRangePresetId } from "./model.ts";
 import { isTauriRuntime } from "./runtime.ts";
 import type { Page } from "./nav.ts";
-import type { ContractEnvelope } from "@symphony-board/contract";
+import type { ContractEnvelope, RangeViewDTO } from "@symphony-board/contract";
 import { isValidTimezone, zonedDateOnly } from "./tz.ts";
 
 const KEY = "symphony-board:hidden-repos";
@@ -501,6 +501,35 @@ export function isDefaultWindowRange(range: TimeRange, now: number, tz?: string)
 // static/demo deploy that has no /api/range at all. Pure + unit-tested.
 export function usesStaticContractFastPath(range: TimeRange, staticDeployment: boolean, now: number, tz?: string): boolean {
   return staticDeployment || isDefaultWindowRange(range, now, tz);
+}
+
+// Pages that read the complete range envelope. Commits reads only commit rows
+// (plus the change requests they name) and Live reads its own stream, so every
+// other page needs items, edges, or the non-commit activity kinds.
+export function pageNeedsFullRange(page: string): boolean {
+  return page !== "commits" && page !== "live";
+}
+
+// What the primary env currently holds: nothing yet, the complete range shape,
+// or a slim view.
+export type LoadedRangeView = null | "full" | RangeViewDTO;
+
+// The `/api/range` projection to request. The Commits page alone asks for the
+// slim `commits` view, because a long range's non-commit rows dominate the
+// payload and are never read there (#870). `fullLatched` is set once any page
+// that needs the complete shape has been opened. A complete env that is already
+// loaded is kept rather than replaced by a slimmer one, and a page that reads
+// neither shape (Live) keeps whatever is loaded, so passing through either
+// forces no reload. Only a dynamic range projection has views: the static
+// contract.json fast-path does not, so it never asks.
+export function rangeViewFor(
+  page: string,
+  fullLatched: boolean,
+  projectsRange: boolean,
+  loaded: LoadedRangeView = null,
+): RangeViewDTO | undefined {
+  if (!projectsRange || fullLatched || pageNeedsFullRange(page) || loaded === "full") return undefined;
+  return page === "commits" ? "commits" : (loaded ?? undefined);
 }
 
 // The default board-data toggle for a client kind when nothing is stored. Range
