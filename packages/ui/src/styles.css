@@ -1783,9 +1783,14 @@ a.rf-node-title:hover { color: var(--accent); }
 @media (max-width: 1211px) {
   .activity-layout { grid-template-columns: minmax(0, 720px); }
   .commits-split { grid-template-columns: minmax(0, 1fr); justify-content: start; }
-  /* One column: the overview and the rail have no list beside them to follow,
-     and a sticky one slid over the column above it as the page scrolled. They
-     scroll with the page, in their own bands. */
+}
+/* Wherever the overview and the rail share a column -- stacked under the list
+   below the split floor, or one above the other beside it until the third
+   column at 1280px -- neither may stick: each sticks within its own grid area,
+   so the rail slid up over the overview as the page scrolled. They scroll with
+   the page, in their own bands. From the third column on each has a column to
+   itself and the sticky offset is what keeps it in view. */
+@media (max-width: 1279px) {
   .commits-split > .commits-context,
   .commits-split > .commits-rail { position: static; }
 }
