@@ -504,10 +504,11 @@ export function usesStaticContractFastPath(range: TimeRange, staticDeployment: b
 }
 
 // Pages that read the complete range envelope. Commits reads only commit rows
-// (plus the change requests they name) and Live reads its own stream, so every
-// other page needs items, edges, or the non-commit activity kinds.
+// (plus the change requests they name), Live reads its own stream and Settings
+// reads no range rows at all, so every other page needs items, edges, or the
+// non-commit activity kinds.
 export function pageNeedsFullRange(page: string): boolean {
-  return page !== "commits" && page !== "live";
+  return page !== "commits" && page !== "live" && page !== "settings";
 }
 
 // What the primary env currently holds: nothing yet, the complete range shape,
@@ -519,7 +520,7 @@ export type LoadedRangeView = null | "full" | RangeViewDTO;
 // payload and are never read there (#870). `fullLatched` is set once any page
 // that needs the complete shape has been opened. A complete env that is already
 // loaded is kept rather than replaced by a slimmer one, and a page that reads
-// neither shape (Live) keeps whatever is loaded, so passing through either
+// neither shape (Live, Settings) keeps whatever is loaded, so passing through either
 // forces no reload. Only a dynamic range projection has views: the static
 // contract.json fast-path does not, so it never asks.
 export function rangeViewFor(
