@@ -9,7 +9,8 @@ receiver. It never reads SQLite, provider APIs, or backend source modules.
 Top-nav tabs default to Live (when enabled), Commits, Activity, Metrics, Board,
 Graph, Items, Reviews, then Settings; the order is configurable per device.
 Per-page detail beyond this overview lives in
-[`docs/DESIGN.md`](../../docs/DESIGN.md) (UI › Pages).
+[`docs/ui-pages-reference.md`](../../docs/ui-pages-reference.md); the UI boundary is in
+[`docs/DESIGN.md`](../../docs/DESIGN.md#ui).
 
 The backend stays buildless. This package is the deliberate home for browser
 dependencies and the Vite + React build.
