@@ -9,6 +9,23 @@ planes), and Docker writer/reader plus standalone single-machine deployments.
 Historical validation runs, PR numbers, and one-off investigation details live
 in [docs/devlog](devlog). This file is the normative design summary.
 
+## Contents
+
+- [Goal](#goal), [predecessor](#pivot-from-github-projects), and
+  [three layers](#three-layers).
+- [Identity](#identity), [relationship edges](#relationship-edges),
+  [activity records](#activity-records), [actor identity](#actor-identity),
+  [disappearance handling](#disappearance-handling), and
+  [provider mapping](#provider-mapping).
+- [Contract](#contract), [UI](#ui), and [Docker operation](#docker-operation).
+- Control planes: [UI-triggered sync](#ui-triggered-sync-control-plane),
+  [writer-owned config](#writer-owned-config-control-plane), and
+  [read-only diagnostics](#read-only-diagnostics-surface).
+- [Commit file stats](#commit-file-stats), [live events](#live-event-stream-realtime),
+  and [runtime decisions](#runtime-decisions).
+- [Non-goals](#deferred-or-explicit-non-goals) and
+  [validation baseline](#validation-baseline).
+
 ## Goal
 
 Aggregate issues and pull/merge requests from multiple providers into one
