@@ -207,7 +207,7 @@ used as a full queue inventory.
 The agent deploy entrypoint (`.agents/scripts/deploy.sh`, used by the `deploy`
 skill) builds and starts whichever stack the `SYMPHONY_BOARD_ENV` switch in
 `.env` selects: `postgres` selects `docker/compose.pg.yaml`; `sqlite` or unset
-selects `docker/compose.yaml`. `project-review-cleanup` does not read this
+selects `docker/compose.yaml`. `review-candidates` does not read this
 switch: it targets `SYMPHONY_BOARD_BASE_URL` (default: the Postgres stack's
 `http://127.0.0.1:18080`). The explicit
 `docker compose -f ...` commands above stay valid for ad-hoc use.

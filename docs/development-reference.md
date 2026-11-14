@@ -227,6 +227,32 @@ near-term/future ISO date is assigned to a TTL key (`expires_at`, `fetched_at`,
 …) in a test or fixture file; annotate a legitimate fixed-clock fixture with a
 `// fixed-clock: <reason>` comment on the same line as the literal to exempt it.
 
+## Discovering review work
+
+Use the read-only `pnpm review-candidates --json` command against the active board
+endpoint, not an incidental local database. It uses `SYMPHONY_BOARD_BASE_URL`
+(default `http://127.0.0.1:18080`); `SYMPHONY_BOARD_REVIEW_CANDIDATES_URL` overrides
+the candidate endpoint.
+
+Pass `--repo <owner/name>` to restrict the project, `--pr <iid>` to focus one
+change request and relax the late/closed gate, `--days <n>` to change the
+late-review window (default 7), and `--limit <n>` to cap candidates (default 20).
+Repeat `--actor <login>` or use `--all-actors` to widen the late-review allowlist;
+open-thread discovery is already actor-agnostic.
+
+Read each candidate's source, repository, PR, reasons, and thread counts. Process
+`open_review_threads` first, ordered by open count. Late or closed-review reasons
+are timing context; the cached board counts do not prove current provider state.
+
+For each candidate, follow the runtime's `core/policies/review-thread-convergence.md`
+and `pr:deliver-pr` workflow using released `forge-cli` thread commands. Refresh
+complete thread and reply evidence before triage, after every mutation or unknown
+outcome, and for the final zero-unresolved check. Preserve the reply identity;
+confirm it exists before a separate resolve-only operation or retry. Missing
+completeness is a blocker, regardless of thread count. GitLab discovery does not
+authorize unsupported reply/resolve operations; report `provider_unsupported`.
+Do not substitute raw provider writes or treat rediscovery as live convergence.
+
 ## Common Change Paths
 
 ### Adding A Source
@@ -267,7 +293,7 @@ Postgres stack. The API sidecars use `openConfiguredStoreReadOnly`, so
 deploy entrypoint (`.agents/scripts/deploy.sh`) picks between the two stacks from
 the `SYMPHONY_BOARD_ENV` switch in `.env` (`postgres` → `docker/compose.pg.yaml`,
 `sqlite`/unset → `docker/compose.yaml`), resolved by `scripts/lib/repo-env.mjs`.
-`project-review-cleanup` targets `SYMPHONY_BOARD_BASE_URL` instead.
+`review-candidates` targets `SYMPHONY_BOARD_BASE_URL` instead.
 
 ### Changing The Contract
 
