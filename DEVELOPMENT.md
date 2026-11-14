@@ -63,3 +63,6 @@ Operational details belong in `docs/running.md`; implementation detail belongs
 in the development reference; stable architectural or contract rules belong in
 their owning documents. Root `DEVELOPMENT.md` remains the concise maintenance
 entrypoint and should not duplicate those references.
+
+For scheduled browser or desktop acceptance, follow the
+[test owner runbook](https://github.com/serenvia/c8-infra/blob/main/docs/ui-automation.md).
