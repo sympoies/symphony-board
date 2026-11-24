@@ -23,7 +23,7 @@
     "@tauri-apps/plugin-fs": "^2.7.1",
     "@tauri-apps/plugin-http": "^2.8.3",
     "@tauri-apps/plugin-opener": "^2.7.3",
-    "@xyflow/react": "^12.12.1",
+    "@xyflow/react": "^13.0.2",
     "d3-force": "^3.0.1",
     "dagre": "^0.8.5",
     "fflate": "^0.8.3",
