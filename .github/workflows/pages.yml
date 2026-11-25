@@ -23,7 +23,6 @@ on:
       - "site/**"
       - "packages/ui/**"
       - "packages/contract/**"
-      - "docs/assets/readme-activity.png"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -62,7 +61,6 @@ jobs:
           rm -rf _site
           mkdir -p _site/demo
           cp -R site/. _site/
-          cp docs/assets/readme-activity.png _site/readme-activity.png
           cp packages/ui/public/favicon.svg _site/favicon.svg
           cp -R packages/ui/dist/. _site/demo/
           # Serve the frozen real-data demo contract, not the dev sample vite just
