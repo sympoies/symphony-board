@@ -8,7 +8,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="site/screenshots/activity-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="site/screenshots/activity-light.webp" />
-    <img src="site/screenshots/activity-light.webp" alt="Symphony Board Activity with a cross-provider event feed, daily chart, and source and author rankings." width="1512" height="945" />
+    <img src="site/screenshots/activity-light.webp" alt="Symphony Board Activity with a cross-provider event feed, daily chart, and source and author rankings." width="1512" />
   </picture>
 </a>
 
