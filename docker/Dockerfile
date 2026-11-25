@@ -20,7 +20,7 @@
 # If a native dependency is ever added to the production tree, this stage has to
 # go back to the target platform (drop the --platform pin), because a prebuilt
 # binary resolved here would be the wrong architecture.
-FROM --platform=$BUILDPLATFORM node:24-alpine AS deps
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY packages/contract/package.json ./packages/contract/package.json
@@ -29,7 +29,7 @@ RUN corepack enable \
   && pnpm install --prod --frozen-lockfile --ignore-scripts \
   && rm -rf /root/.cache/node/corepack
 
-FROM node:24-alpine
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 
 LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-board" \
       org.opencontainers.image.title="symphony-board" \
@@ -38,22 +38,19 @@ LABEL org.opencontainers.image.source="https://github.com/sympoies/symphony-boar
 
 WORKDIR /app
 
-# Production deps first for Docker layer caching. `--ignore-scripts` deliberately
-# skips the root prepare hook (lefthook is dev-only) and dependency postinstalls;
-# postgres.js has no build step or transitive deps. The final step drops
-# build-only tooling from the runtime layer: the base image's bundled npm (which
-# carries its own vulnerable undici/tar) and the corepack pnpm cache are never
-# used at runtime — the entrypoint only runs `node`. Removing them in this same
-# layer keeps them out of the image entirely (smaller image, and no Trivy
-# image-scan findings for tooling the app never executes).
+# Production deps first for Docker layer caching. The deps stage skips the
+# root prepare hook and dependency postinstalls.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY packages/contract/package.json ./packages/contract/package.json
 # Only the root node_modules exists: the contract package declares no
 # dependencies of its own, so pnpm creates no tree for it.
 COPY --from=deps /app/node_modules ./node_modules
-# Drop build-only tooling from the runtime layer: the base image's bundled npm
-# carries its own vulnerable undici/tar and the entrypoint only ever runs `node`.
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+# Pick up Alpine fixes published after the pinned image. The entrypoint only
+# runs Node, so none of the bundled package managers belong in the runtime.
+RUN apk upgrade --no-cache \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+    /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v*
 
 # Source + the normative SQL schema (read at runtime by each migrator) + the
 # contract package (its JSON Schema is read by the emit-time validator) + the

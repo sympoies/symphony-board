@@ -4,8 +4,8 @@ vulnerabilities:
       - packages/android/src-tauri/Cargo.lock
       - packages/desktop-standalone/src-tauri/Cargo.lock
       - packages/desktop/src-tauri/Cargo.lock
-    expired_at: 2026-09-30
+    expired_at: 2027-01-15
     statement: >-
-      Tauri 2.11.3 currently pulls the affected Linux GTK3 stack
-      transitively through wry/tao/webkit2gtk. glib cannot be raised to
-      0.20 without upstream Tauri/Wry moving off gtk 0.18.
+      No compatible fix in Tauri 2.12.7: its Linux GTK3 dependency (gtk
+      0.18.2) requires glib 0.18, and the first fixed glib release is 0.20.0.
+      This dependency is not built for the shipped macOS or Android targets.
