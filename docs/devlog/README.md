@@ -64,6 +64,7 @@ are optional: omit the whole section rather than leaving a placeholder in it.
 
 ## Months
 
+- [2026-11](2026-11.md)
 - [2026-10](2026-10.md)
 - [2026-09](2026-09.md)
 - [2026-08](2026-08.md)
