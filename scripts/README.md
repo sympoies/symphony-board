@@ -51,16 +51,40 @@ scripts/release.sh --execute
 scripts/release.sh --resume --version v0.1.0
 ```
 
-## Demo Helper
+## Demo Helpers
 
 | Script | What it does |
 | --- | --- |
 | `demo/build-demo-contract.sh` | Regenerates the frozen GitHub Pages demo contract (`site/demo-contract.json`) by running the normal sync → emit pipeline against the **public-only** sources in `config/sources.demo.json` (the sympoies org on GitHub + `gitlab-org/labkit` on GitLab.com). The result is a committed one-shot snapshot, so every item / commit / review / activity on the demo links to a live provider URL. Requires `GITHUB_TOKEN` and a gitlab.com `GITLAB_TOKEN` (env-ref only); writes a throwaway `data/demo.db`. |
+| `demo/capture-screenshots.mjs` | Rebuilds the current static UI and captures both themes with an offline, anonymized copy of the checked-in synthetic UI sample. Writes optimized 2× WebPs to `site/screenshots/`. |
 | `demo/narrow-landing-window.mjs [contract.json] [days]` | Offline post-step of `build-demo-contract.sh`: narrows only `item_window.window` of the frozen demo contract to a trailing N-day landing window, leaving the payload untouched. Idempotent. |
 
 ```sh
 GITHUB_TOKEN=$(gh auth token) GITLAB_TOKEN=glpat-... scripts/demo/build-demo-contract.sh
 ```
+
+### Refresh the screenshot assets
+
+Install workspace dependencies and make `cwebp` (libwebp) available on your
+`PATH`. Then run from the repository root:
+
+```sh
+pnpm exec playwright install chromium --only-shell
+node scripts/demo/capture-screenshots.mjs
+```
+
+The script uses the same static build mode as GitHub Pages. It substitutes the
+synthetic UI sample for the published demo's real-data snapshot and blocks
+external requests. No provider credentials are needed. Inspect the generated
+light and dark images before committing them, especially if the sample changed.
+
+- `site/screenshots/{activity,commits,graph}-{light,dark}.webp` are
+  3024 × 1890 captures (1512 × 945 at 2×). The README and Pages share the
+  Activity hero.
+- `site/screenshots/board-{light,dark}.webp` are 4640 × 2160 (2320 × 1080 at
+  2×) so all five lanes fit.
+- `site/screenshots/work-activity-{light,dark}.webp` are 2800 × 1750
+  (1400 × 875 at 2×) and are the export pair for the Work page.
 
 ## CI Helpers
 

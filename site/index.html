@@ -75,7 +75,9 @@
       width: 100%; height: auto; display: block; border-radius: var(--radius);
       border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0,0,0,.45);
     }
-    .shot figcaption { text-align: center; color: var(--faint); font-size: .85rem; margin-top: 12px; }
+    .shot figcaption { text-align: center; color: var(--muted); font-size: .9rem; margin-top: 12px; }
+    .shot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .shot-grid figure:last-child { grid-column: 1 / -1; width: calc(50% - 12px); justify-self: center; }
 
     /* Sections */
     section { padding: 52px 0; }
@@ -149,6 +151,8 @@
     footer.site .links a { margin-right: 18px; }
 
     @media (max-width: 600px) {
+      .shot-grid { grid-template-columns: 1fr; }
+      .shot-grid figure:last-child { width: 100%; }
       nav.top { display: none; }
       .hero { padding-top: 34px; }
     }
@@ -186,9 +190,13 @@
     <div class="shot">
       <figure>
         <a href="./demo/">
-          <img src="./readme-activity.png" alt="Symphony Board activity view: work items, activity feed, and typed relationships across providers." />
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/activity-dark.webp" />
+            <source media="(prefers-color-scheme: light)" srcset="./screenshots/activity-light.webp" />
+            <img src="./screenshots/activity-light.webp" alt="Activity feed with a daily event chart and rankings by source and author." width="1512" height="945" />
+          </picture>
         </a>
-        <figcaption>The activity view — one of the Commits, Activity, Metrics, Board, Graph, Items, and Reviews surfaces.</figcaption>
+        <figcaption>Activity brings cross-provider events and their range summaries into one view. Screenshots use fictional demo data.</figcaption>
       </figure>
     </div>
 
@@ -213,7 +221,7 @@
         </div>
         <div class="card">
           <h3><span class="ico">◆</span>Read-only UI</h3>
-          <p>A 5-column Board, relationship Graph, Activity feed, Commits log, Review-thread inbox, and Repo Analytics — all over one shared date-range control.</p>
+          <p>Explore events and commit details, track programs and follow-ups, or inspect typed relationships. Metrics, Items, and the review-thread inbox share the same date range.</p>
         </div>
         <div class="card">
           <h3><span class="ico">◆</span>Apps</h3>
@@ -223,6 +231,37 @@
           <h3><span class="ico">◆</span>One writer per store</h3>
           <p>A writer lease guarantees a single producer per store. The UI is read-only toward providers — it never writes issues, labels, or PR/MRs back.</p>
         </div>
+      </div>
+    </section>
+
+    <section id="views">
+      <h2>Explore the board</h2>
+      <p class="sub">Choose one of these tabs in the live demo.</p>
+      <div class="shot shot-grid">
+        <figure>
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/commits-dark.webp" />
+            <source media="(prefers-color-scheme: light)" srcset="./screenshots/commits-light.webp" />
+            <img src="./screenshots/commits-light.webp" alt="Commits with daily volume, repository and author rankings, and a chronological commit list." width="1512" height="945" loading="lazy" />
+          </picture>
+          <figcaption>Commits pairs a chronological log with daily volume and repository and author rankings.</figcaption>
+        </figure>
+        <figure>
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/board-dark.webp" />
+            <source media="(prefers-color-scheme: light)" srcset="./screenshots/board-light.webp" />
+            <img src="./screenshots/board-light.webp" alt="Board with separate lanes for Trackers, Open, Closed, Follow-up, and Change requests." width="2320" height="1080" loading="lazy" />
+          </picture>
+          <figcaption>Board keeps program trackers and follow-ups in view alongside open and closed work.</figcaption>
+        </figure>
+        <figure>
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/graph-dark.webp" />
+            <source media="(prefers-color-scheme: light)" srcset="./screenshots/graph-light.webp" />
+            <img src="./screenshots/graph-light.webp" alt="Relationship Graph with a searchable item list, relation filters, and linked work-item cards on a canvas." width="1512" height="945" loading="lazy" />
+          </picture>
+          <figcaption>Graph connects issues and change requests. Filter by relationship type or focus on one item.</figcaption>
+        </figure>
       </div>
     </section>
 

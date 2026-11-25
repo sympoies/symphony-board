@@ -4,7 +4,15 @@
 [![Coverage](https://raw.githubusercontent.com/sympoies/symphony-board/coverage-badge/badges/coverage.svg)](https://github.com/sympoies/symphony-board/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/demo-live-82aaff)](https://sympoies.github.io/symphony-board/)
 
-[![Activity view with public demo data](docs/assets/readme-activity.png)](https://sympoies.github.io/symphony-board/demo/)
+<a href="https://sympoies.github.io/symphony-board/demo/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="site/screenshots/activity-dark.webp" />
+    <source media="(prefers-color-scheme: light)" srcset="site/screenshots/activity-light.webp" />
+    <img src="site/screenshots/activity-light.webp" alt="Symphony Board Activity with a cross-provider event feed, daily chart, and source and author rankings." width="1512" height="945" />
+  </picture>
+</a>
+
+*The Activity view shows events and their source and author breakdowns. Screenshot data is fictional.*
 
 Read-only cross-provider workflow board for GitHub and GitLab. `symphony-board`
 coordinates issues, pull requests, merge requests, activity, and typed
@@ -41,10 +49,11 @@ The full product path is implemented end to end:
   soft-delete unseen items or edges.
 - `emit` produces contract major v4, currently `4.11.0`, and validates the JSON
   envelope before writing.
-- The UI renders the contract as Commits, Activity, Metrics (repo analytics),
-  Board, relationship Graph, Items, and Reviews (review-thread inbox) pages plus
-  Settings, and adds an opt-in Live page streamed from the webhook receiver
-  rather than the contract.
+- Activity and Commits pair a feed with a detail pane and range summaries.
+  Board highlights program trackers, open work, and follow-ups. Graph shows
+  typed relationships and program dependencies. Metrics, Items, and Reviews
+  offer repo analytics, a work-item index, and a review-thread inbox. The
+  opt-in Live view streams separately from the webhook receiver.
 - Docker Compose runs a sole-writer sync/emit daemon, a read-only API sidecar,
   a read-only web sidecar, and the least-privilege Live webhook receiver.
 - The read-only API sidecar also exposes operational views such as bounded
