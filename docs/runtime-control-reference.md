@@ -52,10 +52,11 @@ The `board` healthcheck (`src/cli/healthcheck.ts`) passes when
 `data/contract.json` exists and either it was rewritten within
 `max(30 min, 2 x INTERVAL)` or `data/sync-progress.json` was rewritten within
 10 minutes. The daemon rewrites that heartbeat at most once a minute, and only
-when a provider has answered since the last write. A full sweep emits the
-contract only when it ends, so a sweep that is still making progress stays
-healthy however long it runs, and a sweep that gets no provider answer for 10
-minutes turns unhealthy. A deployment that defines its own healthcheck should
+when a provider has answered successfully (2xx) since the last write. A full
+sweep emits the contract only when it ends, so a sweep that is still making
+progress stays healthy however long it runs, while a sweep that gets no
+successful provider answer for 10 minutes (stalled, or failing every request)
+turns unhealthy. A deployment that defines its own healthcheck should
 call the same command.
 
 There is intentionally no external cron and no second writer **of the canonical

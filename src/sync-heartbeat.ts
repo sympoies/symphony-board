@@ -3,17 +3,17 @@
 // bound and emits only when it ends, so every long sweep flapped unhealthy.
 //
 // The daemon now also rewrites a heartbeat file next to the contract whenever a
-// provider answered since its last tick. The board is healthy when a contract
-// exists and either the contract or the heartbeat is recent: a progressing
-// sweep stays healthy, while a sweep that stops getting provider answers turns
-// unhealthy once the heartbeat bound passes.
+// provider answered successfully since its last tick. The board is healthy
+// when a contract exists and either the contract or the heartbeat is recent: a
+// progressing sweep stays healthy, while a sweep that stops getting successful
+// provider answers turns unhealthy once the heartbeat bound passes.
 
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export const HEARTBEAT_FILE = "sync-progress.json";
 // A large project's page takes seconds and its whole fetch about half a
-// minute, so ten minutes without any provider answer is a stall.
+// minute, so ten minutes without a successful provider answer is a stall.
 export const HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 export const HEARTBEAT_TICK_MS = 60_000;
 const CONTRACT_MIN_MAX_AGE_MS = 30 * 60_000;

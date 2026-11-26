@@ -67,20 +67,31 @@ test("the heartbeat is rewritten only when provider progress advanced", async ()
   }
 });
 
-test("every provider response, whatever its status, counts as progress", async () => {
+async function respondOnce(status: number): Promise<void> {
   const server = createServer((_req, res) => {
-    res.statusCode = 502;
-    res.end("bad gateway");
+    res.statusCode = status;
+    res.end(String(status));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   try {
-    const before = Date.now();
     const res = await fetchWithTimeout(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`, {}, 5_000);
     await res.text();
-    assert.ok(lastProviderResponseAt() >= before);
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
   }
+}
+
+test("only a successful provider response counts as progress", async () => {
+  const before = Date.now();
+  await respondOnce(200);
+  const progressed = lastProviderResponseAt();
+  assert.ok(progressed >= before);
+  // A run whose every request fails (a rejected token, a gateway outage) is
+  // not progressing: it must not keep the heartbeat, and so the board, fresh.
+  await new Promise((r) => setTimeout(r, 5));
+  await respondOnce(401);
+  await respondOnce(502);
+  assert.equal(lastProviderResponseAt(), progressed);
 });
 
 function runHealthcheck(env: Record<string, string>): Promise<number> {
@@ -107,6 +118,8 @@ test("the container healthcheck command applies the same decision to the files",
     assert.equal(await runHealthcheck(env), 0, "fresh contract");
     utimesSync(contract, ago(45), ago(45));
     assert.equal(await runHealthcheck(env), 1, "stale contract, no heartbeat");
+    assert.equal(await runHealthcheck({ ...env, INTERVAL: "1800" }), 0, "a slow loop widens the bound to 2 x INTERVAL");
+    assert.equal(await runHealthcheck({ ...env, INTERVAL: "not-a-number" }), 1, "an invalid INTERVAL falls back to the default bound");
     writeFileSync(heartbeat, "{}");
     assert.equal(await runHealthcheck(env), 0, "stale contract, fresh heartbeat");
     utimesSync(heartbeat, ago(11), ago(11));

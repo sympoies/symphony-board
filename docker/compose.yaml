@@ -71,9 +71,9 @@ services:
     # Health = the daemon is actually producing the contract (src/cli/healthcheck.ts).
     # It passes once data/contract.json exists and either it was rewritten
     # within max(30 min, 2 x INTERVAL) or data/sync-progress.json shows a
-    # provider answer within 10 min. A long full sweep emits only when it ends,
-    # so its progress heartbeat keeps it healthy; a wedged daemon that stops
-    # both is reported unhealthy. start_period covers the first sync+emit. The
+    # successful provider answer within 10 min. A long full sweep emits only
+    # when it ends, so its progress heartbeat keeps it healthy; a wedged or
+    # all-failing daemon that stops both is reported unhealthy. start_period covers the first sync+emit. The
     # UI sidecar (web) gates on this via depends_on.
     healthcheck:
       test:
