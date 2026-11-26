@@ -24,7 +24,7 @@ import {
   type EdgeProps,
   type InternalNode,
 } from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import "@xyflow/react/style.css";
 import dagre from "dagre";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
 import type { AggregateDTO, ItemDTO, ItemWindowDTO } from "@symphony-board/contract";
@@ -143,10 +143,10 @@ function EdgeSwatch({ type, stroke }: { type: string; stroke?: string }) {
 }
 
 type GraphListVisibility = "off-window" | "not-drawn";
-type ItemNodeData = GraphNode & { item?: ItemDTO | null; focused?: boolean };
+type ItemFlowNode = Node<GraphNode & { focused?: boolean } & Record<string, unknown>, "item" | "attached">;
+type RelationFlowEdge = Edge<{ type: GraphLink["type"] }, "floating">;
 
-function ItemNode({ data }: NodeProps) {
-  const d = data as unknown as ItemNodeData;
+function ItemNode({ data: d }: NodeProps<ItemFlowNode>) {
   const { scale } = dims(d.demand);
   const metricCount = d.item ? itemMetricEntries(d.item, d.related).length : 0;
   return (
@@ -211,8 +211,7 @@ function ItemNode({ data }: NodeProps) {
 
 // A program child's delivering change request: kind, state, number, one title
 // line. Clicking it focuses it like any node; its title opens the provider.
-function AttachedNode({ data }: NodeProps) {
-  const d = data as unknown as ItemNodeData;
+function AttachedNode({ data: d }: NodeProps<ItemFlowNode>) {
   return (
     <div className={`rf-node rf-node-attached${d.untracked ? " rf-node-untracked" : ""}`} style={{ borderLeftColor: d.color }} title={d.label}>
       <Handle type="target" position={Position.Top} className="rf-handle" />
@@ -269,7 +268,7 @@ function borderSide(node: InternalNode, p: { x: number; y: number }): Position {
   return Position.Bottom;
 }
 
-function FloatingEdge({ id, source, target, markerEnd, style, label }: EdgeProps) {
+function FloatingEdge({ id, source, target, markerEnd, style, label }: EdgeProps<RelationFlowEdge>) {
   const s = useInternalNode(source);
   const t = useInternalNode(target);
   if (!s || !t) return null;
@@ -402,12 +401,12 @@ function layoutForce(nodes: GraphNode[], links: GraphLink[], dimOf: (id: string)
 // change) and is what reframes the camera on the new focus subgraph. In the
 // overview, hover labels the incident edges; in the sparse focus view labels stay
 // visible so the relationship text is readable without chasing the mouse.
-function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme, paneWidth }: { paneWidth: number; rfNodes: Node[]; rfEdges: Edge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
+function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme, paneWidth }: { paneWidth: number; rfNodes: ItemFlowNode[]; rfEdges: RelationFlowEdge[]; focusId: string | null; showEdgeLabels: boolean; onNodeActivate: (id: string) => void; theme: ResolvedViewTheme }) {
   const compactMinimap = useMediaQuery(COMPACT_CHROME_QUERY);
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const { getNode, setCenter } = useReactFlow();
+  const { getNode, setCenter } = useReactFlow<ItemFlowNode, RelationFlowEdge>();
   const hasTarget = !!focusId && rfNodes.some((node) => node.id === focusId);
 
   const locateFocus = () => {
@@ -447,7 +446,7 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
           ...e,
           // FloatingEdge renders this label via EdgeLabelRenderer (styled by
           // .rf-edge-label), so only the text is needed here — no SVG label props.
-          label: labelled ? String((e.data as { type?: string } | undefined)?.type ?? "") : undefined,
+          label: labelled ? e.data?.type : undefined,
           style: { ...base, opacity: hoverId ? (incident ? 1 : 0.05) : (base.opacity ?? 1) },
         };
       }),
@@ -455,7 +454,7 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
   );
 
   return (
-    <ReactFlow
+    <ReactFlow<ItemFlowNode, RelationFlowEdge>
       nodes={viewNodes}
       edges={viewEdges}
       onNodesChange={onNodesChange}
@@ -469,8 +468,11 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
       // node owns opening the provider page and stops propagation, so the two
       // never both fire.
       onNodeClick={(_, node) => onNodeActivate(node.id)}
-      colorMode={theme === "paper" ? "light" : "dark"}
+      forceColorMode={theme === "paper" ? "light" : "dark"}
       fitView
+      // React Flow 12 divided the viewport by 1.1, leaving 1/22 on each side.
+      fitViewOptions={{ padding: `${100 / 22}%` }}
+      elevateEdgesOnSelect={false}
       minZoom={0.05}
       onlyRenderVisibleElements
       proOptions={{ hideAttribution: true }}
@@ -482,12 +484,12 @@ function Flow({ rfNodes, rfEdges, focusId, showEdgeLabels, onNodeActivate, theme
         </Panel>
       ) : null}
       <Controls showInteractive={false} />
-      <MiniMap
+      <MiniMap<ItemFlowNode>
         pannable zoomable
         // Sized through React Flow (not CSS) so its drag-pan scale matches the drawn size.
         style={minimapSize(paneWidth, compactMinimap)}
-        nodeColor={(n) => (n.data as unknown as ItemNodeData).focused ? "var(--iid)" : (n.data as unknown as GraphNode).color}
-        nodeClassName={(n) => (n.data as unknown as ItemNodeData).focused ? "graph-minimap-target" : ""}
+        nodeColor={(n) => n.data.focused ? "var(--iid)" : n.data.color}
+        nodeClassName={(n) => n.data.focused ? "graph-minimap-target" : ""}
       />
     </ReactFlow>
   );
@@ -1064,7 +1066,7 @@ export function GraphPage({
     return m;
   }, [view]);
 
-  const rfNodes: Node[] = useMemo(
+  const rfNodes = useMemo<ItemFlowNode[]>(
     () =>
       view.nodes.map((n) => {
         const { w, h } = dimOf(n.id);
@@ -1078,13 +1080,13 @@ export function GraphPage({
           type: n.attachedTo ? "attached" : "item",
           position: positions.get(n.id) ?? { x: 0, y: 0 },
           style: { width: w, height: h },
-          data: { ...n, item: it ?? null, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0, focused: n.id === focusId } as unknown as Record<string, unknown>,
+          data: { ...n, item: it ?? null, accentColor, related, relatedDrawn: drawnNeighbours.get(n.id)?.size ?? 0, focused: n.id === focusId },
         };
       }),
     [view, positions, dimOf, itemsByRef, colorOf, adjacency, drawnNeighbours, focusId],
   );
 
-  const rfEdges: Edge[] = useMemo(
+  const rfEdges = useMemo<RelationFlowEdge[]>(
     () =>
       view.links.map((l) => {
         const isMention = l.type === "mentions";
