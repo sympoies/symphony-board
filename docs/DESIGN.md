@@ -697,7 +697,15 @@ public/tailnet boundary does not depend on out-of-repo proxy config alone:
   `only_rejected_deliveries` as the likely cause. Rejections never decide
   health on their own, because unauthenticated requests can fabricate them. A
   status-code-only monitor can therefore probe the route while the threshold
-  stays with the deployment.
+  stays with the deployment. Polled activity is judged against the route's own
+  observation time (`observed_at`). Activity dated later than that has not
+  happened on the observer's clock, so it counts as activity at `observed_at`:
+  the lag never exceeds the time since Live last ingested, and a stalled
+  receiver still fails. The raw `sync_latest_activity_at` keeps the source
+  value, and `activity_warnings` reports `future_activity` (or
+  `invalid_activity_timestamp` for an unparseable value, which is ignored).
+  Warnings never decide health; they tell an operator that a source timestamp
+  is wrong, separately from whether Live is receiving.
 - **Read-side setup diagnostics:** `GET /api/capabilities` is served by the
   read-only API/app-server surface the UI already uses. In Docker it may probe
   the internal Live reads listener (`http://live:8090`) and return current
