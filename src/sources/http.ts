@@ -552,6 +552,16 @@ export function allTokensCooledDownError(
   );
 }
 
+// Wall-clock time (epoch ms) of the latest successful (2xx) provider response.
+// The sync daemon turns it into its progress heartbeat (src/sync-heartbeat.ts).
+// Error responses do not count: a run whose every request fails (a rejected
+// token, a gateway outage) is not progressing and must not look healthy.
+let lastProviderResponseAtMs = 0;
+
+export function lastProviderResponseAt(): number {
+  return lastProviderResponseAtMs;
+}
+
 export async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit,
@@ -560,7 +570,9 @@ export async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    if (response.ok) lastProviderResponseAtMs = Date.now();
+    return response;
   } catch (err) {
     if (controller.signal.aborted) throw new Error(`request to ${String(input)} timed out after ${timeoutMs}ms`);
     throw err;

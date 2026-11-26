@@ -40,6 +40,8 @@ import { log, recentLogs, latestLogSeq, LOG_BUFFER_CAPACITY } from "../log.ts";
 import { probeTokenRateLimits, tokenRateLimitsConfigError } from "../server/token-rate-limits.ts";
 import { validateProviderToken, type TokenValidationRequest, type TokenValidator } from "../server/token-validation.ts";
 import { commitFilesConfigError, handleCommitFilesRequest } from "../server/commit-files.ts";
+import { lastProviderResponseAt } from "../sources/http.ts";
+import { heartbeatPath, startSyncHeartbeat } from "../sync-heartbeat.ts";
 
 // The same-origin guard for every mutating control-plane endpoint (manual sync
 // AND config writes). A custom request header cannot be set by a cross-site
@@ -764,7 +766,9 @@ function main(): void {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
+  const stopHeartbeat = startSyncHeartbeat(heartbeatPath(out), { progressAt: lastProviderResponseAt });
   void runLoop(controller, { intervalMs: intervalSeconds * 1000, fullEvery, signal: aborter.signal }).then(() => {
+    stopHeartbeat();
     server.close();
     process.exit(0);
   });

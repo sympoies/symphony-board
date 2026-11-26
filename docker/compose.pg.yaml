@@ -79,7 +79,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - node -e "try{const s=require('fs').statSync('/app/data/contract.json');process.exit(Date.now()-s.mtimeMs<1800000?0:1)}catch{process.exit(1)}"
+        - node --disable-warning=ExperimentalWarning src/cli/healthcheck.ts
       interval: 60s
       timeout: 10s
       retries: 3
