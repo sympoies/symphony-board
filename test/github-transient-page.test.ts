@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { GitHubSource } from "../src/sources/github.ts";
 import { makeGqlClient } from "../src/sources/graphql.ts";
-import { DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS, githubTransientRetryDelaysMs } from "../src/sources/http.ts";
+import { DEFAULT_TRANSIENT_RETRY_DELAYS_MS, transientRetryDelaysMs } from "../src/sources/http.ts";
 
 const originalFetch = globalThis.fetch;
 const originalDelays = process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS;
@@ -50,12 +50,12 @@ function source(): GitHubSource {
 const isPrPage = (c: Call) => c.query.includes("pullRequests(");
 
 test("default transient backoff is measured in seconds, and the override parses", () => {
-  assert.ok(DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS.length >= 2);
-  for (const ms of DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS) assert.ok(ms >= 1000, `${ms}ms is not a seconds backoff`);
+  assert.ok(DEFAULT_TRANSIENT_RETRY_DELAYS_MS.length >= 2);
+  for (const ms of DEFAULT_TRANSIENT_RETRY_DELAYS_MS) assert.ok(ms >= 1000, `${ms}ms is not a seconds backoff`);
   process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS = "5, 7";
-  assert.deepEqual(githubTransientRetryDelaysMs(), [5, 7]);
+  assert.deepEqual(transientRetryDelaysMs(), [5, 7]);
   process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS = "nonsense";
-  assert.deepEqual(githubTransientRetryDelaysMs(), [...DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS]);
+  assert.deepEqual(transientRetryDelaysMs(), [...DEFAULT_TRANSIENT_RETRY_DELAYS_MS]);
 });
 
 test("a GitHub 200 with a non-JSON body is retried", async () => {
@@ -168,7 +168,7 @@ test("a recovered mixed transient sequence stays within three attempts", async (
 
 test("a longer delay override does not add retry attempts", async () => {
   process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS = "0,0,0,0";
-  assert.equal(githubTransientRetryDelaysMs().length, DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS.length);
+  assert.equal(transientRetryDelaysMs().length, DEFAULT_TRANSIENT_RETRY_DELAYS_MS.length);
   let attempts = 0;
   mockFetch(() => { attempts++; return new Response("unavailable", { status: 503 }); });
   const gql = makeGqlClient("https://api.github.com/graphql", "fixture-token");
