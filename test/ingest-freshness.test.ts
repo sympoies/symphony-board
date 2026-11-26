@@ -56,6 +56,7 @@ test("lag is relative to polled GitHub activity, so quiet hours stay healthy", (
     live: liveStatus({ latestEvent: minutesAgo(300) }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(301)]]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(quiet.lag_seconds, 0);
   assert.equal(quiet.sync_latest_activity_at, minutesAgo(301));
@@ -72,6 +73,7 @@ test("polled activity newer than Live by more than the threshold is unhealthy", 
       ["github:github.com", "example/other", minutesAgo(50)],
     ]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   // Live's newest ingest is the later of the stored event and the last accepted delivery.
   assert.equal(stale.live_latest_ingest_at, minutesAgo(90));
@@ -90,6 +92,7 @@ test("non-GitHub sources and repos outside the allowlist do not count as activit
     ]),
     allowlistProjects: ["example/repo"],
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(r.sync_latest_activity_at, minutesAgo(121));
   assert.equal(r.lag_seconds, 0);
@@ -103,6 +106,7 @@ test("rejected deliveries alone never decide health", () => {
     live: liveStatus({ latestEvent: minutesAgo(5), rejected: 3 }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(zeroLag.lag_seconds, 0);
   assert.deepEqual(zeroLag.unhealthy_reasons, []);
@@ -112,6 +116,7 @@ test("rejected deliveries alone never decide health", () => {
     live: liveStatus({ latestEvent: minutesAgo(15), rejected: 3 }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(belowThreshold.lag_seconds, 600);
   assert.deepEqual(belowThreshold.unhealthy_reasons, []);
@@ -121,6 +126,7 @@ test("rejected deliveries alone never decide health", () => {
     live: liveStatus({ latestEvent: minutesAgo(5), rejected: 3 }),
     activity: [],
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(noActivity.healthy, true);
 });
@@ -130,12 +136,14 @@ test("only-rejected deliveries are reported as the cause of an exceeded lag", ()
     live: liveStatus({ latestEvent: minutesAgo(60), rejected: 3 }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.deepEqual(stale.unhealthy_reasons, ["lag_exceeded", "only_rejected_deliveries"]);
   const mixed = evaluateIngestFreshness({
     live: liveStatus({ latestEvent: minutesAgo(60), rejected: 3, accepted: 1 }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(5)]]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.deepEqual(mixed.unhealthy_reasons, ["lag_exceeded"]);
 });
@@ -150,6 +158,7 @@ test("activity from sources Live does not receive is ignored", () => {
     ]),
     allowlistProjects: ["example/repo"],
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(r.sync_latest_activity_at, "2026-10-15T07:00:00.000Z");
   assert.equal(r.lag_seconds, 0);
@@ -162,6 +171,7 @@ test("activity from sources Live does not receive is ignored", () => {
       ["github:ghe.example.com", "example/repo", "2026-10-15T08:00:00.000Z"],
     ]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(declared.sync_latest_activity_at, "2026-10-15T08:00:00.000Z");
   assert.deepEqual(declared.unhealthy_reasons, ["lag_exceeded"]);
@@ -177,17 +187,19 @@ test("a Live status without declared sources falls back to github.com", () => {
       ["github:ghe.example.com", "example/repo", "2026-10-15T08:00:00.000Z"],
     ]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(r.lag_seconds, 0);
 });
 
 test("unreachable Live is unhealthy; no threshold means no verdict", () => {
-  const down = evaluateIngestFreshness({ live: null, activity: [], maxLagSeconds: 1800 });
+  const down = evaluateIngestFreshness({ live: null, activity: [], maxLagSeconds: 1800, observedAt: NOW });
   assert.deepEqual(down.unhealthy_reasons, ["live_unreachable"]);
   const raw = evaluateIngestFreshness({
     live: liveStatus({ latestEvent: minutesAgo(120) }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(1)]]),
     maxLagSeconds: null,
+    observedAt: NOW,
   });
   assert.equal(raw.lag_seconds, 119 * 60);
   assert.equal(raw.healthy, null);
@@ -199,6 +211,7 @@ test("an empty Live store falls back to the receiver start time", () => {
     live: liveStatus({ started: minutesAgo(40) }),
     activity: bounds([["github:github.com", "example/repo", minutesAgo(1)]]),
     maxLagSeconds: 1800,
+    observedAt: NOW,
   });
   assert.equal(r.live_latest_ingest_at, null);
   assert.equal(r.lag_seconds, 39 * 60);
@@ -272,5 +285,116 @@ test("the route reports Live unreachable without throwing", async () => {
     assert.deepEqual(body.unhealthy_reasons, ["live_unreachable"]);
   } finally {
     await s.close();
+  }
+});
+// Activity dated after the observation time has not happened yet on the
+// observer's clock, so it can never prove that Live missed something. It
+// counts as activity at the observation time at the latest and is flagged.
+const minutesAhead = (m: number) => new Date(Date.parse(NOW) + m * 60_000).toISOString();
+
+test("future-dated activity does not turn a receiving Live into a confirmed lag", () => {
+  const futureOnly = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(1) }),
+    activity: bounds([["github:github.com", "example/repo", minutesAhead(60)]]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(futureOnly.sync_latest_activity_at, minutesAhead(60));
+  assert.equal(futureOnly.lag_seconds, 60);
+  assert.equal(futureOnly.healthy, true);
+  assert.deepEqual(futureOnly.unhealthy_reasons, []);
+  assert.deepEqual(futureOnly.activity_warnings, ["future_activity"]);
+
+  const mixed = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(1) }),
+    activity: bounds([
+      ["github:github.com", "example/repo", minutesAgo(30)],
+      ["github:github.com", "example/other", minutesAhead(60)],
+    ]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(mixed.lag_seconds, 60);
+  assert.equal(mixed.healthy, true);
+  assert.deepEqual(mixed.activity_warnings, ["future_activity"]);
+});
+
+test("future-dated activity cannot make a stalled Live look healthy", () => {
+  const futureOnly = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(240) }),
+    activity: bounds([["github:github.com", "example/repo", minutesAhead(60)]]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(futureOnly.lag_seconds, 240 * 60);
+  assert.deepEqual(futureOnly.unhealthy_reasons, ["lag_exceeded"]);
+  assert.equal(futureOnly.healthy, false);
+  assert.deepEqual(futureOnly.activity_warnings, ["future_activity"]);
+
+  const mixed = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(240) }),
+    activity: bounds([
+      ["github:github.com", "example/repo", minutesAgo(30)],
+      ["github:github.com", "example/other", minutesAhead(60)],
+    ]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(mixed.lag_seconds, 240 * 60);
+  assert.equal(mixed.healthy, false);
+});
+
+test("activity at the observation time is current; one millisecond later is future", () => {
+  const atNow = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(1) }),
+    activity: bounds([["github:github.com", "example/repo", NOW]]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(atNow.lag_seconds, 60);
+  assert.deepEqual(atNow.activity_warnings, []);
+
+  const justAfter = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(1) }),
+    activity: bounds([["github:github.com", "example/repo", new Date(Date.parse(NOW) + 1).toISOString()]]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(justAfter.lag_seconds, 60);
+  assert.deepEqual(justAfter.activity_warnings, ["future_activity"]);
+});
+
+test("an unparseable activity timestamp is ignored for lag and flagged", () => {
+  const r = evaluateIngestFreshness({
+    live: liveStatus({ latestEvent: minutesAgo(240) }),
+    activity: bounds([
+      ["github:github.com", "example/repo", "not-a-date"],
+      ["github:github.com", "example/other", minutesAgo(10)],
+    ]),
+    maxLagSeconds: 1800,
+    observedAt: NOW,
+  });
+  assert.equal(r.sync_latest_activity_at, minutesAgo(10));
+  assert.equal(r.lag_seconds, 230 * 60);
+  assert.equal(r.healthy, false);
+  assert.deepEqual(r.activity_warnings, ["invalid_activity_timestamp"]);
+});
+
+test("the route judges activity against its own observation time", async () => {
+  const fetchImpl = (async () =>
+    new Response(JSON.stringify(liveStatus({ latestEvent: minutesAgo(1) })), { status: 200 })) as typeof fetch;
+  const { base, close } = await serve(
+    { liveReadBaseUrl: "http://live.invalid/", fetchImpl, now: () => NOW },
+    bounds([["github:github.com", "example/repo", minutesAhead(60)]]),
+  );
+  try {
+    const res = await fetch(`${base}/api/ingest-freshness?max_lag_seconds=1800`);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.observed_at, NOW);
+    assert.equal(body.lag_seconds, 60);
+    assert.deepEqual(body.activity_warnings, ["future_activity"]);
+  } finally {
+    await close();
   }
 });

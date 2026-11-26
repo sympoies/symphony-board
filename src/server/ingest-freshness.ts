@@ -36,6 +36,11 @@ export interface LiveStatusBody {
 
 export type IngestUnhealthyReason = "live_unreachable" | "lag_exceeded" | "only_rejected_deliveries";
 
+// Data-quality findings about the polled activity timestamps. They never
+// decide the verdict; they tell an operator that the lag was measured around
+// bad source timestamps rather than from them.
+export type IngestActivityWarning = "future_activity" | "invalid_activity_timestamp";
+
 export interface IngestFreshnessEvaluation {
   sync_latest_activity_at: string | null;
   live_latest_ingest_at: string | null;
@@ -43,6 +48,7 @@ export interface IngestFreshnessEvaluation {
   max_lag_seconds: number | null;
   healthy: boolean | null;
   unhealthy_reasons: IngestUnhealthyReason[];
+  activity_warnings: IngestActivityWarning[];
 }
 
 export interface IngestFreshnessOptions {
@@ -79,6 +85,7 @@ export function evaluateIngestFreshness(input: {
   activity: RepoActivityBoundsRow[];
   allowlistProjects?: string[];
   maxLagSeconds: number | null;
+  observedAt: string;
 }): IngestFreshnessEvaluation {
   const allow = new Set((input.allowlistProjects ?? []).filter(Boolean));
   // Compare only activity Live can ingest: the sources its routes are wired
@@ -86,18 +93,30 @@ export function evaluateIngestFreshness(input: {
   const sources = new Set(
     Array.isArray(input.live?.sources) && input.live.sources.length > 0 ? input.live.sources : [GITHUB_SOURCE_ID],
   );
-  const syncLatest = latest(
-    input.activity
-      .filter((r) => sources.has(r.source_id))
-      .filter((r) => allow.size === 0 || (r.project_path !== null && allow.has(r.project_path)))
-      .map((r) => r.last_activity_at),
-  );
+  const activityTimes = input.activity
+    .filter((r) => sources.has(r.source_id))
+    .filter((r) => allow.size === 0 || (r.project_path !== null && allow.has(r.project_path)))
+    .map((r) => r.last_activity_at);
+  const syncLatest = latest(activityTimes);
+  const observedMs = instant(input.observedAt);
+  const warnings: IngestActivityWarning[] = [];
+  if (observedMs !== null && activityTimes.some((v) => (instant(v) ?? -Infinity) > observedMs)) {
+    warnings.push("future_activity");
+  }
+  if (activityTimes.some((v) => v !== null && v !== undefined && instant(v) === null)) {
+    warnings.push("invalid_activity_timestamp");
+  }
   const liveLatest = input.live
     ? latest([input.live.latest_event_received_at, input.live.webhooks?.last_accepted_at])
     : null;
   // An empty Live store has seen nothing since it started; measure from there.
   const baseline = instant(liveLatest) ?? instant(input.live?.started_at);
-  const syncMs = instant(syncLatest);
+  // Activity dated after the observation time has not happened on this clock
+  // yet. It still proves activity happened by now, so it counts as activity at
+  // the observation time: the lag then never exceeds the time since Live last
+  // ingested (no impossible lag), and a stalled Live still turns unhealthy.
+  const syncLatestMs = instant(syncLatest);
+  const syncMs = syncLatestMs !== null && observedMs !== null ? Math.min(syncLatestMs, observedMs) : syncLatestMs;
   const lagSeconds =
     input.live && syncMs !== null && baseline !== null
       ? Math.max(0, Math.floor((syncMs - baseline) / 1000))
@@ -127,6 +146,7 @@ export function evaluateIngestFreshness(input: {
     max_lag_seconds: input.maxLagSeconds,
     healthy: input.maxLagSeconds === null ? null : reasons.length === 0,
     unhealthy_reasons: reasons,
+    activity_warnings: warnings,
   };
 }
 
@@ -194,6 +214,7 @@ export async function handleIngestFreshnessRequest(
     activity,
     allowlistProjects: opts.allowlistProjects,
     maxLagSeconds,
+    observedAt: now,
   });
   sendJson(res, evaluation.healthy === false ? 503 : 200, {
     schema: "ingest-freshness/1",
