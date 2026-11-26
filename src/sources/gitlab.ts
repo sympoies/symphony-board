@@ -49,7 +49,8 @@ import { refOf } from "../model/ref.ts";
 import { COMMIT_FILES_ENTITY, commitFilesBundle, fetchCommitFileRecords, gitlabCommitFiles } from "./commit-files.ts";
 import { deriveActorKey } from "../model/actor.ts";
 import { providerChangeRequestUrl, providerIssueUrl, providerPushUrl, providerRepoUrl } from "../provider-links.ts";
-import type { GqlClient } from "./graphql.ts";
+import { GqlResponseError, type GqlClient } from "./graphql.ts";
+import { transientRetryDelaysMs } from "./http.ts";
 import type { RestClient } from "./rest.ts";
 import { mapWithConcurrency, resolveConcurrency } from "../lib/concurrency.ts";
 import { log } from "../log.ts";
@@ -143,6 +144,27 @@ const MR_RESOLVE_Q = `query($path:ID!, $iid:String!) {
 }`;
 
 const hash = (s: string): string => createHash("sha256").update(s).digest("hex");
+
+// GitLab answers "Timeout on validation of query" when validating even a small
+// query runs out of time under load. The same query usually passes on a later
+// attempt, so it gets the shared transient backoff before the item fails.
+function isGitlabValidationTimeout(err: unknown): boolean {
+  return err instanceof GqlResponseError && err.errors.some((e) => e.message?.includes("Timeout on validation of query"));
+}
+
+async function gqlRetryingValidationTimeout(gql: GqlClient, query: string, variables: Record<string, unknown>, label: string): Promise<any> {
+  const delays = transientRetryDelaysMs();
+  for (let retry = 0; ; retry++) {
+    try {
+      return await gql(query, variables);
+    } catch (err) {
+      const delayMs = delays[retry];
+      if (delayMs === undefined || !isGitlabValidationTimeout(err)) throw err;
+      log.warn(`${label}: query validation timed out; retrying in ${delayMs}ms (${retry + 2}/${delays.length + 1})`);
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
 
 // --- system-note cross-reference parsing -------------------------------------
 
@@ -294,12 +316,12 @@ export class GitLabSource implements Source {
       let error: string | null = null;
       try {
         if (kind === "issue") {
-          const d: any = await this.gql(ISSUE_RESOLVE_Q, { path: project, iid: String(node.iid) });
+          const d: any = await gqlRetryingValidationTimeout(this.gql, ISSUE_RESOLVE_Q, { path: project, iid: String(node.iid) }, `[${this.descriptor.sourceId}] project ${project}: ${kind}#${node.iid} resolve`);
           const issue = d?.project?.issue;
           node.relatedMergeRequests = issue?.relatedMergeRequests ?? { nodes: [] };
           node.notes = issue?.notes ?? { nodes: [] };
         } else {
-          const d: any = await this.gql(MR_RESOLVE_Q, { path: project, iid: String(node.iid) });
+          const d: any = await gqlRetryingValidationTimeout(this.gql, MR_RESOLVE_Q, { path: project, iid: String(node.iid) }, `[${this.descriptor.sourceId}] project ${project}: ${kind}#${node.iid} resolve`);
           node.approvedBy = d?.project?.mergeRequest?.approvedBy ?? { nodes: [] };
           node.notes = d?.project?.mergeRequest?.notes ?? { nodes: [] };
           node.discussions = shouldFetchReviewDiscussions(node) ? await this.fetchMergeRequestDiscussions(project, String(node.iid)) : [];

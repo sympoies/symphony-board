@@ -329,6 +329,14 @@ remain available. Request timeouts, auth failures, rate limits and other
 provider/application errors retain their existing behavior and never trigger
 the half-size retry, as do GitLab requests.
 
+A GitLab per-item resolve (an issue's related MRs and notes, an MR's approvers
+and notes) that fails with the GraphQL error `Timeout on validation of query`
+gets the same delays: GitLab reports that when validating even a small query
+runs out of time under load, and a later attempt usually passes. When the
+retries are spent, the item keeps its record, but its notes, and so its
+note-derived edges, are unknown. The source therefore stays partial, so a
+"complete" sweep cannot retire those edges, and the error names the item.
+
 GitHub pull-request discovery deliberately uses different query shapes for the
 two sweep modes. A full sweep reads the rich paginated PR connection so it can
 reconcile every item and relationship. An incremental sweep first pages only

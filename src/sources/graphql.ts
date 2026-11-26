@@ -13,7 +13,7 @@ import {
   githubGraphqlRateBudget,
   githubRateBudgetFromHeaders,
   githubRateLimitInfo,
-  githubTransientRetryDelaysMs,
+  transientRetryDelaysMs,
   isGithubPrimaryRateLimit,
   markAuthTokenCooledDown,
   nextAvailableToken,
@@ -164,7 +164,7 @@ export function makeGqlClient(url: string, tokenInput: AuthTokenInput, opts?: nu
             json = JSON.parse(text);
             break;
           } catch {
-            const delays = provider === "github" && res.ok ? githubTransientRetryDelaysMs() : [];
+            const delays = provider === "github" && res.ok ? transientRetryDelaysMs() : [];
             const bodyRetry = retryBudget.used;
             const delayMs = delays[bodyRetry];
             if (delayMs === undefined) {

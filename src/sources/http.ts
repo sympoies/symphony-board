@@ -12,20 +12,21 @@ import { log } from "../log.ts";
 export const DEFAULT_FETCH_TIMEOUT_MS = Math.max(1000, Number(process.env.SYNC_FETCH_TIMEOUT_MS) || 30000);
 
 const GITHUB_TRANSIENT_RESPONSE_STATUSES = new Set([502, 503, 504]);
-// Backoff between retries of a transient GitHub response. GitHub's gateway
-// errors and truncated bodies come from a query that timed out server-side, so
-// an immediate retry usually fails the same way; wait seconds, not milliseconds.
+// Backoff between retries of a transient provider response. GitHub's gateway
+// errors and truncated bodies, and GitLab's query-validation timeouts, come from
+// a query that timed out server-side, so an immediate retry usually fails the
+// same way; wait seconds, not milliseconds.
 // SYNC_TRANSIENT_RETRY_DELAYS_MS (comma-separated ms) overrides the delays, e.g.
 // in tests; it never adds retries beyond the default count.
-export const DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
+export const DEFAULT_TRANSIENT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
 
-export function githubTransientRetryDelaysMs(): readonly number[] {
+export function transientRetryDelaysMs(): readonly number[] {
   const raw = process.env.SYNC_TRANSIENT_RETRY_DELAYS_MS;
-  if (!raw) return DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS;
+  if (!raw) return DEFAULT_TRANSIENT_RETRY_DELAYS_MS;
   const parsed = raw.split(",").map((part) => Number(part.trim()));
   return parsed.length > 0 && parsed.every((ms) => Number.isInteger(ms) && ms >= 0)
-    ? parsed.slice(0, DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS.length)
-    : DEFAULT_GITHUB_TRANSIENT_RETRY_DELAYS_MS;
+    ? parsed.slice(0, DEFAULT_TRANSIENT_RETRY_DELAYS_MS.length)
+    : DEFAULT_TRANSIENT_RETRY_DELAYS_MS;
 }
 
 export interface AuthToken {
@@ -585,7 +586,7 @@ export async function fetchWithTransientResponseRetry(
   // Read requests share one bounded budget for gateway responses and Node's
   // network-level fetch rejection. Timeouts and other errors still fail fast.
   // A caller that also retries other transient classes passes its own budget.
-  const delays = githubTransientRetryDelaysMs();
+  const delays = transientRetryDelaysMs();
   for (;;) {
     onRequest?.();
     const retry = budget.used;
