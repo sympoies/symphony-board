@@ -16,9 +16,6 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     ignore:
-      # Remove these HTTP plugin ignores when the paired upgrade in #896 lands.
-      - dependency-name: "@tauri-apps/plugin-http"
-        versions: [">= 2.9.0"]
       # Keep @types/node aligned with the pinned Node runtime (.node-version=24):
       # the DefinitelyTyped major tracks the latest Node, not the LTS/pinned
       # line, so a major bump surfaces Node-25/26-only API types while CI runs
@@ -56,10 +53,6 @@ updates:
     directory: "/packages/desktop/src-tauri"
     schedule:
       interval: weekly
-    ignore:
-      # Remove this ignore when the paired upgrade in #896 lands.
-      - dependency-name: "tauri-plugin-http"
-        versions: [">= 2.9.0"]
     groups:
       cargo:
         update-types: [minor, patch]
@@ -67,10 +60,6 @@ updates:
     directory: "/packages/desktop-standalone/src-tauri"
     schedule:
       interval: weekly
-    ignore:
-      # Remove this ignore when the paired upgrade in #896 lands.
-      - dependency-name: "tauri-plugin-http"
-        versions: [">= 2.9.0"]
     groups:
       cargo:
         update-types: [minor, patch]
@@ -78,10 +67,6 @@ updates:
     directory: "/packages/android/src-tauri"
     schedule:
       interval: weekly
-    ignore:
-      # Remove this ignore when the paired upgrade in #896 lands.
-      - dependency-name: "tauri-plugin-http"
-        versions: [">= 2.9.0"]
     groups:
       cargo:
         update-types: [minor, patch]
