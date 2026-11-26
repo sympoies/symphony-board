@@ -48,6 +48,16 @@ routes (`/api/sync-control`, `/api/sync-runs`) to the `board` daemon's internal
 control port. `web` depends on both `board` and `api` healthchecks so it does
 not serve before the first contract and read-only API are ready.
 
+The `board` healthcheck (`src/cli/healthcheck.ts`) passes when
+`data/contract.json` exists and either it was rewritten within
+`max(30 min, 2 x INTERVAL)` or `data/sync-progress.json` was rewritten within
+10 minutes. The daemon rewrites that heartbeat at most once a minute, and only
+when a provider has answered since the last write. A full sweep emits the
+contract only when it ends, so a sweep that is still making progress stays
+healthy however long it runs, and a sweep that gets no provider answer for 10
+minutes turns unhealthy. A deployment that defines its own healthcheck should
+call the same command.
+
 There is intentionally no external cron and no second writer **of the canonical
 store**. The `live` receiver is the single writer of its own, separate `live.db`
 (see [Live Event Stream](DESIGN.md#live-event-stream-realtime)); it never opens or writes the canonical store.

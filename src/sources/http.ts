@@ -552,6 +552,14 @@ export function allTokensCooledDownError(
   );
 }
 
+// Wall-clock time (epoch ms) of the latest provider response, any status. The
+// sync daemon turns it into its progress heartbeat (src/sync-heartbeat.ts).
+let lastProviderResponseAtMs = 0;
+
+export function lastProviderResponseAt(): number {
+  return lastProviderResponseAtMs;
+}
+
 export async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit,
@@ -560,7 +568,9 @@ export async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    lastProviderResponseAtMs = Date.now();
+    return response;
   } catch (err) {
     if (controller.signal.aborted) throw new Error(`request to ${String(input)} timed out after ${timeoutMs}ms`);
     throw err;
