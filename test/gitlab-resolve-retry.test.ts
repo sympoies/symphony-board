@@ -63,6 +63,32 @@ test("a resolve that times out in validation once is retried and the sweep stays
   assert.deepEqual(mr2.approvedBy.nodes, [{ username: "reviewer" }]);
 });
 
+test("an issue resolve retries a validation timeout and retains related MRs and notes", async () => {
+  const relatedMergeRequests = { nodes: [{ id: "gid:MR1", iid: "1", state: "merged" }] };
+  const notes = { nodes: [{ system: true, body: "mentioned in merge request !1" }] };
+  const { gql: baseGql } = fakeGql(() => null);
+  let attempts = 0;
+  const gql: GqlClient = (async (query: string, vars: any) => {
+    if (query.includes("issues(")) {
+      return { project: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{ ...mr("gid:Issue1", "3"), state: "opened" }] } } };
+    }
+    if (query.includes("issue(iid")) {
+      attempts++;
+      if (attempts === 1) throw graphqlError(TIMEOUT);
+      return { project: { issue: { relatedMergeRequests, notes } } };
+    }
+    return baseGql(query, vars);
+  }) as GqlClient;
+
+  const res = await new GitLabSource(DESC, gql, ["g/p"]).fetch({ since: null, full: true });
+  assert.equal(attempts, 2);
+  assert.equal(res.complete, true);
+  assert.equal(res.error ?? null, null);
+  const issue = res.records.find((r) => r.externalId === "gid:Issue1")!.payload as any;
+  assert.deepEqual(issue.relatedMergeRequests, relatedMergeRequests);
+  assert.deepEqual(issue.notes, notes);
+});
+
 test("a resolve that keeps timing out fails that item only, after the bounded retries", async () => {
   const { gql, attempts } = fakeGql((iid) => (iid === "2" ? graphqlError(TIMEOUT) : null));
   const res = await new GitLabSource(DESC, gql, ["g/p"]).fetch({ since: null, full: true });
