@@ -6642,10 +6642,10 @@ a.pane-row-cr:hover { text-decoration: none; }
 /* Only when the tip adds something: the row measures that on hover or focus
    (RankChart's armNameTip) -- the name is cut or shortened, or the row toggles
    a filter. A tip that repeated a name in full view was noise. */
-/* Touch browsers may keep :hover on the last tapped row after keyboard
-   focus moves elsewhere. Only hover-capable pointers may open a hover tip. */
+/* Keyboard focus takes precedence within the rank plot. A tap can leave
+   :hover on an unfocused row even when the browser reports hover support. */
 @media (hover: hover) {
-  .live-rank-item[data-name-tip="show"]:hover .rank-name-tip {
+  .live-rank-plot:not(:has(:focus-visible)) .live-rank-item[data-name-tip="show"]:hover .rank-name-tip {
     opacity: 1;
     visibility: visible;
   }

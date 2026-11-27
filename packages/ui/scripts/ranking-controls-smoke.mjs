@@ -85,8 +85,7 @@ const profile = await mkdtemp("/tmp/sb-w-");
 const chromeBin = process.env.CHROME_BIN ?? (platform() === "darwin"
   ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
 const chrome = spawn(chromeBin, ["--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
-  // Headless Linux may report no pointer; start with a desktop hover device.
-  // Touch emulation below overrides that capability for the mixed-input checks.
+  // Force a hover-capable primary pointer, including during the touch tap.
   "--blink-settings=primaryHoverType=2,availableHoverTypes=2",
   `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"], {
   env: { ...process.env, TMPDIR: profile, TMP: profile, TEMP: profile }, stdio: ["ignore", "ignore", "inherit"],
@@ -200,8 +199,8 @@ try {
       if (page === "commits" && width === 412) {
         // Touch can leave :hover latched even after keyboard focus leaves a row.
         // Exercise the real rank actions and provider links, without navigation.
-        await send("Emulation.setTouchEmulationEnabled", { enabled: true });
-        assert.equal(await evaluate(() => matchMedia("(hover: none)").matches), true, "touch emulation has no hover-capable primary pointer");
+        // Dispatch touch directly so the tap leaves the primary hover capability intact.
+        assert.equal(await evaluate(() => matchMedia("(hover: hover)").matches), true, "mixed input has a hover-capable primary pointer");
         const point = await evaluate(() => {
           const title = 'Top branches';
           const block = [...document.querySelectorAll('.rail-block')].find(b => b.querySelector('.rail-block-title')?.textContent === title);
@@ -257,7 +256,6 @@ try {
           document.querySelector('#tooltip-touch-first .live-rank-item-action').click();
         });
         await sleep(150);
-        await send("Emulation.setTouchEmulationEnabled", { enabled: false });
       }
       if (out && page === "commits" && [1512, 412].includes(width)) {
         const png = await send("Page.captureScreenshot", { format: "png" });
